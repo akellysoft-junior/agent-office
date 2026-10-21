@@ -69,6 +69,9 @@ button:disabled{opacity:.35; cursor:default; box-shadow:none}
 canvas#office{display:block; width:100%; height:auto; border-radius:9px}
 .back{position:absolute; top:16px; left:16px; z-index:2}
 canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
+.followchip{position:absolute; top:16px; right:16px; z-index:2; font-size:12px; background:var(--paper); color:var(--ink);
+  border:1.5px solid var(--ink); border-radius:999px; padding:3px 10px; max-width:60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.followchip.paused{color:var(--muted); border-style:dashed}
 .zoomctl{position:absolute; right:16px; bottom:16px; z-index:2; display:flex; flex-direction:column; gap:6px}
 .zoomctl button{width:34px; height:34px; padding:0; font-size:17px; line-height:1; border-radius:10px; box-shadow:2px 2px 0 var(--ink)}
 .agent.clickable{cursor:pointer; border-radius:8px}
@@ -169,6 +172,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
   .stage{padding:4px; box-shadow:3px 3px 0 var(--ink); border-radius:12px}
   .back{top:10px; left:10px; font-size:13px; padding:5px 11px}
   .zoomctl{right:10px; bottom:10px}
+  .followchip{top:10px; right:10px; font-size:11px; max-width:52%}
   .card{padding:11px}
   .kanban{gap:6px}
   .kcell .n{font-size:16px}
@@ -188,13 +192,16 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
     <button id="btnPause" aria-pressed="false">⏸ 일시정지</button>
     <button id="btnSpeed">속도 ×1</button>
     <button id="btnAuto" aria-pressed="true">자동 작업 생성: 켜짐</button>
+    <button id="btnTheme" aria-label="페이지 테마 바꾸기">🌓 테마: 자동</button>
     <button id="btnTod">시간: 자동</button>
     <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
+    <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
+    <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
     <button id="btnAdd" class="primary">+ 작업 추가</button>
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -837,9 +844,11 @@ cv.addEventListener("pointermove", e => {
 cv.addEventListener("pointerup", e => {
   if (!drag || e.pointerId !== drag.id) return;
   const moved = drag.moved; drag = null; cv.style.cursor = "";
+  if (scene === "campus") followPause();
   if (moved || scene !== "campus") return;
   const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
   if (i < 0){ if (cam.focus !== null) unfocus(); return; }
+  const picked = slotSession(i); if (picked) picked.attention = false;
   if (cam.focus !== i) focusLot(i);
 });
 cv.addEventListener("pointercancel", () => { drag = null; });
@@ -847,13 +856,37 @@ cv.addEventListener("wheel", e => {                     // Ctrl+휠, 트랙패�
   if (scene !== "campus" || !(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
   const r = cv.getBoundingClientRect();
+  followPause();
   zoomBy(Math.exp(-e.deltaY * 0.004), (e.clientX - r.left) / r.width * VW, (e.clientY - r.top) / r.height * VH);
 }, {passive:false});
-$("#zIn").addEventListener("click", () => zoomBy(1.3));
-$("#zOut").addEventListener("click", () => zoomBy(1 / 1.3));
-$("#zFit").addEventListener("click", unfocus);
-addEventListener("keydown", e => { if (e.key === "Escape" && cam.focus !== null) unfocus(); });
-$("#btnBack").addEventListener("click", unfocus);
+$("#zIn").addEventListener("click", () => { followPause(); zoomBy(1.3); });
+$("#zOut").addEventListener("click", () => { followPause(); zoomBy(1 / 1.3); });
+$("#zFit").addEventListener("click", () => { followPause(); unfocus(); });
+addEventListener("keydown", e => { if (e.key === "Escape" && cam.focus !== null){ followPause(); unfocus(); } });
+$("#btnBack").addEventListener("click", () => { followPause(); unfocus(); });
+/* 페이지 테마: 자동(OS 설정) → 라이트 → 다크 */
+const THEMES = ["auto", "light", "dark"], THEME_LABEL = {auto:"자동", light:"라이트", dark:"다크"};
+let theme = "auto";
+try { const t = localStorage.getItem("ao.theme"); if (THEMES.includes(t)) theme = t; } catch {}
+function applyTheme(){
+  if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+  $("#btnTheme").textContent = (theme === "dark" ? "🌙" : theme === "light" ? "☀️" : "🌓") + " 테마: " + THEME_LABEL[theme];
+}
+$("#btnTheme").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem("ao.theme", theme); } catch {}
+  applyTheme();
+});
+applyTheme();
+const btnFollow = $("#btnFollow");
+function followText(){ btnFollow.textContent = "🎥 자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐"); btnFollow.setAttribute("aria-pressed", follow.on); }
+btnFollow.addEventListener("click", () => {
+  follow.on = !follow.on; follow.pausedUntil = 0;
+  try { localStorage.setItem("ao.follow", follow.on ? "1" : "0"); } catch {}
+  followText();
+});
+setTimeout(followText, 0);   // follow 설정은 아래쪽 라이브 모드 코드에서 만들어지므로 스크립트가 다 읽힌 뒤에 표시
 $("#btnDemo").addEventListener("click", () => { enterLive("demo"); log("멀티 세션 데모 시작", "good"); });
 
 /* ───────── 파티클 ───────── */
@@ -1518,6 +1551,8 @@ function setWaiting(s, reason, fresh){
   b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
               : reason === "중단" ? "중단됨 · 명령 대기" : "명령 기다리는 중";
   if (fresh && (reason === "질문" || reason === "계획")){
+    s.attention = true;
+    followNote(s, 3);
     say(b, reason === "질문" ? "물어볼 게 있어요!" : "계획 봐 주세요!", 3);
     notifyUser(`${sessName(s)}: ${reason === "질문" ? "질문이 있어요" : "계획 확인이 필요해요"}`, s.activity);
   }
@@ -1532,6 +1567,8 @@ function complete(s, fresh){
 }
 function celebrate(s){
   const L = SLOTS[s.slot], t = perfNow();
+  s.attention = true;
+  followNote(s, 3);
   live.done++;
   s.stampUntil = t + 3;
   for (const c of [s.boss, ...s.kittens.values()]) c.cheerUntil = t + 1.8;
@@ -1558,6 +1595,7 @@ function trackMain(s, o, fresh){
     if (isReq(tt)){
       s.pendingEndAt = 0;
       s.goal = clip(tt, 70); if (!s.topic) s.topic = clip(tt, 40);
+      s.attention = false;
       Object.assign(s, {phase:"working", startMs:Date.now(), files:new Set(), cmds:0, errs:0, subTotal:0,
                         result:"", didWork:false, waitReason:"", activity:"요청 살펴보는 중", doneAt:0});
       bossToDesk(s); live.ver++;
@@ -1659,9 +1697,11 @@ function liveHandle(rec){
     log(`[${where} · ${actor.name}] ${it.kind === "request" ? "요청: " : ""}${it.text}`,
         it.kind === "error" ? "bad" : it.kind === "request" ? "warn" : it.kind === "say" ? "good" : null);
   }
+  if (fresh) followNote(sess, items.some(it => it.kind === "request") ? 2 : 1);
 }
 function liveTick(dt){
   for (const a of visibleCats()) replayAgentTick(a, dt);
+  followTick();
   const nowMs = Date.now();
   for (const s of live.sessions.values()){
     if (s.pendingEndAt && nowMs > s.pendingEndAt) complete(s, true);
@@ -1748,7 +1788,7 @@ function notifyUser(title, body){
 /* ── 터미널 열기 / 이어하기 / 폴더 / 명령 복사 ── */
 async function openAction(s, action, msgEl){
   const say2 = t => { msgEl.hidden = false; msgEl.textContent = t; clearTimeout(msgEl._t); msgEl._t = setTimeout(() => msgEl.hidden = true, 5000); };
-  if (action === "view"){ focusLot(s.slot); return; }
+  if (action === "view"){ followPause(); s.attention = false; focusLot(s.slot); return; }
   if (action === "copy"){
     const cmd = `cd "${s.cwd || "."}" && claude --resume ${s.fullId || s.sid}`;
     try { await navigator.clipboard.writeText(cmd); say2("이어하기 명령을 복사했어요."); }
@@ -1774,14 +1814,38 @@ async function openAction(s, action, msgEl){
 
 /* ── 카메라: 건물 클릭 → 확대 ── */
 function lotCenter(i){ const L = SLOTS[i]; return [isoX(L.x+L.w/2, L.y+L.d/2), isoY(L.x+L.w/2, L.y+L.d/2, 16)]; }
-function focusLot(i){
+/* ── 자동 따라가기: 최근에 반응한 세션의 사무실로 카메라 이동 ──
+   우선순위 3(완료·질문) > 2(새 요청) > 1(일반 활동).
+   한 사무실에 최소 8초 머물고, 보던 세션이 6초 넘게 조용할 때만 넘어간다. 우선순위 3은 3초 뒤 바로.
+   모두 45초 조용하면 동네 전체로. 직접 조작하면 30초 동안 멈춘다. */
+const follow = {on:true, pausedUntil:0, since:0, auto:false, lastEventMs:0};
+try { follow.on = localStorage.getItem("ao.follow") !== "0"; } catch {}
+const followActive = () => follow.on && mode === "live" && scene === "campus" && Date.now() >= follow.pausedUntil;
+function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; }
+function followNote(s, pri){
+  follow.lastEventMs = Date.now();
+  if (!followActive() || cam.focus === s.slot) return;
+  const nowMs = Date.now(), dwell = nowMs - follow.since;
+  const cur = cam.focus !== null ? slotSession(cam.focus) : null;
+  const curQuiet = !cur || nowMs - cur.lastMs > 6000;
+  if (cam.focus === null || (pri >= 3 && dwell > 3000) || (curQuiet && dwell > 8000)){
+    focusLot(s.slot, true);
+  }
+}
+function followTick(){
+  if (!followActive() || !follow.auto || cam.focus === null) return;
+  if (Date.now() - follow.lastEventMs > 45000){ unfocus(true); }
+}
+function focusLot(i, auto = false){
   if (scene !== "campus") return;
+  follow.auto = auto; if (auto) follow.since = Date.now();
   const L = SLOTS[i], [cx, cy] = lotCenter(i);
   cam.focus = i; cam.tz = Math.min(2.5, VW / ((L.w + L.d) * ISX * 1.12)); cam.tcx = cx; cam.tcy = cy;
   $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${L.name}`;
   liveListVer = "";
 }
-function unfocus(){
+function unfocus(auto = false){
+  follow.auto = false; if (auto) follow.since = Date.now();
   cam.focus = null; cam.tz = overviewZ(); cam.tcx = CENTER[0]; cam.tcy = CENTER[1];
   $("#btnBack").hidden = true; liveListVer = "";
 }
@@ -2758,9 +2822,30 @@ function updateSummaries(){
     fillSumCard(s);
   });
 }
+/* 앱 아이콘 배지 + 창 제목: 확인 안 한 완료·질문 수 */
+let lastBadge = -1;
+function setBadge(n){
+  if (n === lastBadge) return;
+  lastBadge = n;
+  document.title = n ? `(${n}) 에이전트 오피스` : "에이전트 오피스";
+  try { if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch {}
+}
 const simOnly = [$("#btnAuto"), $("#btnAdd")];
 function updateHUD(){
   const hideSim = mode !== "sim";
+  const showFollow = mode === "live";
+  if (btnFollow.hidden === showFollow) btnFollow.hidden = !showFollow;
+  const chip = $("#followChip");
+  if (!showFollow || !follow.on){ chip.hidden = true; }
+  else {
+    const paused = Date.now() < follow.pausedUntil;
+    const s = cam.focus !== null ? slotSession(cam.focus) : null;
+    const txt = paused ? `⏸ 자동 따라가기 잠시 멈춤 · ${Math.ceil((follow.pausedUntil - Date.now()) / 1000)}초`
+              : follow.auto && s ? `🎥 ${sessName(s)} 따라가는 중` : "🎥 반응하는 세션을 따라가요";
+    if (chip.textContent !== txt) chip.textContent = txt;
+    chip.classList.toggle("paused", paused);
+    chip.hidden = false;
+  }
   if (simOnly[0].hidden !== hideSim) for (const b of simOnly) b.hidden = hideSim;
   if (mode === "live" && live){
     const ss = [...live.sessions.values()];
@@ -2768,6 +2853,7 @@ function updateHUD(){
     $("#kRun").textContent  = ss.filter(s => s.phase === "waiting").length;
     $("#kRev").textContent  = ss.reduce((n, s) => n + s.kittens.size, 0);
     $("#kDone").textContent = live.done;
+    setBadge(ss.filter(s => s.attention).length);
     if (performance.now() - sumT > 400){ sumT = performance.now(); updateSummaries(); }
     const d = new Date();
     $("#clock").textContent = "LIVE · " +
@@ -2920,6 +3006,26 @@ inboxQ.push(makeTask("푸시 딥링크 버그 수정"));
 log("#1 로그인 화면 Compose 전환 접수", "warn");
 log("#2 푸시 딥링크 버그 수정 접수", "warn");
 requestAnimationFrame(frame);
+// 웹앱: 로컬 서버(localhost)로 열었을 때만 설치·오프라인 기능을 켠다
+const LOCAL_APP = /^https?:$/.test(location.protocol) && ["localhost", "127.0.0.1"].includes(location.hostname);
+if (LOCAL_APP){
+  for (const [rel, href, extra] of [["manifest", "manifest.webmanifest"], ["icon", "icon-192.png"], ["apple-touch-icon", "apple-touch-icon.png"]]){
+    const l = document.createElement("link"); l.rel = rel; l.href = href; document.head.appendChild(l);
+  }
+  for (const [media, color] of [["(prefers-color-scheme: light)", "#fcf7ee"], ["(prefers-color-scheme: dark)", "#1d1e26"]]){
+    const m = document.createElement("meta"); m.name = "theme-color"; m.media = media; m.content = color; document.head.appendChild(m);
+  }
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  let installEvt = null;
+  addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("#btnInstall").hidden = false; });
+  addEventListener("appinstalled", () => { $("#btnInstall").hidden = true; toast("📲 앱으로 설치했어요", "독이나 시작 메뉴에서 냥오피스를 열 수 있어요."); });
+  $("#btnInstall").addEventListener("click", async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch {}
+    installEvt = null; $("#btnInstall").hidden = true;
+  });
+}
 // 로컬 라이브 서버(agent_office_server.py)로 열렸으면 자동으로 실시간 모드
 fetch("api/ping", {cache:"no-store"})
   .then(r => r.ok ? r.json() : null)

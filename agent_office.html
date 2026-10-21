@@ -1,0 +1,2794 @@
+<title>에이전트 오피스</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: 펜으로 그린 아이소메트릭 사무실이 주인공, 오른쪽엔 종이 메모 같은 HUD. 모바일에선 세로로 쌓임. */
+:root{
+  --paper:#ffffff;       /* 종이 */
+  --paper-2:#f6f5f2;     /* 살짝 눌린 종이 */
+  --ink:#1f1d1b;         /* 펜 선 */
+  --muted:#77736d;
+  --accent:#f09a3e;      /* 치즈냥 오렌지 */
+  --good:#3f9c62;
+  --warn:#d9822b;
+  --bad:#d6463f;
+  --info:#3b7fc4;
+  --font-display:"Jua","Gowun Dodum",system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --font-body:"Gowun Dodum",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#1d1e26; --paper-2:#262733; --ink:#ecebe6; --muted:#a19d96;
+    --accent:#f4a95a; --good:#6cc48c; --warn:#f0a35a; --bad:#f07068; --info:#7fb2ea;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1d1e26; --paper-2:#262733; --ink:#ecebe6; --muted:#a19d96;
+  --accent:#f4a95a; --good:#6cc48c; --warn:#f0a35a; --bad:#f07068; --info:#7fb2ea;
+  color-scheme: dark;
+}
+html,body{height:100%}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--font-body); font-size:14px; line-height:1.55;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:18px;
+}
+.app{max-width:1200px; margin:0 auto; display:flex; flex-direction:column; gap:14px}
+header.bar{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.sign{
+  font-family:var(--font-display); font-size:22px; line-height:1.1;
+  border:1.5px solid var(--ink); border-radius:10px; padding:8px 18px 9px;
+  background:var(--paper); box-shadow:3px 3px 0 var(--ink);
+}
+.sign small{display:block; font-family:var(--font-body); font-size:12px; color:var(--muted); margin-top:4px}
+.clock{margin-left:auto; font-family:var(--font-mono); font-size:13px; font-variant-numeric:tabular-nums;
+  border:1.5px solid var(--ink); border-radius:999px; padding:4px 12px}
+.controls{display:flex; gap:8px; flex-wrap:wrap}
+button{
+  font-family:var(--font-display); font-size:14px;
+  background:var(--paper); color:var(--ink);
+  border:1.5px solid var(--ink); border-radius:999px;
+  padding:6px 14px; cursor:pointer; box-shadow:2px 2px 0 var(--ink);
+}
+button:hover{background:var(--paper-2)}
+button:active{transform:translate(2px,2px); box-shadow:none}
+button:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+button.primary{background:var(--accent); color:#1f1d1b}
+button[aria-pressed="true"]{background:var(--paper-2)}
+button:disabled{opacity:.35; cursor:default; box-shadow:none}
+.main{display:flex; gap:14px; align-items:flex-start}
+.stage{
+  flex:1 1 640px; min-width:0; position:relative;
+  background:var(--paper); border:1.5px solid var(--ink); border-radius:14px;
+  padding:6px; box-shadow:4px 4px 0 var(--ink);
+}
+canvas#office{display:block; width:100%; height:auto; border-radius:9px}
+.back{position:absolute; top:16px; left:16px; z-index:2}
+.agent.clickable{cursor:pointer; border-radius:8px}
+.agent.clickable:hover{background:var(--paper-2)}
+.agent.clickable:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.hud{flex:0 0 320px; min-width:0; display:flex; flex-direction:column; gap:12px}
+.card{background:var(--paper); border:1.5px solid var(--ink); border-radius:12px; padding:12px 13px}
+.card h2{margin:0 0 10px; font-family:var(--font-display); font-weight:400; font-size:15px}
+.kanban{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.kcell{border:1.5px dashed var(--ink); border-radius:10px; padding:7px 4px; text-align:center}
+.kcell .n{font-family:var(--font-mono); font-size:18px; display:block; font-variant-numeric:tabular-nums}
+.kcell .l{font-size:12px; color:var(--muted)}
+.k-run .n{color:var(--info)} .k-rev .n{color:var(--warn)} .k-done .n{color:var(--good)}
+.agents{display:flex; flex-direction:column; gap:7px}
+.agent{display:flex; align-items:center; gap:10px; border-bottom:1px dashed var(--muted); padding:4px 2px 8px}
+.agent:last-child{border-bottom:0; padding-bottom:2px}
+.chip{width:16px; height:16px; border-radius:50%; flex:0 0 auto; border:1.5px solid var(--ink)}
+.agent .who{flex:1 1 auto; min-width:0}
+.agent .name{font-family:var(--font-display); font-size:15px}
+.agent .name span{font-family:var(--font-body); color:var(--muted); font-size:12px; margin-left:6px}
+.agent .st{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.pbar{flex:0 0 60px; height:8px; border:1.5px solid var(--ink); border-radius:999px; overflow:hidden}
+.pbar i{display:block; height:100%; width:0%; background:var(--accent); transition:width .3s linear}
+.log{max-height:220px; overflow-y:auto; display:flex; flex-direction:column-reverse; gap:4px; font-size:13px}
+.log p{margin:0; color:var(--muted)}
+.log b{color:var(--ink); font-weight:400}
+.log time{font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-right:7px; font-variant-numeric:tabular-nums}
+.log .t-good b{color:var(--good)} .log .t-bad b{color:var(--bad)} .log .t-warn b{color:var(--warn)}
+.drop{border:1.5px dashed var(--ink); border-radius:10px; padding:14px 10px; text-align:center; font-size:13px; color:var(--muted)}
+.drop.hover{background:var(--paper-2); color:var(--ink)}
+.drop p{margin:0 0 10px}
+.drop .row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+.rmeta{font-size:13px; color:var(--info); margin-top:8px; font-variant-numeric:tabular-nums}
+.pbar.wide{width:100%; margin-top:8px; flex:none}
+.pbar.wide i{background:var(--info)}
+#btnExit{margin-top:10px; width:100%}
+.hint{font-size:12px; color:var(--muted); margin:10px 0 0; line-height:1.65}
+.hint code, details.api pre{font-family:var(--font-mono)}
+.hint code{font-size:11px; color:var(--ink)}
+details.api{font-size:13px; color:var(--muted)}
+details.api summary{cursor:pointer; font-family:var(--font-display); color:var(--ink); font-size:15px}
+details.api pre{
+  background:var(--paper-2); border:1.5px solid var(--ink); border-radius:10px;
+  padding:10px; overflow-x:auto; font-size:11px; line-height:1.6; color:var(--ink);
+}
+.sums{display:flex; flex-direction:column; gap:10px}
+.sum{border:1.5px solid var(--ink); border-radius:10px; padding:9px 10px; display:flex; flex-direction:column; gap:4px; min-width:0}
+.sum.waiting{box-shadow:3px 3px 0 var(--accent)}
+.sum-top{display:flex; align-items:center; gap:7px; min-width:0}
+.sum-name{font-family:var(--font-display); font-weight:400; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0}
+.sum-name input{font:inherit; width:9em; max-width:100%; border:1.5px solid var(--ink); border-radius:6px; padding:0 4px; background:var(--paper); color:var(--ink)}
+.pill{margin-left:auto; flex:none; font-size:12px; border:1.5px solid var(--ink); border-radius:999px; padding:1px 8px; white-space:nowrap}
+.pill.hot{background:var(--accent); color:#1f1d1b}
+.pill.ok{background:var(--good); color:#ffffff}
+.sum-sub, .sum-stats{font-size:12px; color:var(--muted); overflow-wrap:anywhere}
+.sum-goal, .sum-now{font-size:13px; overflow-wrap:anywhere}
+.sum-now{color:var(--ink)}
+.sum-todo{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); min-width:0}
+.tbar{flex:0 0 64px; height:8px; border:1.5px solid var(--ink); border-radius:999px; overflow:hidden}
+.tbar i{display:block; height:100%; width:0; background:var(--good); transition:width .4s}
+.sum-result{font-size:12px; border-left:3px solid var(--good); padding-left:7px; overflow-wrap:anywhere}
+.sum-actions{display:flex; flex-wrap:wrap; gap:5px; margin-top:3px}
+button.mini{font-size:12px; padding:3px 9px; box-shadow:1.5px 1.5px 0 var(--ink)}
+button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
+.sum-msg{font-size:12px; color:var(--info); overflow-wrap:anywhere; user-select:all}
+.logsum{cursor:pointer; font-family:var(--font-display); font-size:15px; margin-bottom:8px}
+.toasts{position:fixed; top:max(14px, env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; gap:8px; z-index:20; width:min(420px, calc(100% - 32px)); pointer-events:none}
+.toast{background:var(--paper); color:var(--ink); border:1.5px solid var(--ink); box-shadow:3px 3px 0 var(--good);
+  border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:2px; animation:pop .35s ease-out; transition:opacity .5s, transform .5s}
+.toast b{font-family:var(--font-display); font-weight:400; font-size:16px; color:var(--good)}
+.toast span{font-size:13px}
+.toast.out{opacity:0; transform:translateY(-6px)}
+@keyframes pop{from{transform:scale(.92); opacity:0} to{transform:none; opacity:1}}
+@media (prefers-reduced-motion: reduce){ .toast{animation:none; transition:none} .tbar i{transition:none} }
+@media (max-width:860px){
+  .main{flex-direction:column}
+  .hud{flex:1 1 auto; width:100%}
+  .sign{font-size:19px}
+}
+@media (prefers-reduced-motion: reduce){ .pbar i{transition:none} }
+</style>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="app">
+  <header class="bar">
+    <div class="sign">Agent Office<small>멀티에이전트 워크플로우 · 실시간 뷰</small></div>
+    <div class="clock" id="clock">DAY 1 · 09:00</div>
+  </header>
+
+  <div class="controls">
+    <button id="btnPause" aria-pressed="false">⏸ 일시정지</button>
+    <button id="btnSpeed">속도 ×1</button>
+    <button id="btnAuto" aria-pressed="true">자동 작업 생성: 켜짐</button>
+    <button id="btnTod">시간: 자동</button>
+    <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
+    <button id="btnAdd" class="primary">+ 작업 추가</button>
+  </div>
+
+  <div class="main">
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button></div>
+
+    <aside class="hud">
+      <section class="card">
+        <h2>작업 보드</h2>
+        <div class="kanban">
+          <div class="kcell k-wait"><span class="n" id="kWait">0</span><span class="l">대기</span></div>
+          <div class="kcell k-run"><span class="n" id="kRun">0</span><span class="l">진행</span></div>
+          <div class="kcell k-rev"><span class="n" id="kRev">0</span><span class="l">리뷰</span></div>
+          <div class="kcell k-done"><span class="n" id="kDone">0</span><span class="l">완료</span></div>
+        </div>
+      </section>
+
+      <section class="card" id="summaryCard" hidden>
+        <h2>지금 하는 일</h2>
+        <p class="hint" id="summaryEmpty" style="margin:0" hidden></p>
+        <div class="sums" id="summaryList"></div>
+      </section>
+
+      <section class="card">
+        <h2 id="agentsTitle">에이전트</h2>
+        <div class="agents" id="agentList"></div>
+      </section>
+
+      <section class="card">
+        <details id="logDetails" open>
+          <summary class="logsum">이벤트 로그 (자세히)</summary>
+          <div class="log" id="log" aria-live="polite"></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>세션 재생 · Claude Code 로그</h2>
+        <div class="drop" id="drop">
+          <p><b>세션 로그(.jsonl)</b>를 여기에 끌어다 놓으세요</p>
+          <div class="row">
+            <button id="btnFile">파일 선택</button>
+            <button id="btnSample">샘플 세션 재생</button>
+            <button id="btnDemo" class="primary">멀티 세션 데모</button>
+          </div>
+          <input type="file" id="file" accept=".jsonl,.json,.txt" hidden>
+        </div>
+        <div class="rmeta" id="replayInfo" hidden></div>
+        <div class="pbar wide" id="replayWrap" hidden><i id="replayProg"></i></div>
+        <button id="btnExit" hidden>⏹ 재생 종료</button>
+        <p class="hint"><b>실시간으로 보려면</b>: <code>agent_office_server.py</code>를 이 HTML과 같은 폴더에 두고 <code>python3 agent_office_server.py</code> 실행 → 자동으로 열리는 페이지가 라이브 모드로 켜져요. 세션마다 사무실 한 채에 대장 고양이가 입주하고, 서브에이전트는 새끼냥으로 출근해 책상이 하나씩 늘어나요. 할 일이 없으면 휴게공간에서 쉬고, 명령을 기다릴 땐 문 앞에서 기다려요. 사무실을 누르면 확대돼요.<br>
+        재생용 로그 위치: <code>~/.claude/projects/&lt;프로젝트&gt;/&lt;세션ID&gt;.jsonl</code> — Read·Grep→도트, Edit·Bash→비트, 서브에이전트→픽셀, 에러→체크, 요청·응답→루미.</p>
+      </section>
+
+      <section class="card">
+        <details class="api">
+          <summary>실제 에이전트 연동하기</summary>
+          <p>지금은 시뮬레이션이지만, 콘솔이나 외부 스크립트에서 아래 API로 실제 이벤트를 밀어 넣을 수 있어요. 이 HTML을 받아 로컬에서 띄우면 WebSocket과도 바로 연결됩니다.</p>
+<pre>// 새 작업 투입
+office.addTask("푸시 딥링크 버그 수정");
+
+// 에이전트 상태 직접 지정
+office.setStatus("coder1", "빌드 돌리는 중…");
+
+// 로그 한 줄 추가
+office.log("CI 파이프라인 통과", "good");
+
+// JSONL 문자열로 세션 재생 시작/종료
+office.loadLog(jsonlText, "my-session.jsonl");
+office.stopReplay();</pre>
+        </details>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const cv = $("#office"), ctx = cv.getContext("2d");
+if (!ctx.roundRect){ // 구형 브라우저 대비
+  ctx.roundRect = function(x,y,w,h){ this.rect(x,y,w,h); };
+}
+const W = 480, H = 300;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ───────── 월드 레이아웃 ───────── */
+const DESKS = {
+  pm:      {x: 56,  y: 86,  w: 46, h: 24, label:"PM"},
+  research:{x: 352, y: 78,  w: 46, h: 24, label:"RSCH"},
+  coder1:  {x: 160, y: 140, w: 46, h: 24, label:"DEV"},
+  coder2:  {x: 256, y: 140, w: 46, h: 24, label:"DEV"},
+  qa:      {x: 352, y: 196, w: 46, h: 24, label:"QA"},
+};
+const SPOTS = {
+  inbox:   {x: 438, y: 84},
+  board:   {x: 34,  y: 64},
+  coffee:  {x: 442, y: 258},
+  meeting: {x: 110, y: 236},
+  doneTray:{x: 424, y: 178},
+};
+const deskSeat = d => ({x: d.x + d.w/2, y: d.y + d.h + 14});
+
+/* ───────── 에이전트 ───────── */
+const AGENTS = [
+  {id:"pm",       name:"루미", role:"오케스트레이터", body:"#f2a54e", desk:"pm",
+   coat:{base:"#f2a54e", stripe:"#cf7a2b", paw:"#fff4e6"}},
+  {id:"research", name:"도트", role:"리서처",        body:"#a7abb5", desk:"research",
+   coat:{base:"#a7abb5", stripe:"#7b808b"}},
+  {id:"coder1",   name:"비트", role:"코더",          body:"#2f2d33", desk:"coder1",
+   coat:{base:"#2f2d33"}},
+  {id:"coder2",   name:"픽셀", role:"코더",          body:"conic-gradient(#f2a54e 0 33%, #2f2d33 0 55%, #ffffff 0)", desk:"coder2",
+   coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#2f2d33"}},
+  {id:"qa",       name:"체크", role:"리뷰어",        body:"#b98256", desk:"qa",
+   coat:{base:"#b98256", stripe:"#8a5a35", paw:"#f3e2cf"}},
+].map(a => {
+  const seat = deskSeat(DESKS[a.desk]);
+  return {...a, pos:{...seat}, seat, path:[], state:"idle", stateText:"대기 중",
+          task:null, timer:0, workT:0, workDur:0, bubble:null, bob:0, extStatus:null};
+});
+const byId = id => AGENTS.find(a => a.id === id);
+
+/* ───────── 작업 ───────── */
+const TASK_POOL = [
+  "로그인 화면 Compose 전환","푸시 딥링크 버그 수정","Gradle 빌드 속도 개선",
+  "Room DB 마이그레이션","다크모드 QA 대응","API 응답 캐싱 적용",
+  "ProGuard 규칙 정리","메모리 릭 추적","온보딩 A/B 테스트",
+  "크래시 리포트 분석","릴리즈 노트 작성","위젯 갱신 로직 수정",
+  "결제 모듈 리팩터링","접근성 라벨 점검","WorkManager 재시도 정책",
+];
+let taskSeq = 0;
+const inboxQ = [];      // 투입 대기 (PM이 집어감)
+const assignQ = [];     // 배정 대기 (stage별)
+const reviewQ = [];
+let doneCount = 0;
+const errands = [];     // PM 심부름 큐
+
+function makeTask(title){
+  taskSeq++;
+  return {
+    id: taskSeq,
+    title: title || TASK_POOL[Math.floor(Math.random()*TASK_POOL.length)],
+    needsResearch: Math.random() < 0.35,
+    stage: "new",
+    effort: 9 + Math.random()*10,   // 시뮬레이션 초
+    reworks: 0,
+  };
+}
+
+/* ───────── 시간/로그 ───────── */
+let simMin = 9*60;        // 09:00
+let paused = false, speedIdx = 0;
+const SPEEDS = [1,2,4];
+const logEl = $("#log");
+function clockStr(){
+  const day = Math.floor(simMin/(24*60)) + 1;
+  const m = Math.floor(simMin) % (24*60);
+  const hh = String(Math.floor(m/60)).padStart(2,"0");
+  const mm = String(m%60).padStart(2,"0");
+  return {day, hm: hh+":"+mm};
+}
+function log(text, tone){
+  const {hm} = clockStr();
+  const p = document.createElement("p");
+  if (tone) p.classList.add("t-"+tone);
+  const t = document.createElement("time"); t.textContent = hm;
+  p.appendChild(t);
+  const b = document.createElement("b"); b.textContent = text;
+  p.appendChild(b);
+  logEl.prepend(p);
+  while (logEl.children.length > 60) logEl.lastChild.remove();
+}
+
+/* ───────── 말풍선/이동 ───────── */
+function say(a, text, dur=2.6){ a.bubble = {text, t:dur}; }
+function goTo(a, x, y){
+  if (a.router){ a.path = a.router(a.pos, {x, y}); return; }
+  a.path = Math.abs(x - a.pos.x) > 2 ? [{x, y:a.pos.y}, {x, y}] : [{x, y}];
+}
+function stepMove(a, dt){
+  if (!a.path.length) return true;
+  const sp = 46 * dt;
+  const t = a.path[0];
+  const dx = t.x - a.pos.x, dy = t.y - a.pos.y;
+  const d = Math.hypot(dx, dy);
+  if (d <= sp){ a.pos.x = t.x; a.pos.y = t.y; a.path.shift(); return a.path.length === 0; }
+  a.pos.x += dx/d*sp; a.pos.y += dy/d*sp;
+  a.bob += dt*10;
+  return false;
+}
+
+/* ───────── PM(오케스트레이터) ───────── */
+function pmTick(a, dt){
+  switch(a.state){
+    case "idle": {
+      if (inboxQ.length){
+        a.state = "toInbox"; a.stateText = "작업 수령하러 이동";
+        goTo(a, SPOTS.inbox.x, SPOTS.inbox.y);
+      } else if (errands.length){
+        const e = errands[0];
+        const w = byId(e.worker);
+        a.state = "toWorker"; a.errand = errands.shift();
+        a.stateText = w.name + "에게 전달 중";
+        goTo(a, w.seat.x - 16, w.seat.y);
+      }
+      break;
+    }
+    case "toInbox":
+      if (stepMove(a, dt)){
+        a.carry = inboxQ.shift();
+        say(a, "새 작업 접수!");
+        a.state = "toBoard"; a.stateText = "작업 분류 중";
+        goTo(a, SPOTS.board.x, SPOTS.board.y + 14);
+      }
+      break;
+    case "toBoard":
+      if (stepMove(a, dt)){
+        a.state = "atBoard"; a.timer = 1.4;
+      }
+      break;
+    case "atBoard":
+      a.timer -= dt;
+      if (a.timer <= 0){
+        const t = a.carry; a.carry = null;
+        t.stage = t.needsResearch ? "research" : "dev";
+        assignQ.push(t);
+        log(`#${t.id} ${t.title} → ${t.stage==="research"?"리서치":"개발"} 대기열`, null);
+        a.state = "toSeat"; a.stateText = "자리로 복귀";
+        goTo(a, a.seat.x, a.seat.y);
+      }
+      break;
+    case "toWorker":
+      if (stepMove(a, dt)){
+        const e = a.errand; a.errand = null;
+        const w = byId(e.worker);
+        say(a, "이 작업 부탁해!");
+        say(w, "넵!");
+        startWork(w, e.task);
+        a.state = "toSeat"; a.stateText = "자리로 복귀";
+        goTo(a, a.seat.x, a.seat.y);
+      }
+      break;
+    case "toSeat":
+      if (stepMove(a, dt)){ a.state = "idle"; a.stateText = "대기 중"; }
+      break;
+  }
+}
+
+/* ───────── 워커 공통 ───────── */
+function startWork(a, task){
+  a.task = task; a.workT = 0; a.hadCoffee = false;
+  a.workDur = task.stage === "research" ? task.effort*0.5
+            : task.stage === "review"   ? task.effort*0.4
+            : task.effort * (task.reworks ? 0.5 : 1);
+  a.state = "toDesk";
+  a.stateText = `#${task.id} 받음`;
+  goTo(a, a.seat.x, a.seat.y);
+}
+function finishWork(a){
+  const t = a.task; a.task = null;
+  a.state = "idle"; a.stateText = "대기 중";
+  if (t.stage === "research"){
+    say(a, "조사 끝! 개발로 넘길게");
+    log(`#${t.id} 리서치 완료 → 개발 대기열`, "good");
+    t.stage = "dev"; assignQ.push(t);
+  } else if (t.stage === "dev"){
+    say(a, "구현 완료, 리뷰 요청!");
+    log(`#${t.id} 구현 완료 → 리뷰 대기열 (${a.name})`, null);
+    t.stage = "review"; t.dev = a.id; reviewQ.push(t);
+  } else if (t.stage === "review"){
+    if (t.reworks === 0 && Math.random() < 0.3){
+      t.reworks++;
+      say(a, "음… 반려할게요");
+      log(`#${t.id} 리뷰 반려 → 수정 요청`, "bad");
+      t.stage = "dev"; assignQ.push(t);
+    } else {
+      doneCount++;
+      say(a, "승인! 배포 가능 🎉");
+      log(`#${t.id} ${t.title} 완료`, "good");
+      sparkle(SPOTS.doneTray.x, SPOTS.doneTray.y);
+    }
+  }
+}
+function workerTick(a, dt){
+  switch(a.state){
+    case "idle": {
+      // 심심하면 커피/잡담
+      if (Math.random() < dt*0.02){
+        a.state = "break"; a.breakKind = Math.random()<0.5 ? "coffee" : "chat";
+        const s = a.breakKind==="coffee" ? SPOTS.coffee : SPOTS.meeting;
+        a.stateText = a.breakKind==="coffee" ? "커피 타임" : "잡담 중";
+        goTo(a, s.x + (Math.random()*16-8), s.y);
+        a.timer = 3 + Math.random()*3;
+      }
+      break;
+    }
+    case "break":
+      if (stepMove(a, dt)){
+        a.timer -= dt;
+        if (a.timer < 2.5 && a.timer + dt >= 2.5)
+          say(a, a.breakKind==="coffee" ? "☕" : "요즘 빌드 왜 이래");
+        if (a.timer <= 0){
+          a.state = "toSeat"; a.stateText = "자리로 복귀";
+          goTo(a, a.seat.x, a.seat.y);
+        }
+      }
+      break;
+    case "toSeat":
+      if (stepMove(a, dt)){ a.state = a.task ? "working" : "idle"; if(!a.task) a.stateText="대기 중"; }
+      break;
+    case "toDesk":
+      if (stepMove(a, dt)){
+        a.state = "working";
+        a.stateText = `#${a.task.id} ${a.task.stage==="research"?"조사":a.task.stage==="review"?"리뷰":"개발"} 중`;
+        say(a, a.task.stage==="research" ? "자료 찾는 중…" :
+               a.task.stage==="review" ? "코드 보는 중…" : "코딩 시작!");
+      }
+      break;
+    case "working": {
+      a.workT += dt;
+      // 개발 중 커피 한 번
+      if (a.task.stage==="dev" && !a.hadCoffee && a.workT > a.workDur*0.5 && Math.random() < dt*0.08){
+        a.hadCoffee = true;
+        a.state = "workBreak"; a.stateText = "커피 충전";
+        goTo(a, SPOTS.coffee.x, SPOTS.coffee.y);
+        a.timer = 2.2;
+        break;
+      }
+      if (a.workT >= a.workDur){ a.hadCoffee = false; finishWork(a); }
+      break;
+    }
+    case "workBreak":
+      if (stepMove(a, dt)){
+        a.timer -= dt;
+        if (a.timer <= 0){
+          a.state = "toDesk";
+          goTo(a, a.seat.x, a.seat.y);
+          a.stateText = `#${a.task.id} 작업 복귀`;
+        }
+      }
+      break;
+  }
+}
+
+/* ───────── 디스패처 ─────────
+   errand에 들어간 워커는 사용 중으로 간주해 중복 배정을 막는다. */
+const workerBusy = id => byId(id).task || errands.some(e => e.worker===id)
+                        || (byId("pm").errand && byId("pm").errand.worker===id);
+function freeWorkerSafe(stage){
+  const pool = stage === "research" ? ["research"]
+             : stage === "review"   ? ["qa"]
+             : ["coder1","coder2","research"];
+  for (const id of pool){
+    const a = byId(id);
+    if (!workerBusy(id) && (a.state==="idle"||a.state==="break"||a.state==="toSeat")) return a;
+  }
+  return null;
+}
+function dispatchSafe(){
+  for (let i=0; i<assignQ.length; i++){
+    const w = freeWorkerSafe(assignQ[i].stage);
+    if (w){ errands.push({worker:w.id, task:assignQ.splice(i,1)[0]}); i--; }
+  }
+  if (reviewQ.length && !workerBusy("qa")){
+    errands.push({worker:"qa", task:reviewQ.shift()});
+  }
+}
+
+/* ───────── 재생 모드: Claude Code 세션 로그 ───────── */
+let mode = "sim";
+let replay = null;
+
+const clip = (s,n)=>{ s=String(s).replace(/\s+/g," ").trim(); return s.length>n ? s.slice(0,n-1)+"…" : s; };
+const flat = c => typeof c==="string" ? c
+             : Array.isArray(c) ? c.map(x=>(x && x.text)||"").join(" ") : "";
+
+const TOOL_MAP = [
+  [/^(Read|Glob|Grep|LS|NotebookRead|WebSearch|WebFetch|ToolSearch|ListDir)/i, "research"],
+  [/^(Edit|Write|MultiEdit|NotebookEdit|str_replace)/i, "coder1"],
+  [/^Bash/i, "coder1"],
+  [/^(TodoWrite|TaskCreate|TaskUpdate|TaskList|EnterPlanMode|ExitPlanMode|AskUserQuestion)/i, "pm"],
+  [/^(Task|Agent)$/i, "pm"],
+];
+function mapTool(name, side){
+  if (side) return "coder2";
+  for (const [re, agent] of TOOL_MAP) if (re.test(name)) return agent;
+  return "coder1";
+}
+function shortInput(input){
+  if (!input || typeof input !== "object") return "";
+  const v = input.file_path || input.path || input.command || input.query
+         || input.pattern || input.url || input.description || input.prompt || "";
+  const s = String(v).replace(/\s+/g," ").trim();
+  return s.length > 28 ? "…" + s.slice(-27) : s;
+}
+
+function extractEvents(o){
+  const out = [];
+  const side = !!o.isSidechain;
+  const msg = o.message;
+  if (o.type === "user" && msg){
+    const c = msg.content;
+    if (typeof c === "string"){
+      const t = c.trim();
+      if (t && !side && !t.startsWith("<") && !t.startsWith("Caveat"))
+        out.push({agent:"pm", kind:"request", label:"요청 접수", detail:clip(t,34)});
+    } else if (Array.isArray(c)){
+      for (const b of c){
+        if (!b) continue;
+        if (b.type === "text" && b.text && !side && !b.text.trim().startsWith("<"))
+          out.push({agent:"pm", kind:"request", label:"요청 접수", detail:clip(b.text,34)});
+        else if (b.type === "tool_result" && b.is_error)
+          out.push({agent:"qa", kind:"error", label:"에러 발견", detail:clip(flat(b.content),34)});
+      }
+    }
+  } else if (o.type === "assistant" && msg && Array.isArray(msg.content)){
+    let textDone = false;
+    for (const b of msg.content){
+      if (!b) continue;
+      if (b.type === "tool_use" && b.name){
+        out.push({agent:mapTool(b.name, side), kind:"tool",
+                  label:b.name + (side?" ⌁sub":""), detail:shortInput(b.input)});
+      } else if (b.type === "text" && b.text && b.text.trim() && !textDone){
+        textDone = true;
+        out.push({agent: side?"coder2":"pm", kind:"say",
+                  label: side?"서브 보고":"응답 작성", detail:clip(b.text,34)});
+      }
+    }
+  }
+  return out;
+}
+function parseJsonl(text, fname){
+  const events = [];
+  let lastTs = 0, truncated = false;
+  for (const line of text.split("\n")){
+    const s = line.trim();
+    if (!s) continue;
+    if (events.length >= 4000){ truncated = true; break; }
+    let o; try { o = JSON.parse(s); } catch { continue; }
+    let ts = Date.parse(o.timestamp || "");
+    if (isNaN(ts)) ts = lastTs + 300;
+    lastTs = ts;
+    for (const ev of extractEvents(o)) events.push({ts, ...ev});
+  }
+  return finalizeReplay(events, fname, truncated);
+}
+function finalizeReplay(events, name, truncated){
+  events.sort((a,b)=>a.ts-b.ts);
+  let pt = 0.6;
+  for (let i=0;i<events.length;i++){
+    const gap = i ? (events[i].ts - events[i-1].ts)/1000 : 0;
+    pt += Math.min(4, Math.max(0.35, gap*0.25));
+    events[i].pt = pt;
+  }
+  return {events, idx:0, clock:0, processed:0, errors:0, name, total:pt, truncated, lastTs: events[0] ? events[0].ts : 0};
+}
+
+function replayDispatch(ev){
+  const a = byId(ev.agent) || byId("coder1");
+  a.q = a.q || [];
+  if (a.q.length < 6){
+    const spot = (ev.agent==="pm" && ev.kind==="request") ? SPOTS.inbox
+               : (ev.agent==="pm" && /Todo|Task|Plan/i.test(ev.label)) ? {x:SPOTS.board.x, y:SPOTS.board.y+14}
+               : a.seat;
+    a.q.push({spot, dur: ev.kind==="error" ? 1.6 : 1.1,
+              text: ev.detail || ev.label, st: clip(ev.label,24)});
+  }
+  log(`${a.name} · ${ev.label}${ev.detail ? " — " + ev.detail : ""}`,
+      ev.kind==="error" ? "bad" : ev.kind==="request" ? "warn" : ev.kind==="say" ? "good" : null);
+  if (ev.kind==="error"){ replay.errors++; }
+  if (ev.kind==="say" && !reduceMotion) sparkle(a.seat.x, a.seat.y-14);
+  replay.processed++;
+}
+function replayUpdate(dt){
+  replay.clock += dt;
+  let n = 0;
+  while (replay.idx < replay.events.length && replay.events[replay.idx].pt <= replay.clock && n < 12){
+    const ev = replay.events[replay.idx];
+    replayDispatch(ev);
+    replay.lastTs = ev.ts;
+    replay.idx++; n++;
+  }
+  if (replay.idx >= replay.events.length && !replay.finished
+      && AGENTS.every(a => !a.cur && !(a.q && a.q.length))){
+    replay.finished = true;
+    log("세션 재생 완료 — 총 " + replay.processed + "개 이벤트", "good");
+  }
+}
+function replayAgentTick(a, dt){
+  if (a.cur){
+    if (a.path.length){ a.state = "walk"; stepMove(a, dt); return; }
+    a.state = "working";
+    a.workT += dt;
+    if (a.workT >= a.workDur){
+      a.cur = null; a.state = "idle"; a.stateText = "대기 중";
+      a.workT = 0; a.workDur = 0;
+    }
+    return;
+  }
+  const q = a.q || [];
+  if (q.length){
+    a.cur = q.shift();
+    a.workT = 0; a.workDur = a.cur.dur;
+    a.stateText = a.cur.st;
+    say(a, a.cur.text, Math.max(1.8, a.cur.dur + 0.8));
+    if (Math.hypot(a.cur.spot.x - a.pos.x, a.cur.spot.y - a.pos.y) > 4)
+      goTo(a, a.cur.spot.x, a.cur.spot.y);
+  } else if (Math.hypot(a.seat.x - a.pos.x, a.seat.y - a.pos.y) > 4){
+    if (!a.path.length) goTo(a, a.seat.x, a.seat.y);
+    a.state = "walk";
+    stepMove(a, dt);
+    if (!a.path.length){ a.state="idle"; a.stateText="대기 중"; }
+  }
+}
+
+function resetAgents(){
+  for (const a of AGENTS){
+    a.task=null; a.q=[]; a.cur=null; a.path=[]; a.pos={...a.seat};
+    a.state="idle"; a.stateText="대기 중"; a.bubble=null;
+    a.workT=0; a.workDur=0; a.carry=null; a.errand=null; a.extStatus=null; a.hadCoffee=false; a.napAfter=undefined;
+  }
+}
+const KLABELS = document.querySelectorAll(".kcell .l");
+function setKanbanLabels(arr){ arr.forEach((t,i)=> KLABELS[i].textContent = t); }
+
+function enterReplay(r){
+  if (!r.events.length){ log("재생할 이벤트가 없어요 — 로그 형식을 확인해 주세요", "bad"); return; }
+  if (mode === "live") liveLoop++;
+  setScene("office");
+  replay = r; mode = "replay";
+  resetAgents();
+  buildSimRows();
+  inboxQ.length=0; assignQ.length=0; reviewQ.length=0; errands.length=0;
+  paused = false;
+  $("#btnPause").textContent = "⏸ 일시정지"; $("#btnPause").setAttribute("aria-pressed","false");
+  $("#btnAuto").disabled = true; $("#btnAdd").disabled = true;
+  setKanbanLabels(["남음","활동","에러","처리"]);
+  $("#replayInfo").hidden = false;
+  $("#replayInfo").textContent = `${r.name} · 이벤트 ${r.events.length}개` + (r.truncated ? " (앞 4000개만)" : "");
+  $("#replayWrap").hidden = false;
+  $("#btnExit").hidden = false;
+  $("#btnExit").textContent = "⏹ 재생 종료";
+  log(`세션 재생 시작: ${r.name}`, "good");
+}
+function exitReplay(){
+  replay = null;
+  $("#replayWrap").hidden = true;
+  $("#btnExit").hidden = true;
+  if (liveAvailable){ enterLive("server"); log("라이브 모드로 복귀", "good"); return; }
+  mode = "sim";
+  resetAgents();
+  $("#btnAuto").disabled = false; $("#btnAdd").disabled = false;
+  setKanbanLabels(["대기","진행","리뷰","완료"]);
+  $("#replayInfo").hidden = true;
+  log("시뮬레이션 모드로 복귀", null);
+}
+
+/* 샘플 세션: 안드로이드 딥링크 버그 수정 시나리오 */
+function makeSample(){
+  const base = Date.now() - 9e5;
+  let t = 0;
+  const E = (gap, agent, kind, label, detail) => { t += gap*1000; return {ts: base+t, agent, kind, label, detail}; };
+  return finalizeReplay([
+    E(0,  "pm","request","요청 접수","푸시 딥링크가 안 열리는 버그 수정해줘"),
+    E(4,  "research","tool","Grep","deeplink|intent-filter"),
+    E(6,  "research","tool","Read","…app/src/main/AndroidManifest.xml"),
+    E(8,  "research","tool","Read","…ui/main/MainActivity.kt"),
+    E(10, "pm","say","응답 작성","원인: intent-filter에 autoVerify 누락"),
+    E(5,  "coder1","tool","Edit","…app/src/main/AndroidManifest.xml"),
+    E(7,  "coder1","tool","Edit","…deeplink/DeepLinkHandler.kt"),
+    E(6,  "coder1","tool","Bash","./gradlew assembleDebug"),
+    E(14, "qa","error","에러 발견","unresolved reference: parseUri"),
+    E(6,  "coder1","tool","Edit","…deeplink/DeepLinkHandler.kt"),
+    E(5,  "coder1","tool","Bash","./gradlew assembleDebug"),
+    E(16, "coder1","tool","Bash","./gradlew testDebugUnitTest"),
+    E(9,  "pm","tool","Task","regression-check 서브에이전트"),
+    E(4,  "coder2","tool","Grep ⌁sub","DeepLink 사용처 전수 확인"),
+    E(6,  "coder2","tool","Read ⌁sub","…nav/NavGraph.kt"),
+    E(7,  "coder2","say","서브 보고","영향 범위 2곳, 모두 호환됨"),
+    E(5,  "pm","tool","TodoWrite","체크리스트 갱신"),
+    E(6,  "pm","say","응답 작성","수정 완료 — 빌드·테스트 통과"),
+  ], "sample-session.jsonl", false);
+}
+
+/* ───────── 파일 업로드/드롭 ───────── */
+function loadFile(file){
+  if (!file) return;
+  if (file.size > 40*1024*1024){ log("파일이 너무 커요 (40MB 제한)", "bad"); return; }
+  const fr = new FileReader();
+  fr.onload = () => { try { enterReplay(parseJsonl(String(fr.result), file.name)); }
+                      catch(e){ log("로그 파싱 실패: " + e.message, "bad"); } };
+  fr.onerror = () => log("파일을 읽지 못했어요", "bad");
+  fr.readAsText(file);
+}
+const drop = $("#drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("hover");
+  loadFile(e.dataTransfer.files && e.dataTransfer.files[0]);
+});
+$("#btnFile").addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", e => { loadFile(e.target.files[0]); e.target.value=""; });
+$("#btnSample").addEventListener("click", () => enterReplay(makeSample()));
+$("#btnExit").addEventListener("click", () => {
+  if (mode === "live" && live && live.source === "demo"){
+    exitLive();
+    if (liveAvailable){ enterLive("server"); log("데모 종료 — 라이브 모드로 복귀", "good"); }
+    else log("데모 종료 — 시뮬레이션으로 복귀", null);
+  } else exitReplay();
+});
+cv.addEventListener("click", e => {
+  if (scene !== "campus") return;
+  const i = lotAt(e);
+  if (i < 0){ if (cam.focus !== null) unfocus(); return; }
+  if (cam.focus !== i) focusLot(i);
+});
+cv.addEventListener("mousemove", e => {
+  cv.style.cursor = scene === "campus" && cam.focus === null && lotAt(e) >= 0 ? "pointer" : "";
+});
+addEventListener("keydown", e => { if (e.key === "Escape" && cam.focus !== null) unfocus(); });
+$("#btnBack").addEventListener("click", unfocus);
+$("#btnDemo").addEventListener("click", () => { enterLive("demo"); log("멀티 세션 데모 시작", "good"); });
+
+/* ───────── 파티클 ───────── */
+const parts = [];
+function sparkle(x,y){
+  if (reduceMotion) return;
+  for (let i=0;i<12;i++) parts.push({
+    x, y, z: 8,
+    vx:(Math.random()-.5)*44, vy:(Math.random()-.5)*44,
+    vz: 46 + Math.random()*55, t:.9,
+    c: ["#f2a54e","#ffd36b","#7cc59a","#f08a8a"][Math.floor(Math.random()*4)]});
+}
+
+/* ───────── 자동 생성 ───────── */
+let autoOn = true, autoTimer = 2.5;
+function autoSpawn(dt){
+  if (!autoOn) return;
+  autoTimer -= dt;
+  if (autoTimer <= 0){
+    autoTimer = 7 + Math.random()*9;
+    const pending = inboxQ.length + assignQ.length + reviewQ.length
+                  + AGENTS.filter(a=>a.task).length + errands.length;
+    if (pending < 7){
+      const t = makeTask();
+      inboxQ.push(t);
+      log(`#${t.id} ${t.title} 접수`, "warn");
+    }
+  }
+}
+
+/* ───────── 렌더링: 펜 드로잉 아이소메트릭 ─────────
+   논리 좌표(480×300 평면)는 그대로, 그릴 때만 투영. 깊이 = x+y.
+   모든 면은 종이색으로 채우고 잉크 선으로 외곽을 그린다. 색은 고양이와 작은 포인트에만. */
+const VW = 860, VH = 560;
+const ISX = 0.78, ISY = 0.39, WALL_H = 62;
+let OX = 360, OY = 168;
+const isoX = (x,y) => OX + (x - y) * ISX;
+const isoY = (x,y,z) => OY + (x + y) * ISY - (z || 0);
+const gpt = (x,y,z) => [isoX(x,y), isoY(x,y,z)];
+function path(p){ ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); for (let i=1;i<p.length;i++) ctx.lineTo(p[i][0], p[i][1]); }
+function shape(p, fill, noStroke){ path(p); ctx.closePath(); if (fill){ ctx.fillStyle = fill; ctx.fill(); } if (!noStroke) ctx.stroke(); }
+function line(p){ path(p); ctx.stroke(); }
+function floorPoly(x,y,w,d,fill,z,noStroke){ shape([gpt(x,y,z), gpt(x+w,y,z), gpt(x+w,y+d,z), gpt(x,y+d,z)], fill, noStroke); }
+function wallQuad(x1,y1,x2,y2,z1,z2,fill,noStroke){
+  shape([gpt(x1,y1,z2), gpt(x2,y2,z2), gpt(x2,y2,z1), gpt(x1,y1,z1)], fill, noStroke);
+}
+function isoBox(x,y,w,d,z0,h, cT, cS, cE){ // 윗면 + 남쪽 면 + 동쪽 면
+  shape([gpt(x,y,z0+h), gpt(x+w,y,z0+h), gpt(x+w,y+d,z0+h), gpt(x,y+d,z0+h)], cT);
+  wallQuad(x, y+d, x+w, y+d, z0, z0+h, cS);
+  wallQuad(x+w, y+d, x+w, y, z0, z0+h, cE);
+}
+function ell(cx, cy, rx, ry, fill, noStroke){
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+  if (fill){ ctx.fillStyle = fill; ctx.fill(); } if (!noStroke) ctx.stroke();
+}
+function rr(x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(x,y,w,h); }
+
+/* ───────── 낮/밤 사이클 ─────────
+   실제 PC 시각 → [낮, 노을, 밤] 가중치 → 종이·잉크 팔레트를 섞어서 서서히 전환 */
+const hex2rgb = h => { const n = parseInt(h.slice(1),16); return [n>>16, (n>>8)&255, n&255]; };
+const PAL = {
+  day:  {paper:"#fffdf8", side:"#f4ede2", floor:"#fffaf2", plate:"#fcf7ee", ink:"#2d2520",
+         glass:"#e2f0f8", glass2:"#d0e7f3", bg:"#efe6d6", beam:"#fff0b0", sun:"#ffd36b",
+         beamA:.45, lamp:0, vig:0},
+  dusk: {paper:"#fff1e4", side:"#f2dbcb", floor:"#fde8d8", plate:"#fae4d3", ink:"#41292c",
+         glass:"#ffc9a6", glass2:"#f59b7a", bg:"#efcbb5", beam:"#ffb27a", sun:"#ff8f5a",
+         beamA:.30, lamp:.5, vig:.10},
+  night:{paper:"#2e2b3a", side:"#25222f", floor:"#2a2735", plate:"#272432", ink:"#efe6da",
+         glass:"#161a33", glass2:"#1d2244", bg:"#1b1924", beam:"#9ad0ff", sun:"#fff2c0",
+         beamA:.10, lamp:1, vig:.28},
+};
+for (const k in PAL) for (const c in PAL[k])
+  if (typeof PAL[k][c] === "string") PAL[k][c] = hex2rgb(PAL[k][c]);
+const TOD_KEYS = [[0,[0,0,1]],[5,[0,0,1]],[6.5,[0,1,0]],[8,[1,0,0]],
+                  [16.5,[1,0,0]],[18,[0,1,0]],[19.5,[0,0,1]],[24,[0,0,1]]];
+function weightsAt(h){
+  for (let i=1; i<TOD_KEYS.length; i++){
+    const [h0,w0] = TOD_KEYS[i-1], [h1,w1] = TOD_KEYS[i];
+    if (h <= h1){ const t = (h-h0)/(h1-h0); return w0.map((v,j)=> v + (w1[j]-v)*t); }
+  }
+  return [0,0,1];
+}
+const TOD_MODES = ["auto","day","dusk","night"];
+const TOD_LABEL = {auto:"자동", day:"낮", dusk:"노을", night:"밤"};
+let todMode = "auto";
+try { const s = localStorage.getItem("ao.tod"); if (TOD_MODES.includes(s)) todMode = s; } catch {}
+let todW = null, TOD = {};
+function targetW(){
+  if (todMode === "day")   return [1,0,0];
+  if (todMode === "dusk")  return [0,1,0];
+  if (todMode === "night") return [0,0,1];
+  const d = new Date();
+  return weightsAt(d.getHours() + d.getMinutes()/60);
+}
+function updateTOD(rdt){
+  const t = targetW();
+  if (!todW || reduceMotion) todW = t.slice();
+  else { const k = Math.min(1, rdt*1.4); todW = todW.map((v,i)=> v + (t[i]-v)*k); }
+  const [a,b,c] = todW;
+  for (const key in PAL.night){
+    const p = PAL.day[key], q = PAL.dusk[key], r = PAL.night[key];
+    TOD[key] = Array.isArray(r)
+      ? `rgb(${Math.round(p[0]*a+q[0]*b+r[0]*c)},${Math.round(p[1]*a+q[1]*b+r[1]*c)},${Math.round(p[2]*a+q[2]*b+r[2]*c)})`
+      : p*a + q*b + r*c;
+  }
+}
+function currentPhase(){
+  const [a,b,c] = targetW();
+  return a >= b && a >= c ? "낮" : b >= c ? "노을" : "밤";
+}
+updateTOD(0);
+
+/* ───────── 동네 ─────────
+   땅(z=-12)이 곧 도로. 블록 판(z=-9)을 올리고 그 위에 건물·나무·소품을 세운다. */
+const GZ = -9;
+const BLOCKS = [
+  [-300,-460, 800, 778],   // 사무실 블록 (x -300..500, y -460..318)
+  [-460, 384, 960, 520],   // 남쪽
+  [572, -460, 720, 772],   // 동쪽
+  [572, 384, 720, 520],    // 남동쪽
+];
+const LAMPS = [[300,391],[582,124],[96,391],[582,330]];
+const WARM = "#ffd98a";
+let curActive = 0;   // 지금 그리는 건물에 입주한 세션의 활동도 (0~1)
+function drawGround(now){
+  const P = TOD;
+  // 도로 중앙 점선
+  ctx.save(); ctx.setLineDash([7,7]); ctx.globalAlpha = .45;
+  line([gpt(-700,349,-12), gpt(1300,349,-12)]);
+  line([gpt(535,-700,-12), gpt(535,1300,-12)]);
+  ctx.restore();
+  // 횡단보도
+  for (let i=0;i<5;i++) floorPoly(438 + i*12, 330, 6, 38, P.plate, -12, true);
+  for (let i=0;i<4;i++) floorPoly(516, 262 + i*12, 38, 6, P.plate, -12, true);
+  // 블록 판
+  for (const [x,y,w,d] of BLOCKS){
+    wallQuad(x, y+d, x+w, y+d, -12, GZ, P.side);
+    wallQuad(x+w, y+d, x+w, y, -12, GZ, P.side);
+    floorPoly(x, y, w, d, P.plate, GZ);
+  }
+  // 보도 경계석 안쪽 점선
+  ctx.save(); ctx.setLineDash([1.5,4]); ctx.globalAlpha = .5;
+  line([gpt(-300,312,GZ), gpt(494,312,GZ), gpt(494,-460,GZ)]);
+  line([gpt(-460,390,GZ), gpt(494,390,GZ)]);
+  line([gpt(578,-460,GZ), gpt(578,306,GZ)]);
+  ctx.restore();
+  // 가로등·창문 불빛이 땅에 번짐
+  if (P.lamp > 0.02){
+    for (const [lx,ly] of LAMPS){
+      const g = ctx.createRadialGradient(isoX(lx,ly), isoY(lx,ly,GZ), 2, isoX(lx,ly), isoY(lx,ly,GZ), 46);
+      g.addColorStop(0, `rgba(255,205,120,${(.42*P.lamp).toFixed(3)})`);
+      g.addColorStop(1, "rgba(255,205,120,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(isoX(lx,ly), isoY(lx,ly,GZ), 50, 22, 0, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = `rgba(255,214,140,${(.16*P.lamp).toFixed(3)})`;
+    for (const [hx,hy] of [[35,462],[155,452],[355,462],[615,94],[625,219]]){
+      ctx.beginPath(); ctx.ellipse(isoX(hx,hy), isoY(hx,hy,GZ), 34, 12, 0, 0, 7); ctx.fill();
+    }
+  }
+}
+/* 창문: 남쪽 면(winS) / 동쪽 면(winE). 밤엔 따뜻한 불이 켜짐 */
+function winS(x, y, z, w, h, on){
+  const P = TOD;
+  wallQuad(x, y, x+w, y, z, z+h, P.glass);
+  const L = Math.max(on ? P.lamp : 0, curActive);
+  if (L > 0.02){ ctx.globalAlpha = L; wallQuad(x, y, x+w, y, z, z+h, WARM, true); ctx.globalAlpha = 1; }
+  line([gpt(x+w/2, y, z), gpt(x+w/2, y, z+h)]);
+  line([gpt(x, y, z+h/2), gpt(x+w, y, z+h/2)]);
+}
+function winE(x, y, z, w, h, on){
+  const P = TOD;
+  wallQuad(x, y+w, x, y, z, z+h, P.glass);
+  const L = Math.max(on ? P.lamp : 0, curActive);
+  if (L > 0.02){ ctx.globalAlpha = L; wallQuad(x, y+w, x, y, z, z+h, WARM, true); ctx.globalAlpha = 1; }
+  line([gpt(x, y+w/2, z), gpt(x, y+w/2, z+h)]);
+}
+function gableRoof(x, y, w, d, zt, rh, tint){
+  const P = TOD, ov = 3;
+  shape([gpt(x+w+ov, y+d+ov, zt), gpt(x+w+ov, y-ov, zt), gpt(x+w+ov, y+d/2, zt+rh)], P.paper);
+  const S = [gpt(x-ov, y+d+ov, zt), gpt(x+w+ov, y+d+ov, zt), gpt(x+w+ov, y+d/2, zt+rh), gpt(x-ov, y+d/2, zt+rh)];
+  shape(S, P.paper);
+  if (tint){ ctx.globalAlpha = 1 - .7*P.lamp; shape(S, tint, true); ctx.globalAlpha = 1; path(S); ctx.closePath(); ctx.stroke(); }
+  ctx.save(); ctx.globalAlpha = .55;
+  for (let xx = x+2; xx < x+w+ov; xx += 4.5) line([gpt(xx, y+d+ov, zt), gpt(xx, y+d/2, zt+rh)]);
+  ctx.restore();
+  line([gpt(x-ov, y+d/2, zt+rh), gpt(x+w+ov, y+d/2, zt+rh)]);
+}
+function house(x, y, w, d, h, o = {}){
+  const P = TOD;
+  isoBox(x, y, w, d, GZ, h, P.paper, P.paper, P.side);
+  const fl = h > 36 ? 2 : 1;
+  for (let f=0; f<fl; f++){
+    const zz = GZ + 6 + f*18;
+    winS(x + 8, y+d, zz + (f ? 0 : 2), 11, 9, (f + (o.seed||0)) % 3 !== 2);
+    if (w > 60) winS(x + w - 22, y+d, zz + (f ? 0 : 2), 11, 9, true);
+    winE(x+w, y + 10, zz + 2, 12, 9, f === 0 || o.seed % 2);
+  }
+  // 문 + 처마
+  const dx = x + (w > 60 ? w/2 - 6 : w - 18);
+  wallQuad(dx, y+d, dx+11, y+d, GZ, GZ+16, o.door || P.paper);
+  ell(isoX(dx+9, y+d), isoY(dx+9, y+d, GZ+8), 0.8, 0.8, P.ink, true);
+  isoBox(dx-2, y+d, 15, 4, GZ+17, 1.5, P.paper, P.paper, P.side);
+  if (o.box){                                    // 창가 화분
+    isoBox(x+7, y+d, 13, 3, GZ+5, 3, P.paper, P.paper, P.side);
+    for (const [fx,c] of [[9,"#e9897a"],[13,"#ffd36b"],[17,"#e9897a"]])
+      ell(isoX(x+fx, y+d+1.5), isoY(x+fx, y+d+1.5, GZ+9.5), 1.4, 1.4, c);
+  }
+  gableRoof(x, y, w, d, GZ+h, d*0.5, o.roof);
+  if (o.chimney) isoBox(x+12, y+d*0.3, 7, 7, GZ+h+d*0.2, 14, P.paper, P.paper, P.side);
+}
+function shop(x, y, w, d, h, o){
+  const P = TOD;
+  isoBox(x, y, w, d, GZ, h, P.paper, P.paper, P.side);
+  isoBox(x, y, w, d, GZ+h, 3, P.paper, P.paper, P.side);                 // 난간
+  floorPoly(x+3, y+3, w-6, d-6, P.side, GZ+h+3);
+  // 큰 진열창 + 문
+  winS(x+6, y+d, GZ+3, w-30, 14, true);
+  wallQuad(x+w-20, y+d, x+w-8, y+d, GZ, GZ+17, P.glass);
+  const LD = Math.max(P.lamp, curActive)*.8;
+  if (LD > 0.02){ ctx.globalAlpha = LD; wallQuad(x+w-20, y+d, x+w-8, y+d, GZ, GZ+17, WARM, true); ctx.globalAlpha = 1; }
+  winE(x+w, y+12, GZ+5, 16, 10, true);
+  // 줄무늬 차양
+  const z1 = GZ+h-8, z2 = GZ+h-14;
+  for (let sx = x+2, i=0; sx < x+w-2; sx += 6, i++){
+    const ex = Math.min(sx+6, x+w-2);
+    shape([gpt(sx, y+d, z1), gpt(ex, y+d, z1), gpt(ex, y+d+10, z2), gpt(sx, y+d+10, z2)], i%2 ? P.paper : o.stripe);
+  }
+  // 차양 끝 전구 (밤에 켜짐)
+  for (let sx = x+4; sx < x+w-2; sx += 8){
+    const bx = isoX(sx, y+d+10), by = isoY(sx, y+d+10, z2) + 2.5;
+    ell(bx, by, 1.4, 1.4, P.lamp > .3 ? WARM : P.paper);
+    if (P.lamp > .3){ ctx.fillStyle = `rgba(255,210,120,${(.25*P.lamp).toFixed(3)})`; ctx.beginPath(); ctx.arc(bx, by, 4.5, 0, 7); ctx.fill(); }
+  }
+  // 간판
+  const sx0 = x + w*0.18, sx1 = x + w*0.82;
+  wallQuad(sx0, y+d, sx1, y+d, GZ+h+3, GZ+h+12, P.paper);
+  ctx.fillStyle = P.ink; ctx.font = "9px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(o.sign, isoX((sx0+sx1)/2, y+d), isoY((sx0+sx1)/2, y+d, GZ+h+7.5));
+  ctx.textAlign = "left";
+  if (o.crates){                                   // 옥상 짐
+    isoBox(x+8, y+6, 12, 10, GZ+h+3, 8, P.paper, P.paper, P.side);
+    isoBox(x+22, y+8, 9, 8, GZ+h+3, 6, P.paper, P.paper, P.side);
+  }
+}
+function apartment(x, y, w, d, h, seed){
+  const P = TOD;
+  isoBox(x, y, w, d, GZ, h, P.paper, P.paper, P.side);
+  isoBox(x, y, w, d, GZ+h, 3, P.paper, P.paper, P.side);
+  for (let r=0; r<Math.floor(h/16); r++) for (let c=0; c<Math.floor(w/16); c++){
+    const on = ((r*7 + c*3 + seed) % 5) < 3;
+    const z = GZ + 8 + r*16, xx = x + 5 + c*16;
+    wallQuad(xx, y+d, xx+8, y+d, z, z+8, P.glass);
+    if (P.lamp > .02 && on){ ctx.globalAlpha = P.lamp; wallQuad(xx, y+d, xx+8, y+d, z, z+8, WARM, true); ctx.globalAlpha = 1; }
+  }
+  for (let r=0; r<Math.floor(h/16); r++) for (let c=0; c<Math.floor(d/16); c++){
+    const on = ((r*5 + c + seed) % 4) < 2, z = GZ + 8 + r*16, yy = y + 4 + c*16;
+    wallQuad(x+w, yy+8, x+w, yy, z, z+8, P.glass);
+    if (P.lamp > .02 && on){ ctx.globalAlpha = P.lamp; wallQuad(x+w, yy+8, x+w, yy, z, z+8, WARM, true); ctx.globalAlpha = 1; }
+  }
+  // 옥상 물탱크
+  isoBox(x+w-26, y+8, 14, 12, GZ+h+3, 10, P.paper, P.paper, P.side);
+}
+function tree(x, y, h, r){
+  const P = TOD;
+  ctx.fillStyle = "rgba(0,0,0,.08)";
+  ctx.beginPath(); ctx.ellipse(isoX(x,y), isoY(x,y,GZ)+1, r*1.1, r*0.42, 0, 0, 7); ctx.fill();
+  const cx = isoX(x,y), cy = isoY(x,y,GZ);
+  line([[cx, cy], [cx, cy - h + r*0.4]]);
+  line([[cx, cy - h*0.45], [cx + 4, cy - h*0.6]]);
+  bush(cx, cy - h, r);
+  bush(cx - r*0.45, cy - h + r*0.55, r*0.62);
+}
+function bench(x, y){
+  const P = TOD;
+  for (const lx of [x+2, x+20]) line([gpt(lx, y+6, GZ), gpt(lx, y+6, GZ+6)]);
+  isoBox(x, y, 22, 7, GZ+6, 1.6, P.paper, P.paper, P.side);
+  for (const lx of [x+2, x+20]) line([gpt(lx, y+7, GZ+7), gpt(lx, y+7, GZ+14)]);
+  wallQuad(x, y+7, x+22, y+7, GZ+10, GZ+14, P.paper);
+}
+function streetLamp(x, y){
+  const P = TOD, bx = isoX(x,y), by = isoY(x,y,GZ), top = by - 44;
+  line([[bx, by], [bx, top]]);
+  line([[bx, top], [bx + 6, top - 2]]);
+  shape([[bx+3, top-1], [bx+10, top-3], [bx+9, top+2], [bx+4, top+3]], P.lamp > .2 ? WARM : P.paper);
+  if (P.lamp > .02){
+    const g = ctx.createRadialGradient(bx+7, top+1, 1, bx+7, top+1, 16);
+    g.addColorStop(0, `rgba(255,214,140,${(.55*P.lamp).toFixed(3)})`); g.addColorStop(1, "rgba(255,214,140,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx+7, top+1, 16, 0, 7); ctx.fill();
+  }
+  line([[bx-2.5, by], [bx+2.5, by]]);
+}
+function mailbox(x, y){
+  const P = TOD;
+  line([gpt(x+3, y+3, GZ), gpt(x+3, y+3, GZ+8)]);
+  isoBox(x, y, 7, 6, GZ+8, 8, "#e9897a", P.paper, P.side);
+  line([gpt(x+1.5, y+6, GZ+13), gpt(x+5.5, y+6, GZ+13)]);
+}
+function bike(x, y){
+  const P = TOD, a = gpt(x, y, GZ+5), b = gpt(x+16, y, GZ+5);
+  ell(a[0], a[1], 5, 4.6, null); ell(b[0], b[1], 5, 4.6, null);
+  const s = gpt(x+6, y, GZ+12), hdl = gpt(x+14, y, GZ+14);
+  line([a, s, [ (a[0]+b[0])/2, (a[1]+b[1])/2 ], a]);
+  line([[ (a[0]+b[0])/2, (a[1]+b[1])/2 ], hdl, b]);
+  line([[s[0]-2.5, s[1]-1], [s[0]+2.5, s[1]]]);
+  line([[hdl[0]-2, hdl[1]-1.5], [hdl[0]+2.5, hdl[1]+0.5]]);
+}
+function cafeTable(x, y){
+  const P = TOD, cx = isoX(x,y), cy = isoY(x,y,GZ);
+  line([[cx, cy], [cx, cy-30]]);
+  shape([[cx-17, cy-26], [cx, cy-37], [cx+17, cy-26]], P.paper);
+  shape([[cx-6, cy-29.5], [cx, cy-37], [cx+6, cy-29.5]], "#e9897a");
+  ell(cx, cy-9, 9, 3.6, P.paper);
+  line([[cx, cy-8], [cx, cy]]);
+  isoBox(x-1, y-2, 3, 3, GZ+9, 2.5, P.paper, P.paper, P.side);
+}
+function planter(x, y, colors){
+  const P = TOD;
+  isoBox(x, y, 16, 7, GZ, 6, P.paper, P.paper, P.side);
+  colors.forEach((c, i) => {
+    const px = isoX(x+3+i*5, y+3.5), py = isoY(x+3+i*5, y+3.5, GZ+6);
+    line([[px, py], [px, py-4]]);
+    ell(px, py-5.5, 1.8, 1.8, c);
+  });
+}
+function hydrant(x, y){
+  const P = TOD;
+  isoBox(x, y, 5, 5, GZ, 8, "#e9897a", "#e9897a", "#d97566");
+  ell(isoX(x+2.5,y+2.5), isoY(x+2.5,y+2.5,GZ+10), 2.4, 1.6, "#e9897a");
+}
+/* 동네 고양이 (장식): 졸거나 앉아 있음 */
+const TOWN_CATS = [
+  {pos:{x:270,y:394}, lift:6, state:"idle", coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#f2a54e"}},
+  {pos:{x:628,y:206}, lift:24, state:"idle", coat:{base:"#a7abb5", stripe:"#7b808b"}},
+  {pos:{x:214,y:440}, lift:0, state:"decor", coat:{base:"#2f2d33"}, face:-1},
+  {pos:{x:86,y:472}, lift:0, state:"idle", coat:{base:"#f2a54e", stripe:"#cf7a2b"}},
+].map(c => ({...c, k:1.15, zBase:GZ, seat:{x:-999,y:-999}, path:[], bubble:null, idleSince:-1e9, bob:0, face:c.face||1}));
+
+function drawBackTown(now){      // 사무실 벽 뒤 (벽보다 먼저)
+  const items = [
+    {z:-260, fn:() => apartment(210, -230, 120, 60, 128, 1)},
+    {z:-180, fn:() => apartment(40, -190, 92, 54, 92, 3)},
+    {z:-60,  fn:() => house(-200, 40, 64, 50, 34, {seed:1})},
+    {z:-14,  fn:() => tree(30, -44, 66, 17)},
+    {z:84,   fn:() => tree(140, -56, 74, 19)},
+    {z:350,  fn:() => tree(400, -50, 70, 18)},
+    {z:10,   fn:() => tree(-48, 58, 70, 17)},
+    {z:150,  fn:() => tree(-52, 202, 64, 16)},
+  ];
+  items.sort((a,b) => a.z - b.z);
+  for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
+}
+function lit(slot, fn){ curActive = 0; fn(); }
+function townItems(now){         // 사무실 앞·옆 (깊이 정렬에 섞임)
+  return [
+    {z: 70+455,  fn:() => lit(5, () => house(0, 405, 70, 50, 40, {seed:0, box:true, chimney:true, roof:"#f6d7c3"}))},
+    {z: 200+448, fn:() => lit(1, () => shop(110, 400, 90, 48, 30, {sign:"카페 냥", stripe:"#e9897a"}))},
+    {z: 390+455, fn:() => lit(2, () => house(320, 405, 70, 50, 44, {seed:2, box:true, roof:"#dde8d2"}))},
+    {z: 645+90,  fn:() => lit(3, () => house(585, 30, 60, 60, 38, {seed:1, chimney:true, roof:"#f3e2b6"}))},
+    {z: 660+215, fn:() => lit(4, () => shop(590, 150, 70, 65, 30, {sign:"냥냥마트", stripe:"#8fbf9a", crates:true}))},
+    {z: 245+420, fn:() => tree(245, 422, 58, 16)},
+    {z: 432+418, fn:() => tree(432, 418, 62, 17)},
+    {z: 662+278, fn:() => tree(662, 278, 60, 16)},
+    {z: 610+408, fn:() => tree(610, 408, 64, 18)},
+    {z: 262+395, fn:() => bench(262, 388)},
+    {z: 300+391, fn:() => streetLamp(300, 391)},
+    {z: 96+391,  fn:() => streetLamp(96, 391)},
+    {z: 582+124, fn:() => streetLamp(582, 124)},
+    {z: 582+330, fn:() => streetLamp(582, 330)},
+    {z: 588+292, fn:() => mailbox(588, 290)},
+    {z: 455+392, fn:() => bike(455, 390)},
+    {z: 222+410, fn:() => cafeTable(222, 412)},
+    {z: 590+226, fn:() => planter(592, 222, ["#e9897a","#ffd36b","#e9897a"])},
+    {z: 82+396,  fn:() => planter(78, 394, ["#ffd36b","#e9897a","#ffd36b"])},
+    {z: 560+391, fn:() => hydrant(503, 388)},
+    ...TOWN_CATS.map(c => ({z: c.lift > 20 ? 660+215+1 : c.pos.x + c.pos.y + 1, fn:() => drawCat(c, now)})),
+  ];
+}
+
+/* ───────── 라이브 모드: 세션마다 미니 사무실 (캠퍼스) ─────────
+   서버(agent_office_server.py)가 ~/.claude/projects 의 jsonl을 tail해서 넘겨주면
+   세션마다 지붕 없는 사무실 한 채에 입주시키고, 대장 고양이(메인 에이전트)와
+   새끼냥(서브에이전트)이 각자 책상에서 일한다.
+   - 할 일이 없으면 오른쪽 휴게공간(소파·캣타워·러그·밥그릇)으로 간다.
+   - 세션이 답을 마치고 내 명령을 기다리면 대장이 문 앞에서 팻말을 들고 기다린다.
+   - 끝나면 꽃가루·깡충·"완료!" 도장, 알림.
+   건물을 누르면 카메라가 그 사무실로 확대된다. */
+let liveAvailable = false, liveLoop = 0, liveCanOpen = false;
+let live = null;   // {source, seq, sessions:Map(sid→Session), errors, count, done, ver, fail}
+let scene = "office";                // "office"(시뮬레이션·재생) | "campus"(라이브)
+const cam = {z:1, cx:VW/2, cy:VH/2, tz:1, tcx:VW/2, tcy:VH/2, focus:null};
+let LW = 1.05;
+const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
+const perfNow = () => performance.now() / 1000;
+function setScene(s){
+  scene = s; [OX, OY] = SCENE_ORIGIN[s];
+  cam.focus = null; cam.z = cam.tz = 1; cam.cx = cam.tcx = VW/2; cam.cy = cam.tcy = VH/2;
+  $("#btnBack").hidden = true;
+}
+
+const LOT_W = 224, LOT_D = 130, WALL = 26, DESK_W = 30, DESK_D = 13, MAX_DESKS = 9;
+const SLOTS = [
+  {name:"본사",        x:0,   y:0,   trim:"#9aa5b8", theme:"board"},
+  {name:"카페 냥",     x:274, y:0,   trim:"#e9897a", theme:"cafe"},
+  {name:"초록 지붕 집", x:548, y:0,   trim:"#8fbf9a", theme:"plants"},
+  {name:"언덕 위 집",   x:0,   y:180, trim:"#f0c96b", theme:"books"},
+  {name:"냥냥마트",     x:274, y:180, trim:"#7fb2ea", theme:"shelf"},
+  {name:"빨간 지붕 집", x:548, y:180, trim:"#e5534b", theme:"sofa"},
+].map(s => ({...s, w:LOT_W, d:LOT_D, appear:[]}));
+const lotDesk  = (L, i) => ({x: L.x + 12 + (i % 3) * 46, y: L.y + 12 + Math.floor(i / 3) * 38});
+const lotSeat  = (L, i) => { const d = lotDesk(L, i); return {x: d.x + DESK_W/2, y: d.y + DESK_D + 9}; };
+const lotAisle = L => L.x + 148;
+const lotDoor  = L => ({x: lotAisle(L), y: L.y + L.d + 8});
+const lotWait  = L => ({x: lotAisle(L), y: L.y + L.d - 5});
+const lotLounge = L => [
+  {x: L.x+172, y: L.y+12,  lift:6,  nap:20, say:"소파 최고"},
+  {x: L.x+192, y: L.y+12,  lift:6,  nap:20, say:"기지개~"},
+  {x: L.x+209, y: L.y+51,  lift:30, nap:15, say:"높은 데 좋아"},
+  {x: L.x+176, y: L.y+82,  lift:0,  nap:4,  say:"꾸벅…"},
+  {x: L.x+196, y: L.y+96,  lift:0,  nap:4,  say:"뒹굴뒹굴"},
+  {x: L.x+194, y: L.y+121, lift:0,  nap:30, say:"냠냠"},
+];
+const lotRouter = L => (from, to) => {         // 책상과 휴게공간 사이의 통로로만 다닌다
+  const ax = lotAisle(L), pts = [];
+  if (Math.abs(from.y - to.y) > 2){
+    if (Math.abs(from.x - ax) > 2) pts.push({x: ax, y: from.y});
+    pts.push({x: ax, y: to.y});
+  }
+  pts.push({x: to.x, y: to.y});
+  return pts;
+};
+const BOSS_LOOKS = [
+  {name:"루미", coat:{base:"#f2a54e", stripe:"#cf7a2b", paw:"#fff4e6"}},
+  {name:"모카", coat:{base:"#f3dfc0", stripe:"#d9b98a", paw:"#fffaf0"}},
+  {name:"턱시", coat:{base:"#2f2d33", patch:"#ffffff", patch2:"#ffffff"}},
+  {name:"구름", coat:{base:"#9aa5b8"}},
+  {name:"호떡", coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#f2a54e"}},
+  {name:"보리", coat:{base:"#c99a6b", stripe:"#9c6c42"}},
+];
+const KITTEN_COATS = [
+  {base:"#f2a54e", stripe:"#cf7a2b"}, {base:"#ffffff", patch:"#2f2d33", patch2:"#f2a54e"},
+  {base:"#a7abb5", stripe:"#7b808b"}, {base:"#2f2d33"}, {base:"#f3dfc0"}, {base:"#c99a6b", stripe:"#9c6c42"},
+  {base:"#ffffff", patch:"#a7abb5", patch2:"#a7abb5"}, {base:"#e8c39e", stripe:"#c9976a"},
+];
+const KITTEN_NAMES = ["콩","밤","율무","깨","두부","찹쌀","호두","라떼","망고","젤리","쿠키","모찌"];
+const CONFETTI = ["#f2a54e","#ffd36b","#7cc59a","#f08a8a","#7fb2ea","#c79bff"];
+function makeCat(o){
+  return {id:o.id, name:o.name, role:o.role || "", coat:o.coat, k:o.k, zBase:o.zBase, lift:o.lift,
+          napAfter:o.napAfter, napBase:o.napAfter, lot:o.lot, deskIdx:o.deskIdx, router:o.router,
+          pos:{...o.pos}, seat:{...o.seat}, home:{...o.seat}, seatLift:7, path:[], state:"idle",
+          stateText:"대기 중", activity:"", q:[], cur:null, workT:0, workDur:0, bubble:null, bob:0,
+          face:1, lastMs:Date.now(), idleSince:null, inLounge:false, waiting:false};
+}
+const BOSSES = SLOTS.map((L, i) => makeCat({
+  id:"boss"+i, name:BOSS_LOOKS[i].name, role:"메인 에이전트", coat:BOSS_LOOKS[i].coat, k:1.0, zBase:0,
+  napAfter:45, lot:i, deskIdx:0, router:lotRouter(L), pos:lotSeat(L, 0), seat:lotSeat(L, 0)}));
+
+function visibleCats(){
+  if (mode !== "live" || !live) return AGENTS;
+  const out = [];
+  for (const s of live.sessions.values()){ out.push(s.boss); for (const kt of s.kittens.values()) out.push(kt); }
+  return out;
+}
+const deskBusy = key => visibleCats().some(a => a.desk === key && a.state === "working");
+function slotSession(i){
+  if (mode !== "live" || !live) return null;
+  for (const s of live.sessions.values()) if (s.slot === i) return s;
+  return null;
+}
+
+/* ── 세션 이름: 직접 지은 이름 > 작업 폴더 이름 > 로그 폴더 이름 ── */
+let customNames = {};
+try { customNames = JSON.parse(localStorage.getItem("ao.names") || "{}") || {}; } catch {}
+const nameKey = s => s.fullId || s.sid;
+function sessName(s){
+  return customNames[nameKey(s)] || (s.cwd ? s.cwd.split(/[\\/]/).filter(Boolean).pop() : "") || s.proj;
+}
+function renameSession(s, name){
+  name = String(name || "").trim().slice(0, 24);
+  if (name) customNames[nameKey(s)] = name; else delete customNames[nameKey(s)];
+  try { localStorage.setItem("ao.names", JSON.stringify(customNames)); } catch {}
+  live.ver++;
+}
+
+/* ── 무슨 일을 하는지 한 줄 요약 ── */
+const baseName = p => String(p || "").split(/[\\/]/).filter(Boolean).pop() || "";
+function phrase(name, inp){
+  inp = inp || {};
+  const f = baseName(inp.file_path || inp.notebook_path || inp.path);
+  switch (name){
+    case "Read": return f ? `${f} 읽는 중` : "파일 읽는 중";
+    case "Edit": case "MultiEdit": case "str_replace_based_edit_tool": return f ? `${f} 고치는 중` : "코드 고치는 중";
+    case "Write": return f ? `${f} 쓰는 중` : "새 파일 쓰는 중";
+    case "NotebookEdit": return "노트북 고치는 중";
+    case "Grep": return inp.pattern ? `"${clip(inp.pattern, 14)}" 찾는 중` : "코드 찾는 중";
+    case "Glob": case "LS": return "파일 둘러보는 중";
+    case "WebSearch": return inp.query ? `"${clip(inp.query, 14)}" 검색 중` : "웹 검색 중";
+    case "WebFetch": return "웹 문서 읽는 중";
+    case "Task": case "Agent": return `새끼냥에게 맡김: ${clip(inp.description || inp.subagent_type || "일", 14)}`;
+    case "TodoWrite": case "TaskCreate": case "TaskUpdate": return "할 일 정리하는 중";
+    case "AskUserQuestion": return "물어볼 게 있어요";
+    case "ExitPlanMode": return "계획 확인 받는 중";
+    case "Bash": {
+      const c = String(inp.command || "");
+      if (/gradlew?\b.*\b(test|check)/i.test(c) || /\b(pytest|jest|vitest|npm (run )?test|go test|cargo test)\b/i.test(c)) return "테스트 돌리는 중";
+      if (/gradlew?\b.*\b(assemble|build|bundle|install)/i.test(c) || /\b(npm run build|tsc|vite build|cargo build|make)\b/i.test(c)) return "빌드하는 중";
+      if (/\b(lint|ruff|eslint|ktlint|detekt|prettier)\b/i.test(c)) return "린트 검사 중";
+      if (/\badb\b/.test(c)) return "기기에서 확인하는 중";
+      if (/\bgit (commit)/.test(c)) return "커밋하는 중";
+      if (/\bgit (push)/.test(c)) return "푸시하는 중";
+      if (/\bgit\b/.test(c)) return "git 살펴보는 중";
+      if (/\b(npm|pnpm|yarn|pip|brew) (i|install|add)\b/.test(c)) return "패키지 설치 중";
+      const w = c.trim().split(/\s+/)[0] || "명령";
+      return `${clip(baseName(w), 14)} 실행 중`;
+    }
+  }
+  return `${name} 쓰는 중`;
+}
+const isReq = t => { t = String(t || "").trim(); return !!t && !t.startsWith("<") && !t.startsWith("Caveat") && !t.startsWith("[Request interrupted"); };
+function lineItems(o){                // 로그 한 줄 → 말풍선/기록용 항목
+  const out = [], c = o.message && o.message.content;
+  if (o.type === "user"){
+    if (typeof c === "string"){ if (isReq(c)) out.push({kind:"request", text: clip(c, 26)}); }
+    else if (Array.isArray(c)) for (const b of c){
+      if (!b) continue;
+      if (b.type === "text" && isReq(b.text)) out.push({kind:"request", text: clip(b.text, 26)});
+      else if (b.type === "tool_result" && b.is_error) out.push({kind:"error", text: "앗, 에러! " + clip(flat(b.content), 18)});
+    }
+  } else if (o.type === "assistant" && Array.isArray(c)){
+    let said = false;
+    for (const b of c){
+      if (!b) continue;
+      if (b.type === "tool_use" && b.name) out.push({kind:"tool", text: phrase(b.name, b.input)});
+      else if (b.type === "text" && b.text && b.text.trim() && !said){ said = true; out.push({kind:"say", text: clip(b.text, 28)}); }
+    }
+  }
+  return out;
+}
+
+function enterLive(source = "server"){
+  mode = "live";
+  setScene("campus");
+  live = {source, seq:0, sessions:new Map(), errors:0, count:0, done:0, ver:1, fail:0};
+  resetAgents();
+  for (const L of SLOTS) L.appear = [];
+  $("#btnAuto").disabled = true; $("#btnAdd").disabled = true;
+  setKanbanLabels(["작업 중","명령 대기","새끼냥","완료"]);
+  $("#replayInfo").hidden = false;
+  $("#replayInfo").textContent = source === "demo"
+    ? "🐾 멀티 세션 데모 — 가짜 세션 4개가 돌아가요"
+    : "🔴 LIVE — 로컬 Claude Code 세션 감시 중";
+  $("#btnExit").hidden = source !== "demo";
+  $("#btnExit").textContent = "⏹ 데모 종료";
+  $("#summaryCard").hidden = false;
+  $("#summaryList").innerHTML = "";
+  $("#logDetails").open = false;
+  liveListVer = "";
+  if (source === "demo") startDemo(); else startPoll();
+}
+function exitLive(){
+  liveLoop++;
+  mode = "sim";
+  setScene("office");
+  resetAgents();
+  buildSimRows();
+  $("#btnAuto").disabled = false; $("#btnAdd").disabled = false;
+  setKanbanLabels(["대기","진행","리뷰","완료"]);
+  $("#replayInfo").hidden = true;
+  $("#btnExit").hidden = true;
+  $("#summaryCard").hidden = true;
+  $("#agentsTitle").parentElement.hidden = false;
+  $("#logDetails").open = true;
+}
+function startPoll(){
+  const id = ++liveLoop;
+  (async function tick(){
+    if (mode !== "live" || liveLoop !== id) return;
+    try{
+      const r = await fetch("api/events?since=" + live.seq, {cache:"no-store"});
+      if (!r.ok) throw 0;
+      const d = await r.json();
+      live.seq = d.seq;
+      for (const rec of d.events) liveHandle(rec);
+      live.fail = 0;
+    }catch{
+      if (++live.fail > 8){
+        log("라이브 서버와 연결이 끊겼어요 — 시뮬레이션으로 전환", "bad");
+        exitLive(); return;
+      }
+    }
+    setTimeout(tick, 1500);
+  })();
+}
+function liveSession(rec){
+  let s = live.sessions.get(rec.s);
+  if (s) return s;
+  const used = new Set([...live.sessions.values()].map(v => v.slot));
+  let slot = SLOTS.findIndex((_, i) => !used.has(i));
+  if (slot < 0){                         // 빈 사무실이 없으면 가장 오래 조용한 세션이 이사 나감
+    let old = null;
+    for (const v of live.sessions.values()) if (!old || v.lastMs < old.lastMs) old = v;
+    live.sessions.delete(old.sid);
+    if (old.card) old.card.el.remove();
+    slot = old.slot;
+    log(`${SLOTS[slot].name} 이사 나감: ${sessName(old)}`, null);
+  }
+  SLOTS[slot].appear = [];
+  const boss = BOSSES[slot];
+  Object.assign(boss, {q:[], cur:null, path:[], pos:{...boss.home}, seat:{...boss.home}, seatLift:7,
+    state:"idle", stateText:"입주 완료", idleSince:null, bubble:null, inLounge:false, waiting:false,
+    napAfter:boss.napBase, activity:"", lastMs:Date.now()});
+  s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
+       phase:"idle", goal:"", topic:"", todos:[], activity:"", files:new Set(), cmds:0, errs:0, subTotal:0,
+       startMs:0, result:"", lastText:"", cwd:"", branch:"", fullId:"", pendingEndAt:0, pendingTool:null,
+       waitReason:"", waitSince:0, doneAt:0, stampUntil:0, didWork:false, card:null};
+  live.sessions.set(rec.s, s); live.ver++;
+  log(`${SLOTS[slot].name}에 입주 — ${rec.p} · ${rec.s}`, "good");
+  say(boss, "입주했어요!", 2.4);
+  return s;
+}
+function liveKitten(sess, key){
+  let kt = sess.kittens.get(key);
+  if (kt){
+    if (kt.leaving){ kt.leaving = false; kt.seat = {...kt.home}; kt.seatLift = 7; kt.stateText = "다시 출근"; }
+    return kt;
+  }
+  const L = SLOTS[sess.slot];
+  const used = new Set([0, ...[...sess.kittens.values()].map(k => k.deskIdx)]);
+  let idx = -1;
+  for (let i=1; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
+  if (idx < 0) return null;                 // 책상이 꽉 차면 대장이 대신 처리
+  const names = new Set([...sess.kittens.values()].map(k => k.name));
+  let h = 0; for (const ch of key) h = (h*31 + ch.charCodeAt(0)) >>> 0;
+  let name = KITTEN_NAMES[h % KITTEN_NAMES.length];
+  for (let j=1; names.has(name) && j<KITTEN_NAMES.length; j++) name = KITTEN_NAMES[(h + j) % KITTEN_NAMES.length];
+  kt = makeCat({id:"kit-"+key, name, role: sess.taskQ.shift() || "서브에이전트",
+                coat: KITTEN_COATS[h % KITTEN_COATS.length], k:0.8, zBase:0, napAfter:999,
+                lot:sess.slot, deskIdx:idx, router:lotRouter(L), pos:lotDoor(L), seat:lotSeat(L, idx)});
+  sess.kittens.set(key, kt); live.ver++;
+  log(`${L.name}에 새끼냥 ${name} 출근 — ${kt.role}`, "good");
+  return kt;
+}
+
+/* ── 세션 상태: 작업 중 / 명령 대기 / 조용함 ── */
+function bossToDesk(s){
+  const b = s.boss;
+  if (b.waiting || b.inLounge){ b.waiting = false; b.inLounge = false; b.seat = {...b.home}; b.seatLift = 7; b.napAfter = b.napBase; }
+}
+function setWaiting(s, reason, fresh){
+  s.phase = "waiting"; s.waitReason = reason; s.waitSince = Date.now();
+  s.pendingEndAt = 0; s.pendingTool = null;
+  const b = s.boss;
+  b.waiting = true; b.inLounge = false; b.seat = lotWait(SLOTS[s.slot]); b.seatLift = 0; b.napAfter = 90;
+  b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
+              : reason === "중단" ? "중단됨 · 명령 대기" : "명령 기다리는 중";
+  if (fresh && (reason === "질문" || reason === "계획")){
+    say(b, reason === "질문" ? "물어볼 게 있어요!" : "계획 봐 주세요!", 3);
+    notifyUser(`${sessName(s)}: ${reason === "질문" ? "질문이 있어요" : "계획 확인이 필요해요"}`, s.activity);
+  }
+  live.ver++;
+}
+function complete(s, fresh){
+  if (s.phase === "waiting") return;
+  s.result = clip(s.lastText || "", 90);
+  s.doneAt = Date.now();
+  setWaiting(s, "명령", fresh);
+  if (fresh && s.didWork) celebrate(s);
+}
+function celebrate(s){
+  const L = SLOTS[s.slot], t = perfNow();
+  live.done++;
+  s.stampUntil = t + 3;
+  for (const c of [s.boss, ...s.kittens.values()]) c.cheerUntil = t + 1.8;
+  say(s.boss, "다 했어요!", 3);
+  if (!reduceMotion) for (let i=0; i<4; i++) setTimeout(() => burst(L.x + 30 + Math.random()*120, L.y + 25 + Math.random()*80), i*170);
+  const sum = [s.files.size ? `파일 ${s.files.size}개 수정` : "", s.cmds ? `명령 ${s.cmds}회` : "",
+               s.subTotal ? `새끼냥 ${s.subTotal}마리 출동` : ""].filter(Boolean).join(" · ");
+  toast(`✓ ${sessName(s)} 작업 완료`, sum || s.result);
+  chime();
+  notifyUser(`✓ ${sessName(s)} 작업 완료`, s.result || sum);
+  log(`✓ ${L.name} · ${sessName(s)} 작업 완료${sum ? " (" + sum + ")" : ""}`, "good");
+}
+function burst(x, y){
+  for (let i=0; i<26; i++) parts.push({x, y, z:22, vx:(Math.random()-.5)*90, vy:(Math.random()-.5)*90,
+                                        vz:60 + Math.random()*90, t:1.4, c:pick(CONFETTI), big:true});
+}
+function trackMain(s, o, fresh){
+  const c = o.message && o.message.content;
+  if (o.type === "user"){
+    const txt = typeof c === "string" ? c
+              : Array.isArray(c) ? c.filter(b => b && b.type === "text").map(b => b.text).join(" ") : "";
+    const tt = String(txt || "").trim();
+    if (tt.startsWith("[Request interrupted")){ s.activity = "중단됨"; setWaiting(s, "중단", false); return; }
+    if (isReq(tt)){
+      s.pendingEndAt = 0;
+      s.goal = clip(tt, 70); if (!s.topic) s.topic = clip(tt, 40);
+      Object.assign(s, {phase:"working", startMs:Date.now(), files:new Set(), cmds:0, errs:0, subTotal:0,
+                        result:"", didWork:false, waitReason:"", activity:"요청 살펴보는 중", doneAt:0});
+      bossToDesk(s); live.ver++;
+      return;
+    }
+    if (Array.isArray(c)) for (const b of c) if (b && b.type === "tool_result"){
+      s.pendingTool = null;
+      if (b.is_error) s.errs++;
+      if (s.phase === "waiting" && (s.waitReason === "질문" || s.waitReason === "계획")){
+        s.phase = "working"; s.activity = "답을 받고 다시 일하는 중"; bossToDesk(s); live.ver++;
+      }
+    }
+    return;
+  }
+  if (o.type !== "assistant" || !Array.isArray(c)) return;
+  s.pendingEndAt = 0;
+  let text = "", tools = 0;
+  for (const b of c){
+    if (!b) continue;
+    if (b.type === "tool_use"){
+      tools++;
+      const name = b.name || "", inp = b.input || {};
+      s.activity = phrase(name, inp); s.didWork = true;
+      if (s.phase !== "working"){ s.phase = "working"; bossToDesk(s); live.ver++; }
+      if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name) && (inp.file_path || inp.notebook_path)) s.files.add(inp.file_path || inp.notebook_path);
+      if (name === "Bash") s.cmds++;
+      if (/^(Task|Agent)$/i.test(name)) s.subTotal++;
+      if (name === "TodoWrite" && Array.isArray(inp.todos))
+        s.todos = inp.todos.map(t => ({content: t.content || t.activeForm || "", activeForm: t.activeForm || t.content || "", status: t.status || "pending"}));
+      if (name === "TaskCreate") s.todos.push({content: inp.subject || inp.description || "할 일", activeForm: inp.activeForm || inp.subject || "", status:"pending"});
+      if (name === "TaskUpdate" && inp.taskId){ const t = s.todos[(+inp.taskId) - 1]; if (t && inp.status) t.status = inp.status === "deleted" ? "completed" : inp.status; }
+      if (name === "AskUserQuestion"){ setWaiting(s, "질문", fresh); continue; }
+      if (name === "ExitPlanMode"){ setWaiting(s, "계획", fresh); continue; }
+      s.pendingTool = {name, at: Date.now()};
+    } else if (b.type === "text" && b.text && b.text.trim()) text = b.text.trim();
+  }
+  const stop = o.message.stop_reason;
+  if (text) s.lastText = text;
+  if (stop === "end_turn") complete(s, fresh);
+  else if (text && !tools){ if (fresh) s.pendingEndAt = Date.now() + 7000; else complete(s, false); }
+}
+function liveHandle(rec){
+  let o; try { o = JSON.parse(rec.l); } catch { return; }
+  const side = !!(o.isSidechain || rec.a);
+  if (o.type === "summary"){
+    const s = live.sessions.get(rec.s);
+    if (s && o.summary){ s.topic = clip(o.summary, 40); live.ver++; }
+    return;
+  }
+  const items = lineItems(o);
+  let sess = live.sessions.get(rec.s);
+  if (!sess){ if (!items.length) return; sess = liveSession(rec); }
+  if (o.cwd && !side) sess.cwd = o.cwd;
+  if (o.gitBranch && !side) sess.branch = o.gitBranch;
+  if (o.sessionId && !side) sess.fullId = o.sessionId;
+  const ts = Date.parse(o.timestamp || "");
+  const fresh = isNaN(ts) || Date.now() - ts < 60000;
+  sess.lastTs = isNaN(ts) ? Date.now() : ts;
+  if (!side) trackMain(sess, o, fresh);
+  if (!items.length) return;
+  // 서브에이전트 호출 → 다음에 올 새끼냥의 역할 이름
+  if (!side && o.type === "assistant")
+    for (const b of o.message.content)
+      if (b && b.type === "tool_use" && /^(Task|Agent)$/i.test(b.name || "")){
+        const inp = b.input || {};
+        sess.taskQ.push(clip(inp.description || inp.subagent_type || "서브에이전트", 16));
+      }
+  let actor = sess.boss;
+  if (side){ const kt = liveKitten(sess, String(rec.a || o.agentId || "sub")); if (kt) actor = kt; }
+  sess.lastMs = actor.lastMs = Date.now();
+  if (actor.inLounge){                       // 쉬다가 일이 오면 책상으로 복귀
+    actor.inLounge = false; actor.seat = {...actor.home}; actor.seatLift = 7; actor.napAfter = actor.napBase;
+  }
+  const where = SLOTS[sess.slot].name;
+  for (const it of items){
+    live.count++;
+    if (it.kind === "error") live.errors++;
+    if (it.kind === "tool") actor.activity = it.text;
+    if (side && it.kind === "say"){ actor.cheerUntil = perfNow() + 1.2; actor.activity = "보고 완료"; }
+    if (actor.q.length < 5){
+      actor.q.push({spot: actor.seat, dur: it.kind === "error" ? 1.6 : 1.1, text: it.text,
+                    st: it.kind === "tool" ? it.text : it.kind === "say" ? "말하는 중" : it.kind === "error" ? "에러 확인 중" : "요청 받음"});
+    } else actor.stateText = it.text;
+    log(`[${where} · ${actor.name}] ${it.kind === "request" ? "요청: " : ""}${it.text}`,
+        it.kind === "error" ? "bad" : it.kind === "request" ? "warn" : it.kind === "say" ? "good" : null);
+  }
+}
+function liveTick(dt){
+  for (const a of visibleCats()) replayAgentTick(a, dt);
+  const nowMs = Date.now();
+  for (const s of live.sessions.values()){
+    if (s.pendingEndAt && nowMs > s.pendingEndAt) complete(s, true);
+    if (s.phase === "working" && nowMs - s.lastTs > 15*60000){ s.phase = "idle"; s.activity = "한동안 조용해요"; bossToDesk(s); live.ver++; }
+    s.approval = s.phase === "working" && s.pendingTool && /^(Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch)$/.test(s.pendingTool.name)
+                 && nowMs - s.pendingTool.at > 15000;
+    const L = SLOTS[s.slot], cats = [s.boss, ...s.kittens.values()];
+    for (const c of cats){
+      if (c.waiting && !c.cur && !c.q.length) c.stateText = s.approval ? "승인을 기다리는 걸지도" : c.stateText;
+      // 할 일이 없으면 휴게공간으로
+      if (c.leaving || c.waiting || c.inLounge || c.cur || c.q.length || c.path.length) continue;
+      if (nowMs - c.lastMs < 9000) continue;
+      if (c === s.boss && s.phase === "working") continue;     // 세션이 일하는 동안 대장은 책상을 지킨다
+      const spots = lotLounge(L);
+      const taken = new Set(cats.filter(x => x.inLounge).map(x => x.loungeIdx));
+      const free = spots.map((_, i) => i).filter(i => !taken.has(i));
+      if (!free.length) continue;
+      const i = free[(c.deskIdx * 7 + Math.floor(nowMs / 60000)) % free.length];
+      Object.assign(c, {inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,
+                        napAfter:spots[i].nap, stateText:"휴게공간에서 쉬는 중"});
+      say(c, spots[i].say, 2);
+    }
+    for (const [key, kt] of s.kittens){
+      if (!kt.leaving && !kt.cur && !kt.q.length && nowMs - kt.lastMs > 45000){
+        Object.assign(kt, {leaving:true, inLounge:false, seat:lotDoor(L), seatLift:0, stateText:"퇴근 중"});
+        say(kt, "퇴근!", 2);
+      }
+      if (kt.leaving && !kt.path.length && Math.hypot(kt.pos.x - kt.seat.x, kt.pos.y - kt.seat.y) < 4){
+        s.kittens.delete(key); live.ver++;
+      }
+    }
+  }
+}
+
+/* ── 알림: 화면 위 토스트 / 소리 / PC 알림 ── */
+let notifyOn = false, audioCtx = null;
+try { notifyOn = localStorage.getItem("ao.notify") === "1"; } catch {}
+function toast(title, body){
+  const box = $("#toasts"), el = document.createElement("div");
+  el.className = "toast";
+  const b = document.createElement("b"); b.textContent = title; el.appendChild(b);
+  if (body){ const p = document.createElement("span"); p.textContent = body; el.appendChild(p); }
+  box.appendChild(el);
+  setTimeout(() => el.classList.add("out"), 4600);
+  setTimeout(() => el.remove(), 5200);
+  while (box.children.length > 3) box.firstChild.remove();
+}
+function chime(){
+  if (!notifyOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audioCtx.currentTime;
+    [[784, 0], [1047, 0.12], [1319, 0.24]].forEach(([f, d]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d); g.gain.exponentialRampToValueAtTime(0.18, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.35);
+      o.connect(g); g.connect(audioCtx.destination); o.start(t0 + d); o.stop(t0 + d + 0.4);
+    });
+  } catch {}
+}
+function notifyUser(title, body){
+  if (!notifyOn || !("Notification" in window) || Notification.permission !== "granted") return;
+  if (document.hasFocus()) return;
+  try { new Notification(title, {body: body || "", tag: title}); } catch {}
+}
+
+/* ── 터미널 열기 / 이어하기 / 폴더 / 명령 복사 ── */
+async function openAction(s, action, msgEl){
+  const say2 = t => { msgEl.hidden = false; msgEl.textContent = t; clearTimeout(msgEl._t); msgEl._t = setTimeout(() => msgEl.hidden = true, 5000); };
+  if (action === "view"){ focusLot(s.slot); return; }
+  if (action === "copy"){
+    const cmd = `cd "${s.cwd || "."}" && claude --resume ${s.fullId || s.sid}`;
+    try { await navigator.clipboard.writeText(cmd); say2("이어하기 명령을 복사했어요."); }
+    catch { say2(cmd); }
+    return;
+  }
+  if (!liveCanOpen || live.source !== "server"){ say2("이 버튼은 내 PC에서 서버로 열었을 때만 동작해요."); return; }
+  if (action === "resume" && s.phase === "working" && Date.now() - s.lastMs < 120000){
+    if (!s.resumeArm || Date.now() - s.resumeArm > 4000){
+      s.resumeArm = Date.now();
+      say2("지금 실행 중인 세션이에요. 한 번 더 누르면 새 창에서 이어서 열어요. (보통은 '터미널로 이동'이 맞아요)");
+      return;
+    }
+  }
+  say2("여는 중…");
+  try {
+    const r = await fetch("api/open", {method:"POST", headers:{"Content-Type":"application/json", "X-Agent-Office":"1"},
+                                       body: JSON.stringify({sid: s.sid, action})});
+    const d = await r.json();
+    say2(d.msg || (d.ok ? "열었어요." : "열지 못했어요."));
+  } catch { say2("서버에 연결하지 못했어요."); }
+}
+
+/* ── 카메라: 건물 클릭 → 확대 ── */
+function lotCenter(i){ const L = SLOTS[i]; return [isoX(L.x+L.w/2, L.y+L.d/2), isoY(L.x+L.w/2, L.y+L.d/2, 16)]; }
+function focusLot(i){
+  if (scene !== "campus") return;
+  const L = SLOTS[i], [cx, cy] = lotCenter(i);
+  cam.focus = i; cam.tz = Math.min(2.5, VW / ((L.w + L.d) * ISX * 1.12)); cam.tcx = cx; cam.tcy = cy;
+  $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${L.name}`;
+  liveListVer = "";
+}
+function unfocus(){
+  cam.focus = null; cam.tz = 1; cam.tcx = VW/2; cam.tcy = VH/2;
+  $("#btnBack").hidden = true; liveListVer = "";
+}
+function updateCam(rdt){
+  const k = reduceMotion ? 1 : Math.min(1, rdt * 5);
+  cam.z += (cam.tz - cam.z) * k; cam.cx += (cam.tcx - cam.cx) * k; cam.cy += (cam.tcy - cam.cy) * k;
+}
+const SX = px => ((px - cam.cx) * cam.z + VW/2) * scale;
+const SY = py => ((py - cam.cy) * cam.z + VH/2) * scale;
+function lotHull(i){
+  const L = SLOTS[i];
+  return [gpt(L.x, L.y+L.d, WALL), gpt(L.x, L.y, WALL+12), gpt(L.x+L.w, L.y, WALL+12),
+          gpt(L.x+L.w, L.y, 0), gpt(L.x+L.w, L.y+L.d, GZ), gpt(L.x, L.y+L.d, GZ)];
+}
+function inPoly(x, y, p){
+  let c = false;
+  for (let i=0, j=p.length-1; i<p.length; j=i++)
+    if ((p[i][1] > y) !== (p[j][1] > y) && x < (p[j][0]-p[i][0]) * (y-p[i][1]) / (p[j][1]-p[i][1]) + p[i][0]) c = !c;
+  return c;
+}
+function lotAt(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
+  const x = (px - VW/2) / cam.z + cam.cx, y = (py - VH/2) / cam.z + cam.cy;
+  for (let i=0; i<SLOTS.length; i++) if (inPoly(x, y, lotHull(i))) return i;
+  return -1;
+}
+
+/* ── 캠퍼스 그리기 ── */
+const CAMPUS_PLATES = [
+  [-900, -900, 1900, 860], [-900, 350, 1900, 900], [-900, -40, 860, 390], [812, -40, 900, 390],
+  ...SLOTS.map(L => [L.x-10, L.y-10, L.w+20, L.d+20]),
+];
+const CAMPUS_LAMPS = [[234,140],[508,140],[264,170],[538,170],[300,356],[620,356],[820,280]];
+function drawCampusGround(){
+  const P = TOD;
+  ctx.save(); ctx.setLineDash([7,7]); ctx.globalAlpha = .45;
+  for (const y of [-25, 155, 335]) line([gpt(-900, y, -12), gpt(1600, y, -12)]);
+  for (const x of [-25, 249, 523, 797]) line([gpt(x, -900, -12), gpt(x, 1200, -12)]);
+  ctx.restore();
+  for (const [cx, cy] of [[249,155],[523,155]]){              // 횡단보도
+    for (let i=0;i<3;i++) floorPoly(cx - 12 + i*10, cy - 40, 5, 16, P.plate, -12, true);
+    for (let i=0;i<3;i++) floorPoly(cx + 22, cy - 12 + i*10, 16, 5, P.plate, -12, true);
+  }
+  for (const [x, y, w, d] of CAMPUS_PLATES){
+    wallQuad(x, y+d, x+w, y+d, -12, GZ, P.side);
+    wallQuad(x+w, y+d, x+w, y, -12, GZ, P.side);
+    floorPoly(x, y, w, d, P.plate, GZ);
+  }
+  if (P.lamp > 0.02){
+    for (const [lx, ly] of CAMPUS_LAMPS){
+      const g = ctx.createRadialGradient(isoX(lx,ly), isoY(lx,ly,GZ), 2, isoX(lx,ly), isoY(lx,ly,GZ), 46);
+      g.addColorStop(0, `rgba(255,205,120,${(.42*P.lamp).toFixed(3)})`); g.addColorStop(1, "rgba(255,205,120,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(isoX(lx,ly), isoY(lx,ly,GZ), 50, 22, 0, 0, 7); ctx.fill();
+    }
+  }
+}
+function campusDecor(now){
+  const out = [
+    {z:-260, fn:() => apartment(120, -250, 100, 56, 90, 1)},
+    {z:-250, fn:() => apartment(400, -260, 100, 60, 100, 3)},
+  ];
+  for (const [x, y, h, r] of [[40,-62,60,16],[190,-66,66,17],[340,-60,58,15],[490,-64,64,17],[640,-60,60,16],
+                              [-62,40,60,16],[-64,190,56,15],[836,80,60,16],[842,220,58,15],
+                              [70,380,58,16],[250,374,62,17],[370,382,56,15],[560,374,60,16],[700,380,58,15]])
+    out.push({z: x + y, fn:() => tree(x, y, h, r)});
+  for (const [x, y] of CAMPUS_LAMPS) out.push({z: x + y, fn:() => streetLamp(x, y)});
+  out.push({z: 150+365, fn:() => bench(140, 358)});
+  out.push({z: 440+365, fn:() => bench(430, 358)});
+  out.push({z: 490+362, fn:() => mailbox(488, 358)});
+  out.push({z: 530+362, fn:() => bike(522, 360)});
+  out.push({z: 210+360, fn:() => planter(204, 356, ["#e9897a","#ffd36b","#e9897a"])});
+  return out;
+}
+function miniDesk(L, i, busy, now, alpha){
+  const P = TOD, d = lotDesk(L, i);
+  ctx.globalAlpha = alpha;
+  for (const lx of [d.x + 1.5, d.x + DESK_W - 1.5]) line([gpt(lx, d.y + DESK_D - 1, 0), gpt(lx, d.y + DESK_D - 1, 9)]);
+  isoBox(d.x, d.y, DESK_W, DESK_D, 9, 2, P.paper, P.paper, P.side);
+  const mx = d.x + DESK_W/2 - 6;
+  isoBox(mx + 4, d.y + 2, 4, 3, 11, 1, P.paper, P.paper, P.side);
+  isoBox(mx, d.y + 2, 12, 2, 12, 9, P.paper, P.paper, P.side);
+  wallQuad(mx + 1, d.y + 4, mx + 11, d.y + 4, 13, 20, busy ? (Math.floor(now*5) % 2 ? "#bfe6ff" : "#a6dcff") : P.side);
+  isoBox(d.x + DESK_W/2 - 5, d.y + DESK_D - 5, 10, 3, 11, 0.8, P.paper, P.paper, P.side);
+  ctx.globalAlpha = 1;
+}
+function lotTheme(L){
+  const P = TOD, x = L.x, y = L.y;
+  if (L.theme === "board"){
+    wallQuad(x, y+34, x, y+92, 7, 22, P.paper);
+    ctx.save(); ctx.lineWidth = 1.4 * LW;
+    ctx.strokeStyle = "#e5534b"; line([gpt(x, y+40, 18), gpt(x, y+62, 18)]);
+    ctx.strokeStyle = "#3b7fc4"; line([gpt(x, y+40, 14), gpt(x, y+78, 14)]);
+    ctx.strokeStyle = "#3f9c62"; line([gpt(x, y+40, 10), gpt(x, y+56, 10)]);
+    ctx.restore();
+  } else if (L.theme === "cafe"){
+    isoBox(x, y+40, 9, 52, 0, 12, P.paper, P.paper, P.side);
+    for (const cy of [y+48, y+62, y+76]) isoBox(x+2, cy, 4, 4, 12, 3.5, "#ffffff", "#ffffff", P.side);
+  } else if (L.theme === "plants"){
+    drawPlant(x+1, y+38, 22); drawPlant(x+1, y+74, 18);
+  } else if (L.theme === "books"){
+    isoBox(x, y+36, 8, 46, 0, 22, P.paper, P.paper, P.side);
+    for (const z of [7, 14]) line([gpt(x+8, y+36, z), gpt(x+8, y+82, z)]);
+    const cols = ["#e9897a","#7fb2ea","#f0c96b","#8fbf9a"];
+    for (let k=0; k<9; k++){ const yy = y+38 + k*4.8; wallQuad(x+8, yy+3, x+8, yy, 15, 21, cols[k%4], true); }
+  } else if (L.theme === "shelf"){
+    isoBox(x, y+30, 8, 60, 0, 20, P.paper, P.paper, P.side);
+    for (const z of [6, 13]) line([gpt(x+8, y+30, z), gpt(x+8, y+90, z)]);
+    const cols = ["#e9897a","#ffd36b","#8fbf9a","#7fb2ea"];
+    for (let k=0; k<10; k++) for (const z of [7, 14]){
+      const p = gpt(x+8, y+33 + k*5.6, z + 2.5); ctx.fillStyle = cols[(k + z) % 4]; ctx.fillRect(p[0]-1.2, p[1]-1.2, 2.4, 2.4);
+    }
+  } else if (L.theme === "sofa"){
+    isoBox(x, y+44, 12, 40, 0, 6, L.trim, L.trim, "#c9473f");
+    isoBox(x, y+44, 4, 40, 6, 7, L.trim, L.trim, "#c9473f");
+  }
+}
+/* 휴게공간 가구 */
+function loungeSofa(L){
+  const P = TOD, x = L.x + 160, y = L.y + 3;
+  isoBox(x, y, 44, 12, 0, 6, P.paper, P.paper, P.side);
+  isoBox(x, y, 44, 4, 6, 8, P.paper, P.paper, P.side);
+  isoBox(x, y, 4, 12, 6, 4, P.paper, P.paper, P.side);
+  isoBox(x + 40, y, 4, 12, 6, 4, P.paper, P.paper, P.side);
+  for (const cx of [x + 7, x + 25]) isoBox(cx, y + 4, 12, 7, 6, 1.5, L.trim, L.trim, L.trim);
+}
+function loungeTower(L){
+  const P = TOD, x = L.x + 202, y = L.y + 44;
+  for (const [px, py] of [[x+2, y+12], [x+12, y+12], [x+12, y+2]]) line([gpt(px, py, 0), gpt(px, py, 28)]);
+  isoBox(x, y, 14, 14, 0, 3, P.side, P.side, P.side);
+  isoBox(x - 4, y + 4, 10, 10, 14, 2, P.paper, P.paper, P.side);
+  isoBox(x, y, 14, 14, 28, 2.5, L.trim, P.paper, P.side);
+  ctx.save(); ctx.globalAlpha = .6;                        // 기둥에 감은 밧줄
+  for (let z = 4; z < 26; z += 3){ const p = gpt(x+12, y+12, z); line([[p[0]-1.8, p[1]], [p[0]+1.8, p[1]-0.6]]); }
+  ctx.restore();
+}
+function loungeRug(L){
+  const P = TOD;
+  ctx.save(); ctx.globalAlpha = .25; floorPoly(L.x + 160, L.y + 66, 50, 42, L.trim, 0, true); ctx.restore();
+  floorPoly(L.x + 160, L.y + 66, 50, 42, null);
+  ctx.setLineDash([2, 2.5]); floorPoly(L.x + 164, L.y + 70, 42, 34, null); ctx.setLineDash([]);
+}
+function loungeBowls(L){
+  const P = TOD;
+  for (const [bx, c] of [[L.x + 200, "#f2a54e"], [L.x + 210, "#bfe6ff"]]){
+    const cx = isoX(bx, L.y + 120), cy = isoY(bx, L.y + 120);
+    ell(cx, cy, 4.5, 2, P.paper); ell(cx, cy - 1.2, 3.2, 1.3, c, true);
+  }
+}
+function loungeCoffee(L){
+  const P = TOD, x = L.x + 208, y = L.y + 3;
+  isoBox(x, y, 12, 10, 0, 18, P.paper, P.paper, P.side);
+  wallQuad(x + 2, y + 10, x + 10, y + 10, 8, 14, P.side);
+}
+function drawLot(i, now){
+  const L = SLOTS[i], P = TOD, s = slotSession(i);
+  const act = s ? (s.phase === "working" ? 1 : 0.4) : 0;
+  wallQuad(L.x, L.y+L.d, L.x+L.w, L.y+L.d, GZ, 0, P.side);
+  wallQuad(L.x+L.w, L.y+L.d, L.x+L.w, L.y, GZ, 0, P.side);
+  floorPoly(L.x, L.y, L.w, L.d, P.floor);
+  // 휴게공간 바닥: 나무 마루 느낌
+  ctx.save(); ctx.globalAlpha = .5; floorPoly(L.x + 156, L.y, L.w - 156, L.d, P.side, 0, true); ctx.restore();
+  ctx.save(); ctx.globalAlpha = .25;
+  for (let yy = L.y + 10; yy < L.y + L.d; yy += 10) line([gpt(L.x + 156, yy, 0), gpt(L.x + L.w, yy, 0)]);
+  ctx.restore();
+  if (act > 0){
+    ctx.fillStyle = `rgba(255,214,140,${((.08 + .14*P.lamp) * act).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(isoX(L.x+78, L.y+L.d/2), isoY(L.x+78, L.y+L.d/2), 100, 42, 0, 0, 7); ctx.fill();
+  }
+  // 명령 대기 중이면 문 앞에 따뜻한 빛
+  if (s && s.phase === "waiting"){
+    const w = lotWait(L), pulse = reduceMotion ? 0.5 : 0.5 + 0.5*Math.sin(now*3);
+    ctx.fillStyle = `rgba(240,154,62,${(0.10 + 0.10*pulse).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(isoX(w.x, w.y), isoY(w.x, w.y), 22, 9, 0, 0, 7); ctx.fill();
+  }
+  wallQuad(L.x, L.y, L.x, L.y+L.d, 0, WALL, P.paper);
+  wallQuad(L.x, L.y, L.x+L.w, L.y, 0, WALL, P.paper);
+  wallQuad(L.x, L.y, L.x, L.y+L.d, WALL-3.5, WALL, L.trim);
+  wallQuad(L.x, L.y, L.x+L.w, L.y, WALL-3.5, WALL, L.trim);
+  line([gpt(L.x, L.y+L.d, 3.5), gpt(L.x, L.y, 3.5), gpt(L.x+L.w, L.y, 3.5)]);
+  for (const wx of [L.x+30, L.x+100]){                         // 북쪽 창문
+    wallQuad(wx, L.y, wx+34, L.y, 8, 19, P.glass);
+    if (todW[2] > .05){ ctx.globalAlpha = todW[2]; ctx.fillStyle = "#ffe08a";
+      for (const [sx, sz] of [[8,16],[22,12]]) ctx.fillRect(isoX(wx+sx, L.y)-1, isoY(wx+sx, L.y, sz)-1, 2, 2);
+      ctx.globalAlpha = 1; }
+    line([gpt(wx+17, L.y, 8), gpt(wx+17, L.y, 19)]);
+  }
+  lotTheme(L);
+  // 휴게공간 팻말 (북쪽 벽)
+  wallQuad(L.x + 176, L.y, L.x + 200, L.y, 16, 22, P.paper);
+  ctx.fillStyle = P.ink; ctx.font = "5px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("휴게실", isoX(L.x + 188, L.y), isoY(L.x + 188, L.y, 19));
+  // 간판 (북쪽 벽 위)
+  const s0 = L.x + 78 - 30, s1 = L.x + 78 + 30;
+  line([gpt(s0+8, L.y, WALL), gpt(s0+8, L.y, WALL+2)]); line([gpt(s1-8, L.y, WALL), gpt(s1-8, L.y, WALL+2)]);
+  wallQuad(s0, L.y, s1, L.y, WALL+2, WALL+12, P.paper);
+  ctx.font = "8px 'Jua', sans-serif";
+  ctx.fillText(L.name, isoX(L.x+78, L.y), isoY(L.x+78, L.y, WALL+7));
+  ctx.textAlign = "left";
+  loungeRug(L);
+  // 실내 (깊이 정렬)
+  const items = [];
+  if (s){
+    const cats = [s.boss, ...s.kittens.values()];
+    const maxIdx = cats.reduce((m, c) => Math.max(m, c.deskIdx), 0);
+    const n = Math.max(3, maxIdx + 1);
+    for (let k=0; k<n; k++){
+      L.appear[k] = L.appear[k] ?? now;
+      const alpha = Math.min(1, (now - L.appear[k]) / 0.6);
+      const d = lotDesk(L, k), seat = lotSeat(L, k);
+      const busy = cats.some(c => c.deskIdx === k && c.state === "working" && !c.inLounge && !c.waiting);
+      items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha)});
+      items.push({z: seat.x + seat.y - 0.5, fn:() => { ctx.globalAlpha = alpha; drawStool(seat, 0); ctx.globalAlpha = 1; }});
+    }
+    for (let k=n; k<MAX_DESKS; k++) L.appear[k] = undefined;
+    for (const c of cats) items.push({z: c.pos.x + c.pos.y, fn:() => drawCat(c, now)});
+  }
+  items.push({z: L.x + 182 + L.y + 15, fn:() => loungeSofa(L)});
+  items.push({z: L.x + 209 + L.y + 58, fn:() => loungeTower(L)});
+  items.push({z: L.x + 205 + L.y + 118, fn:() => loungeBowls(L)});
+  items.push({z: L.x + 214 + L.y + 13, fn:() => loungeCoffee(L)});
+  items.push({z: L.x + 8 + L.y + L.d - 8, fn:() => drawPlant(L.x + 2, L.y + L.d - 15, 18)});
+  items.sort((p, q) => p.z - q.z);
+  for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
+  if (!s){                                                     // 빈 사무실 안내판
+    const cx = L.x + 78, cy = L.y + L.d/2;
+    line([gpt(cx, cy, 0), gpt(cx, cy, 12)]);
+    wallQuad(cx - 18, cy, cx + 18, cy, 11, 21, P.paper);
+    ctx.fillStyle = P.ink; ctx.font = "7px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("입주 대기", isoX(cx, cy), isoY(cx, cy, 16)); ctx.textAlign = "left";
+  }
+}
+function drawCampus(now){
+  drawCampusGround();
+  const items = SLOTS.map((L, i) => ({z: L.x + L.w/2 + L.y + L.d/2, fn:() => drawLot(i, now)}));
+  items.push(...campusDecor(now));
+  items.sort((p, q) => p.z - q.z);
+  for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
+}
+const PHASE_LOOK = {
+  working: {icon:"⚙", text:"작업 중", bg:null},
+  waiting: {icon:"💬", text:"명령 대기", bg:"#f09a3e"},
+  idle:    {icon:"😴", text:"조용함", bg:null},
+};
+function phaseLook(s){
+  if (s.phase === "waiting" && s.doneAt && Date.now() - s.doneAt < 20000) return {icon:"✓", text:"완료", bg:"#3f9c62"};
+  if (s.phase === "waiting" && s.waitReason === "질문") return {icon:"❓", text:"답변 대기", bg:"#f09a3e"};
+  if (s.phase === "waiting" && s.waitReason === "계획") return {icon:"📝", text:"계획 확인", bg:"#f09a3e"};
+  if (s.approval) return {icon:"⏳", text:"승인 필요?", bg:"#f09a3e"};
+  return PHASE_LOOK[s.phase] || PHASE_LOOK.idle;
+}
+function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화면 좌표)
+  if (scene !== "campus" || !live) return;
+  ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`;
+  ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr;
+  for (const s of live.sessions.values()){
+    if (cam.focus !== null && cam.focus !== s.slot) continue;
+    const L = SLOTS[s.slot], look = phaseLook(s);
+    const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
+    const n = s.kittens.size;
+    const txt = `${look.icon} ${sessName(s)} · ${look.text}${n ? "  🐾" + n : ""}`;
+    const tw = ctx.measureText(txt).width, w = tw + 18*dpr, hh = 20*dpr;
+    const bx = Math.max(4, Math.min(cv.width - w - 4, tx - w/2));
+    if (ty < hh) continue;
+    ctx.strokeStyle = TOD.ink; ctx.fillStyle = look.bg || TOD.paper;
+    ctx.beginPath(); ctx.roundRect(bx, ty - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = look.bg ? "#1f1d1b" : TOD.ink;
+    ctx.fillText(txt, bx + 9*dpr, ty - hh/2 + 0.5);
+    // 완료 도장
+    if (s.stampUntil > now){
+      const age = 3 - (s.stampUntil - now), [cx0, cy0] = lotCenter(s.slot);
+      const sc = Math.min(1, age / 0.25) * (1 + Math.max(0, 0.25 - age) * 2);
+      const alpha = Math.min(1, (s.stampUntil - now) / 0.6);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(SX(cx0), SY(cy0) - 10*dpr); ctx.rotate(-0.18); ctx.scale(sc, sc);
+      ctx.strokeStyle = "#d6463f"; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 3*dpr;
+      ctx.beginPath(); ctx.roundRect(-46*dpr, -20*dpr, 92*dpr, 40*dpr, 10*dpr); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#d6463f"; ctx.font = `${24*dpr}px 'Jua', sans-serif`; ctx.textAlign = "center";
+      ctx.fillText("완료!", 0, 1*dpr);
+      ctx.restore(); ctx.textAlign = "left";
+      ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.lineWidth = 1.3*dpr;
+    }
+  }
+}
+
+/* 멀티 세션 데모: 서버 없이 가짜 세션 4개를 Claude Code 로그 형식으로 흘려보냄 */
+const DEMO_SESS = [
+  {s:"a1b2c3d4", p:"myapp", cwd:"/Users/you/StudioProjects/myapp", branch:"feature/compose-login",
+   asks:["로그인 화면 Compose로 바꿔줘","딥링크 열릴 때 크래시 나는 거 고쳐줘"],
+   todos:[["로그인 화면 구조 파악","LoginScreen Compose로 작성","ViewModel 연결","프리뷰·테스트 추가"],
+          ["크래시 로그 분석","딥링크 파싱 수정","회귀 테스트 추가"]],
+   files:["app/src/main/java/com/ex/login/LoginViewModel.kt","app/src/main/java/com/ex/login/LoginScreen.kt","app/src/main/AndroidManifest.xml"],
+   cmds:["./gradlew assembleDebug","./gradlew testDebugUnitTest"]},
+  {s:"77ef01aa", p:"webtool", cwd:"/Users/you/work/webtool", branch:"main",
+   asks:["대시보드에 빌드 시간 차트 추가해줘","차트 다크모드 색 맞춰줘"],
+   todos:[["데이터 형태 확인","차트 컴포넌트 작성","대시보드에 배치"],["색상 토큰 확인","차트 테마 적용"]],
+   files:["src/App.tsx","src/charts/BuildTime.tsx","package.json"], cmds:["npm run build","npm test"]},
+  {s:"c0ffee12", p:"design-sys", cwd:"/Users/you/work/design-sys", branch:"dark-tokens",
+   asks:["다크모드 색상 토큰 정리해줘"],
+   todos:[["기존 토큰 목록 정리","다크 토큰 추가","컴포넌트에 적용","린트 통과 확인"]],
+   files:["tokens/color.json","ui/Button.kt","ui/Theme.kt"], cmds:["./gradlew :design:lint"]},
+  {s:"9d8e7f6a", p:"api-server", cwd:"/Users/you/work/api-server", branch:"pagination",
+   asks:["유저 API에 페이지네이션 추가해줘"],
+   todos:[["엔드포인트 확인","페이지네이션 구현","테스트 작성"]],
+   files:["server/routes/user.py","tests/test_user.py"], cmds:["pytest -q","ruff check ."]},
+];
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+function demoLine(d, agentId){
+  const r = Math.random(), base = agentId ? {isSidechain:true, agentId} : {};
+  if (r < 0.07) return {...base, type:"user", message:{content:[{type:"tool_result", is_error:true,
+    content: pick(["Build failed: unresolved reference","1 test failed","lint: 3 errors"])}]}};
+  const tool = pick(agentId ? ["Read","Grep","Glob","Read","Bash"] : ["Read","Edit","Bash","Grep","Edit","Write"]);
+  const input = tool === "Bash" ? {command: pick(d.cmds)}
+              : tool === "Grep" ? {pattern: pick(["TODO","ViewModel","fetch(","colorScheme"])}
+              : tool === "Glob" ? {pattern: "**/*.kt"}
+              : {file_path: d.cwd + "/" + pick(d.files)};
+  return {...base, type:"assistant", message:{content:[{type:"tool_use", name:tool, input}]}};
+}
+function startDemo(){
+  const id = ++liveLoop;
+  const st = DEMO_SESS.map((_, i) => ({phase:"off", at:1 + i*3, req:0, todos:[], cur:0, step:0, subs:[], cap:[3,2,3,2][i], asked:false}));
+  const full = d => d.s + "-0000-4000-8000-" + d.s + "abcd";
+  const emit = (d, o) => liveHandle({s:d.s, p:d.p, a:o.agentId,
+    l: JSON.stringify({cwd:d.cwd, gitBranch:d.branch, sessionId:full(d), ...o})});
+  const todoWrite = (d, S) => emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"TodoWrite", input:{todos:
+    S.todos.map((c, i) => ({content:c, activeForm:c + " 중", status: i < S.cur ? "completed" : i === S.cur ? "in_progress" : "pending"}))}}]}});
+  const startTask = (d, S, i) => {
+    const k = S.req++ % d.asks.length;
+    S.todos = d.todos[k]; S.cur = 0; S.step = 0; S.asked = false; S.phase = "work";
+    emit(d, {type:"user", message:{content: d.asks[k]}});
+    todoWrite(d, S);
+  };
+  let t = 0;
+  (function tick(){
+    if (mode !== "live" || liveLoop !== id) return;
+    t++;
+    DEMO_SESS.forEach((d, i) => {
+      const S = st[i];
+      if ((S.phase === "off" || S.phase === "wait") && t >= S.at) startTask(d, S, i);
+      if (S.phase === "question" && t >= S.at){
+        S.phase = "work";
+        emit(d, {type:"user", message:{content:[{type:"tool_result", content:"사용자 답변: 첫 번째 방법으로"}]}});
+      }
+    });
+    const on = st.map((x, i) => x.phase === "work" ? i : -1).filter(i => i >= 0);
+    for (let n=0; n<3 && on.length; n++){
+      const i = pick(on), d = DEMO_SESS[i], S = st[i];
+      if (S.phase !== "work") continue;
+      if (S.subs.length && Math.random() < 0.55){
+        const sub = pick(S.subs);
+        emit(d, demoLine(d, sub.id));
+        if (--sub.left <= 0){
+          emit(d, {type:"assistant", isSidechain:true, agentId:sub.id, message:{content:[{type:"text", text:"조사 끝, 결과 보고합니다"}]}});
+          S.subs = S.subs.filter(x => x !== sub);
+        }
+      } else if (S.subs.length < S.cap && Math.random() < 0.14){
+        const sub = {id: Math.random().toString(16).slice(2,10), left: 5 + Math.floor(Math.random()*6)};
+        emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"Task",
+          input:{description: pick(["코드베이스 탐색","테스트 작성","회귀 확인","문서 조사","빌드 로그 분석","UI 리뷰","API 스펙 조사"])}}]}});
+        S.subs.push(sub);
+        emit(d, demoLine(d, sub.id));
+      } else if (!S.asked && i === 1 && Math.random() < 0.15){
+        S.asked = true; S.phase = "question"; S.at = t + 5;
+        emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"AskUserQuestion",
+          input:{questions:[{question:"차트 종류는 어떤 걸로 할까요?"}]}}]}});
+      } else {
+        emit(d, demoLine(d));
+        if (++S.step % 4 === 0){
+          S.cur++;
+          if (S.cur < S.todos.length) todoWrite(d, S);
+        }
+        if (S.cur >= S.todos.length && !S.subs.length){
+          todoWrite(d, S);
+          emit(d, {type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text",
+            text: pick(["요청하신 작업을 마쳤어요. 빌드와 테스트 모두 통과했어요.","변경 사항을 정리해 뒀어요. 확인해 주세요!","다 했어요. 다음에 할 일을 알려 주세요."])}]}});
+          S.phase = "wait"; S.at = t + 10 + Math.floor(Math.random()*8);
+        }
+      }
+    }
+    setTimeout(tick, 1100 / SPEEDS[speedIdx]);
+  })();
+}
+
+/* ───────── 방 ───────── */
+function drawRoom(now){
+  const P = TOD, [wDay, wDusk, wNight] = todW;
+  // 바깥 보도 판 + 방 바닥 슬래브
+  wallQuad(0,300, 480,300, GZ, 0, P.side);
+  wallQuad(480,300, 480,0, GZ, 0, P.side);
+  floorPoly(0, 0, 480, 300, P.floor);
+  // 러그 (미팅 존): 이중선 + 점 무늬
+  floorPoly(66, 194, 90, 68, P.paper);
+  ctx.setLineDash([2,2.5]); floorPoly(72, 200, 78, 56, null); ctx.setLineDash([]);
+  // 창문 빛이 바닥에 떨어짐 (낮엔 햇살, 밤엔 달빛)
+  ctx.globalAlpha = P.beamA;
+  for (let i=0;i<3;i++){
+    const wx = 200 + i*88, reach = 84 + wDay*40;
+    shape([gpt(wx,2), gpt(wx+48,2), gpt(wx+30,reach), gpt(wx-18,reach)], P.beam, true);
+  }
+  ctx.globalAlpha = 1;
+  // 밤엔 천장 조명이 바닥에 따뜻한 빛 웅덩이
+  if (P.lamp > 0.02){
+    ctx.fillStyle = `rgba(255,232,160,${(.075*P.lamp).toFixed(3)})`;
+    for (const [lx,ly] of [[130,120],[290,120],[230,210],[380,150],[110,228]]){
+      ctx.beginPath(); ctx.ellipse(isoX(lx,ly), isoY(lx,ly), 46, 19, 0, 0, 7); ctx.fill();
+    }
+  }
+  // 작업 중인 책상 앞 모니터 불빛
+  for (const key in DESKS){
+    if (!deskBusy(key)) continue;
+    const d = DESKS[key];
+    ctx.fillStyle = `rgba(120,200,255,${(.08 + .10*P.lamp).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(isoX(d.x+d.w/2, d.y+d.h+12), isoY(d.x+d.w/2, d.y+d.h+12), 30, 12, 0, 0, 7); ctx.fill();
+  }
+  // 벽 두 면 (윗단에 두께)
+  wallQuad(0,0, 0,300, 0, WALL_H, P.paper);
+  wallQuad(0,0, 480,0, 0, WALL_H, P.paper);
+  shape([gpt(0,0,WALL_H), gpt(480,0,WALL_H), gpt(480,-5,WALL_H), gpt(-5,-5,WALL_H), gpt(-5,300,WALL_H), gpt(0,300,WALL_H)], P.paper);
+  line([gpt(0,300,6), gpt(0,0,6), gpt(480,0,6)]);            // 걸레받이
+  // 창문 (북쪽 벽)
+  for (let i=0;i<3;i++){
+    const wx = 200 + i*88;
+    wallQuad(wx-3,0, wx+51,0, 16, 52, P.paper);
+    wallQuad(wx,0, wx+48,0, 19, 49, P.glass);
+    wallQuad(wx,0, wx+48,0, 19, 30, P.glass2, true);
+    if (wNight > 0.05){                                     // 별
+      ctx.globalAlpha = wNight; ctx.fillStyle = "#ffe08a";
+      for (const [sx,sz] of [[10,40],[28,30],[40,45],[18,26]])
+        ctx.fillRect(isoX(wx+sx,0)-1, isoY(wx+sx,0,sz)-1, 2, 2);
+      ctx.globalAlpha = 1;
+    }
+    if (wDay > 0.05){                                       // 구름이 천천히 흘러감
+      ctx.globalAlpha = wDay;
+      const drift = reduceMotion ? 20 : (now*2.2 + i*19) % 56;
+      const cx0 = wx - 4 + drift;
+      if (cx0 > wx+2 && cx0 < wx+34){
+        const cx = isoX(cx0,0), cy = isoY(cx0,0,40);
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, Math.PI*0.9, Math.PI*1.9); ctx.arc(cx+5, cy-1, 4, Math.PI*1.1, Math.PI*2.0);
+        ctx.arc(cx+10, cy+1.5, 3, Math.PI*1.3, Math.PI*0.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (i === 2){                                           // 해(노을엔 낮게) / 달
+      const sunA = wDay + wDusk;
+      if (sunA > 0.05){
+        ctx.globalAlpha = Math.min(1, sunA);
+        const sz = 34*wDay + 24*wDusk + 36*wNight;
+        ell(isoX(wx+20,0), isoY(wx+20,0,sz), 4.5, 4.5, P.sun);
+        ctx.globalAlpha = 1;
+      }
+      if (wNight > 0.05){
+        ctx.globalAlpha = wNight;
+        const mx = isoX(wx+36,0), my = isoY(wx+36,0,38);
+        ctx.fillStyle = "#fff2c0";
+        ctx.beginPath(); ctx.arc(mx, my, 5, Math.PI*0.35, Math.PI*1.65);
+        ctx.arc(mx-2.5, my-0.5, 4, Math.PI*1.45, Math.PI*0.55, true); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    line([gpt(wx+24,0,19), gpt(wx+24,0,49)]);              // 창살
+    line([gpt(wx,0,34), gpt(wx+48,0,34)]);
+    isoBox(wx-4, 0, 56, 3, 14, 2, P.paper, P.paper, P.side); // 창턱
+  }
+  // 벽시계 — 실제 시각을 가리킴
+  const ccx = isoX(150,0), ccy = isoY(150,0,40), d = new Date();
+  ell(ccx, ccy, 7, 7.5, P.paper);
+  const hA = ((d.getHours()%12) + d.getMinutes()/60) / 12 * Math.PI*2 - Math.PI/2;
+  const mA = d.getMinutes() / 60 * Math.PI*2 - Math.PI/2;
+  line([[ccx,ccy],[ccx+Math.cos(hA)*3.5, ccy+Math.sin(hA)*3.5]]);
+  line([[ccx,ccy],[ccx+Math.cos(mA)*5.5, ccy+Math.sin(mA)*5.5]]);
+  // 에어컨
+  wallQuad(60,0, 112,0, 40, 54, P.paper);
+  for (let k=0;k<4;k++) line([gpt(64,0,44+k*2.4), gpt(108,0,44+k*2.4)]);
+  // 화이트보드 (서쪽 벽)
+  wallQuad(0,36, 0,112, 16, 50, P.paper);
+  wallQuad(0,40, 0,108, 19, 47, P.paper);
+  ctx.save(); ctx.lineWidth = 1.6;
+  ctx.strokeStyle = "#e5534b"; line([gpt(0,46,40), gpt(0,74,40)]);
+  ctx.strokeStyle = "#3b7fc4"; line([gpt(0,46,33), gpt(0,92,33)]);
+  ctx.strokeStyle = "#3f9c62"; line([gpt(0,46,26), gpt(0,66,26)]);
+  ctx.restore();
+  // 생선 포스터 (서쪽 벽)
+  wallQuad(0,170, 0,212, 22, 48, P.paper);
+  const fx = isoX(0,191), fy = isoY(0,191,35);
+  ctx.beginPath(); ctx.ellipse(fx, fy, 8, 4, 0.46, 0, Math.PI*2); ctx.stroke();
+  line([[fx-7,fy+2.5],[fx-12,fy+0.5],[fx-11,fy+6.5],[fx-7,fy+2.5]]);
+  ctx.fillStyle = P.ink; ctx.fillRect(fx+4, fy-1.5, 1.4, 1.4);
+}
+
+/* ───────── 가구 (깊이 정렬 대상) ───────── */
+function drawDesk(key, now){
+  const P = TOD, d = DESKS[key];
+  isoBox(d.x+d.w-15, d.y+3, 13, d.h-6, 0, 14, P.paper, P.paper, P.side);   // 서랍장
+  line([gpt(d.x+d.w-12, d.y+d.h-3, 9), gpt(d.x+d.w-5, d.y+d.h-3, 9)]);
+  for (const [lx,ly] of [[d.x+1,d.y+d.h-1],[d.x+1,d.y+1]])               // 다리
+    line([gpt(lx,ly,0), gpt(lx,ly,14)]);
+  isoBox(d.x, d.y, d.w, d.h, 14, 3, P.paper, P.paper, P.side);            // 상판
+  const working = deskBusy(key);
+  const mx = d.x + d.w/2 - 9;
+  line([gpt(mx+9, d.y+5, 17), gpt(mx+9, d.y+5, 21)]);                     // 모니터 목
+  isoBox(mx+5, d.y+3, 8, 5, 17, 1, P.paper, P.paper, P.side);
+  isoBox(mx, d.y+3, 18, 3, 21, 13, P.paper, P.paper, P.side);
+  const blink = Math.floor(now*5) % 2;
+  wallQuad(mx+1.5, d.y+6, mx+16.5, d.y+6, 22.5, 32.5, working ? (blink ? "#bfe6ff" : "#a6dcff") : P.side);
+  if (working){
+    ctx.save(); ctx.strokeStyle = "#1f1d1b"; ctx.lineWidth = .8;
+    line([gpt(mx+3.5, d.y+6, 30), gpt(mx+11, d.y+6, 30)]);
+    line([gpt(mx+5.5, d.y+6, 27.5), gpt(mx+13, d.y+6, 27.5)]);
+    line([gpt(mx+3.5, d.y+6, 25), gpt(mx+8, d.y+6, 25)]);
+    ctx.restore();
+  }
+  isoBox(d.x+d.w/2-8, d.y+d.h-9, 14, 5, 17, 1.2, P.paper, P.paper, P.side); // 키보드
+  isoBox(d.x+4, d.y+d.h-10, 5, 5, 17, 5, P.paper, P.paper, P.side);       // 머그컵
+  // 이름표
+  const who = AGENTS.find(a => a.desk === key);
+  ctx.fillStyle = P.ink; ctx.font = "7px 'Jua', sans-serif"; ctx.textBaseline = "alphabetic";
+  ctx.fillText(who ? who.name : d.label, isoX(d.x+3, d.y+d.h)+1, isoY(d.x+3, d.y+d.h, 14.4));
+}
+function drawStool(seat, z){
+  const P = TOD, sx = isoX(seat.x, seat.y), sy = isoY(seat.x, seat.y, z || 0);
+  line([[sx, sy], [sx, sy-6]]);
+  line([[sx-4, sy+1.5], [sx, sy-1], [sx+4, sy+1.5]]);
+  ell(sx, sy-7, 6.5, 2.8, P.paper);
+}
+function drawTray(x, y, n, tint){
+  const P = TOD;
+  isoBox(x, y, 34, 18, 0, 10, P.paper, P.paper, P.side);
+  for (let i=0; i<Math.min(n,5); i++)
+    isoBox(x+6, y+3, 22, 12, 10 + i*2.2, 1.4, i === Math.min(n,5)-1 ? tint : P.paper, P.paper, P.side);
+}
+function drawCoffee(now){
+  const P = TOD;
+  isoBox(430, 236, 24, 18, 0, 30, P.paper, P.paper, P.side);
+  wallQuad(434, 254, 450, 254, 12, 23, P.side);
+  ell(isoX(446,254), isoY(446,254,27), 1.6, 1.6, "#e5534b");
+  isoBox(438, 255, 6, 4, 12, 4, P.paper, P.paper, P.side);                // 컵
+  if (!reduceMotion){                                                     // 김
+    const base = isoY(441,257,18), bx = isoX(441,257), t = now*3;
+    ctx.beginPath();
+    for (let s=0; s<=10; s++){ const yy = base - s*1.4, xx = bx + Math.sin(t + s*0.6)*1.6; s ? ctx.lineTo(xx,yy) : ctx.moveTo(xx,yy); }
+    ctx.globalAlpha = .6; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+}
+function drawServer(now){
+  const P = TOD;
+  isoBox(14, 238, 22, 16, 0, 44, P.paper, P.paper, P.side);
+  for (let i=0;i<4;i++){
+    line([gpt(16, 254, 9+i*9), gpt(34, 254, 9+i*9)]);
+    const c = Math.floor(now*3+i)%3 ? "#3f9c62" : "#e5534b";
+    ctx.fillStyle = c; ctx.fillRect(isoX(31,254), isoY(31,254, 12+i*9), 2, 2);
+  }
+}
+function bush(cx, cy, r){       // 레퍼런스처럼 몽글몽글한 나무/화분 잎
+  const P = TOD;
+  ctx.fillStyle = P.paper;
+  ctx.beginPath();
+  const bumps = 9;
+  for (let i=0;i<=bumps;i++){
+    const a = i/bumps*Math.PI*2, rx = cx + Math.cos(a)*r, ry = cy + Math.sin(a)*r*0.95;
+    if (!i) ctx.moveTo(rx, ry);
+    else { const am = (i-0.5)/bumps*Math.PI*2; ctx.quadraticCurveTo(cx+Math.cos(am)*r*1.25, cy+Math.sin(am)*r*1.2, rx, ry); }
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  for (const [ox,oy] of [[-.4,-.2],[.25,-.45],[.35,.2],[-.15,.35]]){       // 잎 결 "v"
+    const px = cx+ox*r, py = cy+oy*r;
+    line([[px-1.6,py-1],[px,py+0.6],[px+1.6,py-1]]);
+  }
+}
+function drawPlant(x, y, h){
+  const P = TOD;
+  isoBox(x, y, 13, 13, 0, 9, P.paper, P.paper, P.side);
+  const cx = isoX(x+6.5, y+6.5), cy = isoY(x+6.5, y+6.5, 9);
+  line([[cx, cy], [cx, cy-h+6]]);
+  bush(cx, cy-h, 9);
+}
+function drawBox(now){            // 고양이가 좋아하는 종이상자
+  const P = TOD;
+  isoBox(300, 262, 26, 20, 0, 13, P.side, P.paper, P.side);
+  shape([gpt(300,282,13), gpt(326,282,13), gpt(323,290,17), gpt(303,290,17)], P.paper); // 앞 날개
+  shape([gpt(326,262,13), gpt(326,282,13), gpt(333,280,16), gpt(333,264,16)], P.paper); // 옆 날개
+}
+function drawTable(){
+  const P = TOD, cx = isoX(110,228), cy = isoY(110,228);
+  line([[cx, cy], [cx, cy-13]]);
+  line([[cx-9, cy+3], [cx, cy], [cx+9, cy+3]]);
+  ell(cx, cy-15, 32, 12.5, P.paper);
+  ctx.beginPath(); ctx.ellipse(cx, cy-14, 32, 12.5, 0, 0.05, Math.PI-0.05); ctx.stroke();
+  isoBox(104, 220, 14, 10, 15.5, 1, P.paper, P.paper, P.side);            // 노트북
+  wallQuad(104, 220, 118, 220, 16.5, 26, "#bfe6ff");
+}
+
+/* ───────── 고양이 ───────── */
+const catK = a => 1.7 + (a.pos.x + a.pos.y) / 780 * 0.35;
+function catPose(a, now){
+  if (a.path.length) return "walk";
+  if (a.state === "working") return "work";
+  if (a.state === "idle"){
+    a.idleSince = a.idleSince ?? now;
+    if (now - a.idleSince > (a.napAfter ?? 7) && !a.bubble) return "sleep";
+  } else a.idleSince = null;
+  return "sit";
+}
+function drawCat(a, now){
+  const P = TOD, C = a.coat;
+  const sx = isoX(a.pos.x, a.pos.y), sy = isoY(a.pos.x, a.pos.y, a.zBase || 0);
+  const k = a.k ?? catK(a);
+  if (a.path.length){
+    const t = a.path[0];
+    const sdx = (t.x - a.pos.x) - (t.y - a.pos.y);
+    if (Math.abs(sdx) > .2) a.face = sdx > 0 ? 1 : -1;
+  }
+  const f = a.face || 1, pose = catPose(a, now);
+  const atStool = Math.hypot(a.pos.x - a.seat.x, a.pos.y - a.seat.y) < 3 && pose !== "walk";
+  const hop = a.cheerUntil && now < a.cheerUntil && !reduceMotion ? Math.abs(Math.sin((a.cheerUntil - now) * 10)) * 6 * k : 0;
+  const baseLift = a.lift ?? (atStool ? (a.seatLift ?? 7) : 0);
+  const lift = baseLift + hop;
+  if (a.waiting && atStool){                     // 명령 대기: 발밑에 깜빡이는 동그라미
+    const r = reduceMotion ? 1 : 1 + 0.25 * Math.sin(now * 3);
+    ctx.save(); ctx.strokeStyle = "#f09a3e"; ctx.lineWidth = LW * 1.4;
+    ctx.beginPath(); ctx.ellipse(sx, sy + 1, 11*k*r, 4*k*r, 0, 0, 7); ctx.stroke(); ctx.restore();
+  }
+  if (baseLift === 0){ ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.beginPath(); ctx.ellipse(sx, sy + 1*k, 8*k, 2.4*k, 0, 0, 7); ctx.fill(); }
+  ctx.save(); ctx.translate(sx, sy - lift); ctx.scale(k*f, k);
+  ctx.lineWidth = LW / k;
+  const eyeC = C.base === "#2f2d33" ? "#ffd86b" : "#1f1d1b";
+  const lineC = null;
+  const sway = reduceMotion ? 0 : Math.sin(now*2.2 + a.seat.x) * 0.25;
+  const fillPatch = (fn) => {         // 몸·머리 위에 무늬를 클리핑해서 칠함
+    if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.3/k; fn("stripe"); ctx.lineWidth = LW/k; ctx.strokeStyle = TOD.ink; }
+    if (C.patch){ fn("patch"); }
+  };
+  const inkStroke = () => { ctx.strokeStyle = lineC ? "#1f1d1b" : TOD.ink; ctx.stroke(); };
+  if (pose === "walk"){
+    const st = reduceMotion ? 0 : Math.sin(a.bob*1.1) * 1.8;
+    ctx.strokeStyle = TOD.ink;
+    // 꼬리 (위로 말림)
+    ctx.beginPath(); ctx.moveTo(-7, -7); ctx.quadraticCurveTo(-13, -10, -11+sway*4, -16); ctx.lineWidth = 2.6/k; ctx.strokeStyle = C.base; ctx.stroke();
+    ctx.lineWidth = LW/k; ctx.strokeStyle = TOD.ink;
+    ctx.beginPath(); ctx.moveTo(-7, -8.3); ctx.quadraticCurveTo(-14.3, -10.6, -12.2+sway*4, -16.6); ctx.stroke();
+    // 다리
+    for (const [lx, ph] of [[-5,1],[-2,-1],[3,-1],[6,1]]){
+      line([[lx, -4], [lx + st*ph*0.6, 0]]);
+    }
+    // 몸
+    ctx.beginPath(); ctx.ellipse(0, -6.5, 8.5, 4.6, 0, 0, Math.PI*2);
+    ctx.fillStyle = C.base; ctx.fill();
+    ctx.save(); ctx.clip();
+    if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.4/k; for (const x of [-4,-1,2]) line([[x,-11],[x+1,-7]]); }
+    if (C.patch){ ell(-3, -9, 4, 3, C.patch, true); ell(4, -4, 3, 2.4, C.patch2, true); }
+    ctx.restore(); ctx.lineWidth = LW/k; inkStroke();
+    drawHead(a, 8, -12.5, eyeC, lineC, pose, now);
+  } else {
+    // 앉은 자세 (sit/work/sleep)
+    const breathe = reduceMotion ? 0 : Math.sin(now*2) * 0.35;
+    ctx.beginPath(); ctx.moveTo(4, -1); ctx.quadraticCurveTo(12, 0, 11+sway*3, -7);           // 꼬리 몸쪽
+    ctx.lineWidth = 2.6/k; ctx.strokeStyle = C.base; ctx.stroke();
+    ctx.lineWidth = LW/k; ctx.strokeStyle = lineC ? "#1f1d1b" : TOD.ink;
+    ctx.beginPath(); ctx.moveTo(4, .4); ctx.quadraticCurveTo(13.4, 1.4, 12.3+sway*3, -7.3); ctx.stroke();
+    ctx.strokeStyle = TOD.ink;
+    ctx.beginPath(); ctx.ellipse(0, -6, 6.3, 6.6 + breathe, 0, 0, Math.PI*2);
+    ctx.fillStyle = C.base; ctx.fill();
+    ctx.save(); ctx.clip();
+    if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.4/k; line([[-6,-8],[-2,-7]]); line([[6,-8],[2,-7]]); line([[-6,-4],[-3,-3.5]]); }
+    if (C.patch){ ell(-4, -9, 4.2, 3.6, C.patch, true); ell(4, -3, 3.4, 3, C.patch2, true); }
+    ctx.restore(); ctx.lineWidth = LW/k; inkStroke();
+    // 앞발 (일할 땐 번갈아 톡톡)
+    const tap = pose === "work" && !reduceMotion ? Math.floor(now*8)%2 : 0;
+    ell(-2.4, -0.6 - tap*1.6, 1.9, 1.3, C.paw || C.base); 
+    ell(2.4, -0.6 - (pose==="work" && !reduceMotion ? 1-tap : 0)*1.6, 1.9, 1.3, C.paw || C.base);
+    drawHead(a, 0, -15.5, eyeC, lineC, pose, now);
+  }
+  if (a.carry){ shape([[9,-13],[14,-14.5],[15.2,-9.5],[10.2,-8]], "#ffffff"); }
+  ctx.restore();
+  if (a.waiting && atStool){                     // "냥?" 팻말을 들고 기다림
+    const bob = reduceMotion ? 0 : Math.sin(now * 3) * 1.2;
+    const px = sx + 10*k, top = sy - lift - 31*k + bob;
+    ctx.strokeStyle = TOD.ink; ctx.lineWidth = LW;
+    line([[px, sy - lift - 6*k], [px, top + 9*k]]);
+    ctx.fillStyle = "#fff8e6"; ctx.beginPath(); ctx.roundRect(px - 9*k, top, 18*k, 10*k, 2*k); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#1f1d1b"; ctx.font = `${7*k}px 'Jua', sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("냥?", px, top + 5.3*k); ctx.textAlign = "left";
+  }
+  // 잠자는 중 zzz
+  if (pose === "sleep" && !reduceMotion){
+    ctx.fillStyle = TOD.ink; ctx.font = "8px 'Jua', sans-serif";
+    const z = (now*0.8) % 1;
+    ctx.globalAlpha = 1 - z;
+    ctx.fillText("z", sx + 7*k, sy - (24 + z*8)*k - lift);
+    ctx.font = "6px 'Jua', sans-serif"; ctx.fillText("z", sx + 12*k, sy - (30 + z*8)*k - lift);
+    ctx.globalAlpha = 1;
+  }
+  // 진행 막대
+  if (a.state === "working" && a.workDur > 0){
+    const p = Math.min(1, a.workT / a.workDur), bw = 20*k, bx = sx - bw/2, by = sy - 27*k - lift;
+    ctx.fillStyle = TOD.paper; ctx.beginPath(); ctx.roundRect(bx, by, bw, 4, 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = (a.task && a.task.stage === "review") ? "#d9822b" : "#f09a3e";
+    ctx.beginPath(); ctx.roundRect(bx+0.8, by+0.8, (bw-1.6)*p, 2.4, 1.2); ctx.fill();
+  }
+}
+function drawHead(a, hx, hy, eyeC, lineC, pose, now){
+  const C = a.coat, ink = lineC || TOD.ink;
+  ctx.strokeStyle = ink;
+  // 귀
+  for (const s of [-1, 1]){
+    shape([[hx + s*5.6, hy - 1], [hx + s*4.6, hy - 7.4], [hx + s*1.4, hy - 4]], s < 0 && C.patch ? C.patch : C.base);
+  }
+  // 머리
+  ctx.beginPath(); ctx.ellipse(hx, hy, 6.4, 5.4, 0, 0, Math.PI*2);
+  ctx.fillStyle = C.base; ctx.fill();
+  ctx.save(); ctx.clip();
+  if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.3; line([[hx-1.6,hy-5.5],[hx-1.4,hy-3]]); line([[hx+1.6,hy-5.5],[hx+1.4,hy-3]]); line([[hx,hy-5.6],[hx,hy-3.2]]); }
+  if (C.patch){ ell(hx-4, hy-3, 3.6, 3.2, C.patch, true); ell(hx+4.5, hy-3.5, 2.6, 2.4, C.patch2, true); }
+  ctx.restore(); ctx.strokeStyle = ink; ctx.lineWidth = LW; ctx.stroke();
+  // 얼굴
+  if (pose === "sleep"){
+    line([[hx-3.4, hy+0.2], [hx-1.6, hy+0.9]]); line([[hx+3.4, hy+0.2], [hx+1.6, hy+0.9]]);
+  } else {
+    const blink = !reduceMotion && ((now + a.seat.x*0.37) % 4.2) < 0.13;
+    if (blink){ line([[hx-3.2, hy+0.4], [hx-1.6, hy+0.4]]); line([[hx+1.6, hy+0.4], [hx+3.2, hy+0.4]]); }
+    else { ell(hx-2.4, hy+0.2, 0.95, 1.15, eyeC, true); ell(hx+2.4, hy+0.2, 0.95, 1.15, eyeC, true); }
+  }
+  // 입 ω
+  ctx.beginPath(); ctx.arc(hx-0.8, hy+2.2, 0.8, 0, Math.PI); ctx.arc(hx+0.8, hy+2.2, 0.8, 0, Math.PI); ctx.stroke();
+  // 볼터치
+  ctx.fillStyle = "rgba(240,120,120,.35)";
+  ctx.beginPath(); ctx.ellipse(hx-4, hy+2, 1.3, 0.8, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hx+4, hy+2, 1.3, 0.8, 0, 0, 7); ctx.fill();
+}
+
+let scale = 2, dpr = 1;
+function resize(){
+  const box = cv.parentElement.getBoundingClientRect();
+  const cssW = Math.max(280, box.width - 12);
+  const cssH = cssW * VH / VW;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.style.height = cssH + "px";
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+  scale = cv.width / VW;
+}
+addEventListener("resize", resize);
+
+function render(now){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = TOD.bg;
+  ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.setTransform(scale,0,0,scale,0,0);
+  if (scene === "campus"){ ctx.translate(VW/2, VH/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.cx, -cam.cy); }
+  LW = 1.05 / Math.sqrt(cam.z);
+  ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.lineWidth = LW;
+  ctx.strokeStyle = TOD.ink;
+  if (scene === "campus") drawCampus(now);
+  else { drawOffice(now); }
+  drawParticlesAndOverlay(now);
+}
+function drawOffice(now){
+  drawGround(now);
+  drawBackTown(now);
+  ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink;
+  drawRoom(now);
+  // 깊이(x+y) 정렬 후 페인터 알고리즘
+  const items = [];
+  for (const key in DESKS){
+    const d = DESKS[key], seat = deskSeat(d);
+    items.push({z: d.x + d.w/2 + d.y + d.h, fn: () => drawDesk(key, now)});
+    items.push({z: seat.x + seat.y - 0.5, fn: () => drawStool(seat)});
+  }
+  items.push({z: 437+74,  fn: () => drawTray(420, 56, inboxQ.length, "#ffe08a")});
+  items.push({z: 425+188, fn: () => drawTray(408, 170, Math.min(doneCount,5), "#bfe8c8")});
+  items.push({z: 442+254, fn: () => drawCoffee(now)});
+  items.push({z: 25+254,  fn: () => drawServer(now)});
+  items.push({z: 18+131,  fn: () => drawPlant(12, 124, 26)});
+  items.push({z: 182+21,  fn: () => drawPlant(176, 14, 30)});
+  items.push({z: 313+282, fn: () => drawBox(now)});
+  items.push({z: 338,     fn: drawTable});
+  for (const a of visibleCats()) items.push({z: a.pos.x + a.pos.y, fn: () => drawCat(a, now)});
+  items.push(...townItems(now));
+  items.sort((p,q) => p.z - q.z);
+  for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
+}
+function drawParticlesAndOverlay(now){
+  // 파티클 (z축으로 떠오르는 작은 별)
+  for (const p of parts){
+    const px = isoX(p.x,p.y), py = isoY(p.x,p.y,p.z);
+    if (p.big){ ctx.fillStyle = p.c; ctx.save(); ctx.translate(px, py); ctx.rotate(p.t * 7 + p.vx);
+                ctx.fillRect(-1.8, -1.1, 3.6, 2.2); ctx.restore(); continue; }
+    ctx.fillStyle = p.c; ctx.beginPath();
+    ctx.moveTo(px, py-2); ctx.lineTo(px+0.7, py-0.7); ctx.lineTo(px+2, py); ctx.lineTo(px+0.7, py+0.7);
+    ctx.lineTo(px, py+2); ctx.lineTo(px-0.7, py+0.7); ctx.lineTo(px-2, py); ctx.lineTo(px-0.7, py-0.7);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.setTransform(scale,0,0,scale,0,0);
+  if (TOD.vig > 0.01){
+    const g = ctx.createRadialGradient(VW/2, VH*0.46, VH*0.35, VW/2, VH*0.46, VH*0.9);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, `rgba(0,0,0,${TOD.vig.toFixed(3)})`);
+    ctx.fillStyle = g; ctx.fillRect(0,0,VW,VH);
+  }
+  // 말풍선 — 화면 좌표(선명한 텍스트), 만화 말풍선 스타일
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.font = `${Math.max(11, 12*dpr)}px 'Gowun Dodum', sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 1.4*dpr;
+  drawCampusTags(now);
+  ctx.font = `${Math.max(11, 12*dpr)}px 'Gowun Dodum', sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 1.4*dpr;
+  const bubbleCats = scene !== "campus" ? visibleCats()
+    : visibleCats().filter(a => cam.focus === null ? a.deskIdx === 0 : a.lot === cam.focus);
+  for (const a of bubbleCats){
+    if (!a.bubble) continue;
+    const k = a.k ?? catK(a);
+    const atS = Math.hypot(a.pos.x-a.seat.x, a.pos.y-a.seat.y) < 3 && !a.path.length;
+    const sy0 = isoY(a.pos.x, a.pos.y, a.zBase || 0) - 30*k - (a.lift ?? (atS ? 7 : 0));
+    const sx = SX(isoX(a.pos.x, a.pos.y));
+    const sy = SY(sy0);
+    if (sx < -40 || sx > cv.width + 40 || sy < 0 || sy > cv.height) continue;
+    const tw = ctx.measureText(a.bubble.text).width;
+    const pad = 7*dpr, bw = tw + pad*2, bh = 20*dpr;
+    let bx = Math.max(4, Math.min(cv.width - bw - 4, sx - bw/2));
+    ctx.fillStyle = TOD.paper; ctx.strokeStyle = TOD.ink;
+    ctx.beginPath(); ctx.roundRect(bx, sy - bh, bw, bh, 9*dpr); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx-4*dpr, sy-0.5); ctx.lineTo(sx+1*dpr, sy+6*dpr); ctx.lineTo(sx+4*dpr, sy-0.5);
+    ctx.fill(); ctx.stroke();
+    ctx.fillRect(sx-3.2*dpr, sy-2*dpr, 6.4*dpr, 2.6*dpr);   // 꼬리 이음새 지우기
+    ctx.fillStyle = TOD.ink;
+    ctx.fillText(a.bubble.text, bx+pad, sy - bh/2);
+  }
+}
+
+/* ───────── HUD ───────── */
+const agentList = $("#agentList");
+const agentEls = {};
+function hudRow(chipBg, name, sub){
+  const el = document.createElement("div");
+  el.className = "agent";
+  el.innerHTML = `<span class="chip"></span><div class="who"><div class="name"><b></b><span></span></div>
+    <div class="st"></div></div><div class="pbar"><i></i></div>`;
+  el.querySelector(".chip").style.background = chipBg;
+  el.querySelector(".name b").textContent = name;
+  el.querySelector(".name b").style.fontWeight = "400";
+  el.querySelector(".name span").textContent = sub;
+  agentList.appendChild(el);
+  return {el, st: el.querySelector(".st"), bar: el.querySelector(".pbar i"), role: el.querySelector(".name span")};
+}
+function buildSimRows(){
+  agentList.innerHTML = "";
+  $("#agentsTitle").textContent = "에이전트";
+  for (const a of AGENTS) agentEls[a.id] = hudRow(a.body, a.name, a.role);
+}
+buildSimRows();
+let liveListVer = "", liveRows = [], sumT = 0;
+function updateLiveList(){
+  const card = $("#agentsTitle").parentElement;
+  if (cam.focus === null){ card.hidden = true; liveRows = []; liveListVer = ""; return; }
+  card.hidden = false;
+  const key = live.ver + ":" + cam.focus;
+  if (key !== liveListVer){
+    liveListVer = key;
+    agentList.innerHTML = "";
+    const s = slotSession(cam.focus), L = SLOTS[cam.focus];
+    $("#agentsTitle").textContent = `${L.name} · 고양이들`;
+    if (!s){
+      const p = document.createElement("p"); p.className = "hint"; p.style.margin = "0";
+      p.textContent = "빈 사무실이에요. 새 세션이 시작되면 여기로 입주해요.";
+      agentList.appendChild(p); liveRows = [];
+    } else liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));
+  }
+  for (const r of liveRows){
+    const c = r.c;
+    r.st.textContent = c.leaving ? "🏠 퇴근 중" : c.inLounge ? "☕ 휴게공간에서 쉬는 중"
+                     : c.waiting ? "💬 " + c.stateText : (c.activity || c.stateText);
+    r.bar.style.width = (c.state==="working" && c.workDur>0 ? Math.min(100, c.workT/c.workDur*100) : 0) + "%";
+  }
+}
+function buildSumCard(s){
+  const el = document.createElement("div"); el.className = "sum";
+  el.innerHTML = `<div class="sum-top"><span class="chip"></span><b class="sum-name"></b>
+    <button class="icon ren" type="button" title="이름 바꾸기" aria-label="이름 바꾸기">✎</button><span class="pill"></span></div>
+    <div class="sum-sub"></div><div class="sum-goal"></div><div class="sum-now"></div>
+    <div class="sum-todo" hidden><span class="tbar"><i></i></span><span class="tt"></span></div>
+    <div class="sum-stats"></div><div class="sum-result" hidden></div>
+    <div class="sum-actions">
+      <button class="mini" type="button" data-a="focus">터미널로 이동</button>
+      <button class="mini" type="button" data-a="resume">이어하기</button>
+      <button class="mini" type="button" data-a="folder">폴더</button>
+      <button class="mini" type="button" data-a="copy">명령 복사</button>
+      <button class="mini" type="button" data-a="view">사무실 보기</button></div>
+    <div class="sum-msg" hidden></div>`;
+  const q = sel => el.querySelector(sel);
+  const c = {el, chip:q(".chip"), name:q(".sum-name"), pill:q(".pill"), sub:q(".sum-sub"), goal:q(".sum-goal"),
+             now:q(".sum-now"), todo:q(".sum-todo"), tbar:q(".tbar i"), tt:q(".tt"), stats:q(".sum-stats"),
+             result:q(".sum-result"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
+  c.chip.style.background = s.boss.coat.base;
+  el.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => openAction(s, b.dataset.a, c.msg)));
+  q(".ren").addEventListener("click", () => {
+    if (c.editing) return;
+    c.editing = true;
+    const inp = document.createElement("input");
+    inp.id = "ren-" + s.sid; inp.value = sessName(s); inp.maxLength = 24; inp.setAttribute("aria-label", "세션 이름");
+    c.name.textContent = ""; c.name.appendChild(inp); inp.focus(); inp.select();
+    const done = save => { if (!c.editing) return; c.editing = false; if (save) renameSession(s, inp.value); c.name.textContent = sessName(s); };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+    inp.addEventListener("blur", () => done(true));
+  });
+  return c;
+}
+function fillSumCard(s){
+  const c = s.card, look = phaseLook(s);
+  const mins = ms => ms < 60000 ? "방금" : `${Math.floor(ms / 60000)}분째`;
+  if (!c.editing) c.name.textContent = sessName(s);
+  c.pill.textContent = `${look.icon} ${look.text}`;
+  c.pill.className = "pill" + (look.bg === "#3f9c62" ? " ok" : look.bg ? " hot" : "");
+  c.el.classList.toggle("waiting", s.phase === "waiting");
+  c.view.hidden = cam.focus === s.slot;
+  c.sub.textContent = [SLOTS[s.slot].name, s.branch && `⎇ ${s.branch}`, s.sid].filter(Boolean).join(" · ");
+  c.goal.textContent = s.goal ? `요청: ${s.goal}` : s.topic ? `주제: ${s.topic}` : "아직 받은 요청이 없어요";
+  const helping = [...s.kittens.values()].filter(k => !k.leaving && !k.inLounge).length;
+  c.now.textContent =
+      s.phase === "waiting"
+        ? (s.waitReason === "질문" ? "❓ 질문에 답해 주세요"
+          : s.waitReason === "계획" ? "📝 계획을 확인해 주세요"
+          : s.waitReason === "중단" ? "중단됐어요 · 다음 명령을 기다려요"
+          : `💬 다음 명령을 기다려요 · ${mins(Date.now() - s.waitSince)}`)
+      : s.phase === "idle" ? "😴 한동안 조용해요"
+      : `지금: ${s.activity || "준비 중"}${helping ? ` · 새끼냥 ${helping}마리 함께` : ""}${s.approval ? " · ⏳ 승인을 기다리는 걸지도" : ""}`;
+  if (s.todos.length){
+    const done = s.todos.filter(t => t.status === "completed").length, cur = s.todos.find(t => t.status === "in_progress");
+    c.todo.hidden = false; c.tbar.style.width = (done / s.todos.length * 100) + "%";
+    c.tt.textContent = `할 일 ${done}/${s.todos.length}` + (cur ? ` · ${cur.activeForm || cur.content}` : done === s.todos.length ? " · 모두 끝" : "");
+  } else c.todo.hidden = true;
+  c.stats.textContent = [s.files.size && `파일 ${s.files.size}개 수정`, s.cmds && `명령 ${s.cmds}회`,
+                         s.subTotal && `새끼냥 ${s.subTotal}마리 출동`, s.errs && `에러 ${s.errs}`,
+                         s.phase === "working" && s.startMs && mins(Date.now() - s.startMs)].filter(Boolean).join(" · ") || "아직 기록이 없어요";
+  if (s.result && s.phase === "waiting"){ c.result.hidden = false; c.result.textContent = `결과: ${s.result}`; }
+  else c.result.hidden = true;
+}
+function updateSummaries(){
+  const list = $("#summaryList");
+  const ss = [...live.sessions.values()].sort((a,b) => a.slot - b.slot)
+               .filter(s => cam.focus === null || s.slot === cam.focus);
+  for (const el of [...list.children]) if (!ss.some(s => s.card && s.card.el === el)) el.remove();
+  $("#summaryEmpty").hidden = ss.length > 0;
+  $("#summaryEmpty").textContent = cam.focus !== null ? "빈 사무실이에요." : "아직 활동 중인 세션이 없어요. Claude Code에서 작업을 시작하면 고양이가 입주해요.";
+  ss.forEach((s, i) => {
+    if (!s.card) s.card = buildSumCard(s);
+    if (list.children[i] !== s.card.el) list.insertBefore(s.card.el, list.children[i] || null);
+    fillSumCard(s);
+  });
+}
+function updateHUD(){
+  if (mode === "live" && live){
+    const ss = [...live.sessions.values()];
+    $("#kWait").textContent = ss.filter(s => s.phase === "working").length;
+    $("#kRun").textContent  = ss.filter(s => s.phase === "waiting").length;
+    $("#kRev").textContent  = ss.reduce((n, s) => n + s.kittens.size, 0);
+    $("#kDone").textContent = live.done;
+    if (performance.now() - sumT > 400){ sumT = performance.now(); updateSummaries(); }
+    const d = new Date();
+    $("#clock").textContent = "LIVE · " +
+      String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0");
+    updateLiveList();
+    return;
+  }
+  if (mode === "replay" && replay){
+    $("#kWait").textContent = replay.events.length - replay.idx;
+    $("#kRun").textContent  = AGENTS.filter(a => a.cur || (a.q && a.q.length)).length;
+    $("#kRev").textContent  = replay.errors;
+    $("#kDone").textContent = replay.processed;
+    const d = new Date(replay.lastTs);
+    $("#clock").textContent = "REPLAY · " + (isNaN(d) ? "--:--:--" :
+      String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0"));
+    $("#replayProg").style.width = Math.min(100, replay.clock/replay.total*100) + "%";
+    for (const a of AGENTS){
+      agentEls[a.id].st.textContent = a.stateText;
+      const p = a.state==="working" && a.workDur>0 ? Math.min(100, a.workT/a.workDur*100) : 0;
+      agentEls[a.id].bar.style.width = p + "%";
+    }
+    return;
+  }
+  const run = AGENTS.filter(a=>a.task && a.task.stage!=="review").length
+            + errands.filter(e=>e.task.stage!=="review").length
+            + ((byId("pm").errand && byId("pm").errand.task.stage!=="review") ? 1 : 0);
+  const rev = reviewQ.length
+            + AGENTS.filter(a=>a.task && a.task.stage==="review").length
+            + errands.filter(e=>e.task.stage==="review").length
+            + ((byId("pm").errand && byId("pm").errand.task.stage==="review") ? 1 : 0);
+  $("#kWait").textContent = inboxQ.length + assignQ.length + (byId("pm").carry ? 1 : 0);
+  $("#kRun").textContent  = run;
+  $("#kRev").textContent  = rev;
+  $("#kDone").textContent = doneCount;
+  const {day, hm} = clockStr();
+  $("#clock").textContent = `DAY ${day} · ${hm}`;
+  for (const a of AGENTS){
+    agentEls[a.id].st.textContent = a.extStatus || a.stateText;
+    const p = a.state==="working" && a.workDur>0 ? Math.min(100, a.workT/a.workDur*100) : 0;
+    agentEls[a.id].bar.style.width = p + "%";
+  }
+}
+
+/* ───────── 메인 루프 ───────── */
+let last = performance.now();
+function frame(nowMs){
+  const now = nowMs/1000;
+  let dt = Math.min(0.05, (nowMs - last)/1000);
+  last = nowMs;
+  updateTOD(dt);   // 일시정지와 무관하게 실제 시간으로 전환
+  updateCam(dt);
+  if (!paused){
+    dt *= SPEEDS[speedIdx];
+    if (mode === "sim"){
+      simMin += dt * 1.6;  // 1초 ≈ 1.6 사무실-분
+      autoSpawn(dt);
+      dispatchSafe();
+      pmTick(byId("pm"), dt);
+      for (const a of AGENTS) if (a.id!=="pm") workerTick(a, dt);
+    } else if (mode === "replay" && replay){
+      replayUpdate(dt);
+      for (const a of AGENTS) replayAgentTick(a, dt);
+    } else if (mode === "live" && live){
+      liveTick(dt);
+    }
+    for (const a of visibleCats()) if (a.bubble){ a.bubble.t -= dt; if (a.bubble.t<=0) a.bubble=null; }
+    for (let i=parts.length-1;i>=0;i--){
+      const p = parts[i];
+      p.t -= dt; p.x += p.vx*dt; p.y += p.vy*dt;
+      p.z += p.vz*dt; p.vz -= 170*dt;
+      if (p.t<=0) parts.splice(i,1);
+    }
+  }
+  render(now);
+  updateHUD();
+  requestAnimationFrame(frame);
+}
+
+/* ───────── 컨트롤 ───────── */
+$("#btnPause").addEventListener("click", e => {
+  paused = !paused;
+  e.currentTarget.textContent = paused ? "▶ 재생" : "⏸ 일시정지";
+  e.currentTarget.setAttribute("aria-pressed", paused);
+});
+$("#btnSpeed").addEventListener("click", e => {
+  speedIdx = (speedIdx+1) % SPEEDS.length;
+  e.currentTarget.textContent = "속도 ×" + SPEEDS[speedIdx];
+});
+$("#btnAuto").addEventListener("click", e => {
+  autoOn = !autoOn;
+  e.currentTarget.textContent = "자동 작업 생성: " + (autoOn ? "켜짐" : "꺼짐");
+  e.currentTarget.setAttribute("aria-pressed", autoOn);
+});
+const btnTod = $("#btnTod");
+function todText(){
+  btnTod.textContent = "시간: " + (todMode === "auto" ? `자동 (${currentPhase()})` : TOD_LABEL[todMode]);
+}
+btnTod.addEventListener("click", () => {
+  todMode = TOD_MODES[(TOD_MODES.indexOf(todMode) + 1) % TOD_MODES.length];
+  try { localStorage.setItem("ao.tod", todMode); } catch {}
+  todText();
+});
+todText();
+setInterval(todText, 30000);
+const btnNotify = $("#btnNotify");
+function notifyText(){ btnNotify.textContent = "🔔 완료 알림: " + (notifyOn ? "켜짐" : "꺼짐"); btnNotify.setAttribute("aria-pressed", notifyOn); }
+btnNotify.addEventListener("click", async () => {
+  notifyOn = !notifyOn;
+  try { localStorage.setItem("ao.notify", notifyOn ? "1" : "0"); } catch {}
+  if (notifyOn){
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.resume) audioCtx.resume(); } catch {}
+    try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch {}
+    chime();
+  }
+  notifyText();
+});
+notifyText();
+$("#btnAdd").addEventListener("click", () => {
+  const t = makeTask();
+  inboxQ.push(t);
+  log(`#${t.id} ${t.title} 접수 (수동)`, "warn");
+});
+
+/* ───────── 외부 연동 API ───────── */
+window.office = {
+  addTask(title){
+    const t = makeTask(typeof title === "string" ? title.slice(0,40) : undefined);
+    inboxQ.push(t);
+    log(`#${t.id} ${t.title} 접수 (API)`, "warn");
+    return t.id;
+  },
+  setStatus(agentId, text){
+    const a = byId(agentId);
+    if (!a) return false;
+    a.extStatus = text ? String(text).slice(0,30) : null;
+    if (text) say(a, String(text).slice(0,16));
+    return true;
+  },
+  log(text, tone){ log(String(text).slice(0,60), tone); },
+  loadLog(text, name){ enterReplay(parseJsonl(String(text), name || "session.jsonl")); },
+  stopReplay(){ if (mode==="replay") exitReplay(); },
+  agents: () => AGENTS.map(a=>({id:a.id, name:a.name, role:a.role})),
+};
+
+/* ───────── 시작 ───────── */
+resize();
+log("에이전트 오피스 가동 시작", "good");
+inboxQ.push(makeTask("로그인 화면 Compose 전환"));
+inboxQ.push(makeTask("푸시 딥링크 버그 수정"));
+log("#1 로그인 화면 Compose 전환 접수", "warn");
+log("#2 푸시 딥링크 버그 수정 접수", "warn");
+requestAnimationFrame(frame);
+// 로컬 라이브 서버(agent_office_server.py)로 열렸으면 자동으로 실시간 모드
+fetch("api/ping", {cache:"no-store"})
+  .then(r => r.ok ? r.json() : null)
+  .then(d => { if (d && d.ok){ liveAvailable = true; liveCanOpen = !!d.open; enterLive("server"); log("로컬 라이브 서버 감지 — 실시간 모드 시작", "good"); } })
+  .catch(()=>{});
+})();
+</script>

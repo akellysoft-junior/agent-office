@@ -487,6 +487,37 @@ def focus_linux(p):
     return False, msg
 
 
+WINDOW_CALLS_UUID = "window-calls@domandoman.xyz"
+
+
+def install_window_calls(marker):
+    """GNOME 기본 설치 창으로 Window Calls 확장을 설치 (사용자가 '설치'를 눌러야 진행, 로그아웃 불필요)."""
+    try:
+        ans = input("    GNOME 'Window Calls' 확장을 지금 설치할까요? GNOME 설치 창이 뜨면 '설치'를 눌러 주세요. [y/N] ").strip().lower()
+    except EOFError:
+        ans = ""
+    if ans in ("y", "yes", "ㅛ"):
+        out = run(["gdbus", "call", "--session", "--dest", "org.gnome.Shell.Extensions",
+                   "--object-path", "/org/gnome/Shell/Extensions",
+                   "--method", "org.gnome.Shell.Extensions.InstallRemoteExtension", WINDOW_CALLS_UUID], timeout=180)
+        if "success" in out and gnome_window_calls() is not None:
+            print("    설치했어요. 이제 '터미널로 이동'이 동작해요.")
+        elif "cancel" in out:
+            print("    설치를 취소했어요. 나중에 Extension Manager 앱에서 'Window Calls'를 찾아 설치해도 돼요.")
+        else:
+            print("    자동 설치가 안 됐어요. 'Extension Manager' 앱(sudo apt install gnome-shell-extension-manager)에서")
+            print("    'Window Calls'를 찾아 설치하거나, extensions.gnome.org/extension/4724/window-calls/ 에서 설치해 주세요.")
+            if out:
+                print(f"    (GNOME 응답: {out.strip()})")
+    else:
+        print("    건너뛸게요. 다음부터는 묻지 않아요. (다시 물어보려면 .agent_office_setup 파일을 지우세요)")
+    try:
+        with open(marker, "w") as fh:
+            fh.write(ans or "n")
+    except OSError:
+        pass
+
+
 def linux_setup_check():
     """서버를 켤 때 한 번: 이 리눅스에서 '터미널로 이동'이 되는지 알려주고, X11인데 도구가 없으면 설치를 제안."""
     st, de = linux_session()
@@ -498,10 +529,13 @@ def linux_setup_check():
         return
     print(f"터미널로 이동: {linux_hint()}  [{label}]")
     print("    tmux · kitty · WezTerm 안에서 claude를 쓰는 경우는 따로 설치하지 않아도 돼요.")
-    if st != "x11":
-        return
     marker = os.path.join(HERE, ".agent_office_setup")
     if os.path.exists(marker) or not (os.isatty(0) and os.isatty(1)):
+        return
+    if st == "wayland" and "GNOME" in de.upper() and shutil.which("gdbus"):
+        install_window_calls(marker)
+        return
+    if st != "x11":
         return
     pm = next(((name, cmd) for name, cmd in (
         ("apt-get", ["sudo", "apt-get", "install", "-y", "wmctrl"]),

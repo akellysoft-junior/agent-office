@@ -88,6 +88,8 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 2. **kitty**: 원격 제어(`allow_remote_control yes`, `listen_on unix:/tmp/kitty`)를 켜 두면 그 창을 앞으로 가져와요.
 3. **WezTerm**: 그 패널을 앞으로 가져와요.
 4. **GNOME + [Window Calls](https://extensions.gnome.org/extension/4724/window-calls/) 확장**: Wayland에서도 창을 앞으로 가져와요.
+   서버를 켤 때 GNOME(Wayland)인데 확장이 없으면 설치할지 물어봐요. y를 누르면 GNOME 설치 창이 뜨고, '설치'만 누르면 로그아웃 없이 바로 켜져요.
+   직접 설치하려면 Extension Manager 앱(`sudo apt install gnome-shell-extension-manager`)에서 'Window Calls'를 찾으면 돼요.
 5. **X11**: `wmctrl` 또는 `xdotool`로 가져와요. 둘 다 없으면 서버를 켤 때 설치할지 한 번 물어봐요. 대답은 `.agent_office_setup` 파일에 기억하고, 이 파일을 지우면 다시 물어봐요.
 
 - Wayland에서는 보안 때문에 `wmctrl`·`xdotool`이 동작하지 않아요. 우분투 기본 화면은 Wayland예요.

@@ -9,10 +9,10 @@
   --ink:#1f1d1b;         /* 펜 선 */
   --muted:#77736d;
   --accent:#f09a3e;      /* 치즈냥 오렌지 */
-  --good:#3f9c62;
-  --warn:#d9822b;
-  --bad:#d6463f;
-  --info:#3b7fc4;
+  --good:#2a7a49;
+  --warn:#a35611;
+  --bad:#c23a33;
+  --info:#2f6dab;
   --font-display:"Jua","Gowun Dodum",system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   --font-body:"Gowun Dodum",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   --font-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
@@ -126,7 +126,7 @@ details.api pre{
 .sum-name input{font:inherit; width:9em; max-width:100%; border:1.5px solid var(--ink); border-radius:6px; padding:0 4px; background:var(--paper); color:var(--ink)}
 .pill{margin-left:auto; flex:none; font-size:12px; border:1.5px solid var(--ink); border-radius:999px; padding:1px 8px; white-space:nowrap}
 .pill.hot{background:var(--accent); color:#1f1d1b}
-.pill.ok{background:var(--good); color:#ffffff}
+.pill.ok{background:var(--good); color:var(--paper)}
 .sum-sub, .sum-stats{font-size:12px; color:var(--muted); overflow-wrap:anywhere}
 .sum-goal, .sum-now{font-size:13px; overflow-wrap:anywhere}
 .sum-now{color:var(--ink)}
@@ -955,6 +955,15 @@ function ell(cx, cy, rx, ry, fill, noStroke){
   if (fill){ ctx.fillStyle = fill; ctx.fill(); } if (!noStroke) ctx.stroke();
 }
 function rr(x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(x,y,w,h); }
+// 북·남쪽 벽면(x 방향 면)에 붙여 쓴 글자: 벽 기울기만큼 기울여 판 안에 들어가게
+function wallText(text, wx, wy, z, align = "center"){
+  ctx.save();
+  ctx.translate(isoX(wx, wy), isoY(wx, wy, z));
+  ctx.transform(1, ISY / ISX, 0, 1, 0, 0);
+  ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
 
 /* ───────── 낮/밤 사이클 ─────────
    실제 PC 시각 → [낮, 노을, 밤] 가중치 → 종이·잉크 팔레트를 섞어서 서서히 전환 */
@@ -1137,7 +1146,7 @@ function shop(x, y, w, d, h, o){
   const sx0 = x + w*0.18, sx1 = x + w*0.82;
   wallQuad(sx0, y+d, sx1, y+d, GZ+h+3, GZ+h+12, P.paper);
   ctx.fillStyle = P.ink; ctx.font = "9px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(o.sign, isoX((sx0+sx1)/2, y+d), isoY((sx0+sx1)/2, y+d, GZ+h+7.5));
+  wallText(o.sign, (sx0+sx1)/2, y+d, GZ+h+7.5);
   ctx.textAlign = "left";
   if (o.crates){                                   // 옥상 짐
     isoBox(x+8, y+6, 12, 10, GZ+h+3, 8, P.paper, P.paper, P.side);
@@ -1232,7 +1241,7 @@ function hydrant(x, y){
 /* 동네 고양이 (장식): 졸거나 앉아 있음 */
 const TOWN_CATS = [
   {pos:{x:270,y:394}, lift:6, state:"idle", coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#f2a54e"}},
-  {pos:{x:628,y:206}, lift:24, state:"idle", coat:{base:"#a7abb5", stripe:"#7b808b"}},
+  {pos:{x:650,y:172}, lift:24, state:"idle", coat:{base:"#a7abb5", stripe:"#7b808b"}},
   {pos:{x:214,y:440}, lift:0, state:"decor", coat:{base:"#2f2d33"}, face:-1},
   {pos:{x:86,y:472}, lift:0, state:"idle", coat:{base:"#f2a54e", stripe:"#cf7a2b"}},
 ].map(c => ({...c, k:1.15, zBase:GZ, seat:{x:-999,y:-999}, path:[], bubble:null, idleSince:-1e9, bob:0, face:c.face||1}));
@@ -2158,13 +2167,14 @@ function drawMonitorWall(L, list, now){
       ctx.font = "7px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(t.status === "done" ? "✓" : t.status === "failed" ? "✕" : "■", isoX(x0 + 11.5, y), isoY(x0 + 11.5, y, 13));
     }
+    wallQuad(x0 + 0.5, y, x1 - 0.5, y, 21, 25.6, P.paper);      // 이름표 판 (벽 띠 색과 상관없이 잘 읽히게)
     ctx.fillStyle = P.ink; ctx.font = "4.5px 'Gowun Dodum', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(clip(t.label, 9), isoX(x0 + 11.5, y), isoY(x0 + 11.5, y, 23.2));   // 모니터 위 벽 띠에 (책상에 가리지 않게)
+    wallText(clip(t.label, 9), x0 + 11.5, y, 23.3);
     ctx.textAlign = "left";
   });
   if (list.length > 3){
     ctx.fillStyle = P.ink; ctx.font = "6px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(`+${list.length - 3}`, isoX(L.x + 152, y), isoY(L.x + 152, y, 13)); ctx.textAlign = "left";
+    wallText(`+${list.length - 3}`, L.x + 152, y, 13); ctx.textAlign = "left";
   }
 }
 function drawLot(i, now){
@@ -2206,13 +2216,16 @@ function drawLot(i, now){
   // 휴게공간 팻말 (북쪽 벽)
   wallQuad(L.x + 176, L.y, L.x + 200, L.y, 16, 22, P.paper);
   ctx.fillStyle = P.ink; ctx.font = "5px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("휴게실", isoX(L.x + 188, L.y), isoY(L.x + 188, L.y, 19));
+  wallText("휴게실", L.x + 188, L.y, 19);
   // 간판 (북쪽 벽 위)
-  const s0 = L.x + 78 - 30, s1 = L.x + 78 + 30;
+  ctx.font = "8px 'Jua', sans-serif";
+  const half = Math.max(30, ctx.measureText(L.name).width / (2 * ISX) + 7);   // 간판 폭을 이름 길이에 맞춤
+  const s0 = L.x + 78 - half, s1 = L.x + 78 + half;
   line([gpt(s0+8, L.y, WALL), gpt(s0+8, L.y, WALL+2)]); line([gpt(s1-8, L.y, WALL), gpt(s1-8, L.y, WALL+2)]);
   wallQuad(s0, L.y, s1, L.y, WALL+2, WALL+12, P.paper);
+  ctx.fillStyle = P.ink; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "8px 'Jua', sans-serif";
-  ctx.fillText(L.name, isoX(L.x+78, L.y), isoY(L.x+78, L.y, WALL+7));
+  wallText(L.name, L.x+78, L.y, WALL+7);
   ctx.textAlign = "left";
   loungeRug(L);
   // 실내 (깊이 정렬)
@@ -2244,7 +2257,7 @@ function drawLot(i, now){
     line([gpt(cx, cy, 0), gpt(cx, cy, 12)]);
     wallQuad(cx - 18, cy, cx + 18, cy, 11, 21, P.paper);
     ctx.fillStyle = P.ink; ctx.font = "7px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("입주 대기", isoX(cx, cy), isoY(cx, cy, 16)); ctx.textAlign = "left";
+    wallText("입주 대기", cx, cy, 16); ctx.textAlign = "left";
   }
 }
 function drawCampus(now){
@@ -2563,7 +2576,7 @@ function drawDesk(key, now){
   // 이름표
   const who = AGENTS.find(a => a.desk === key);
   ctx.fillStyle = P.ink; ctx.font = "7px 'Jua', sans-serif"; ctx.textBaseline = "alphabetic";
-  ctx.fillText(who ? who.name : d.label, isoX(d.x+3, d.y+d.h)+1, isoY(d.x+3, d.y+d.h, 14.4));
+  wallText(who ? who.name : d.label, d.x + 4, d.y + d.h, 14.4, "left");
 }
 function drawStool(seat, z){
   const P = TOD, sx = isoX(seat.x, seat.y), sy = isoY(seat.x, seat.y, z || 0);

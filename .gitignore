@@ -4,3 +4,4 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+.agent_office_setup

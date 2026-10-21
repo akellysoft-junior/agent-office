@@ -78,7 +78,21 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 | macOS Terminal / iTerm2 | 그 세션의 **탭까지** 앞으로 | Terminal 새 창 |
 | macOS VS Code·Android Studio 등 안의 터미널 | 그 앱(프로젝트) 창을 앞으로 | Terminal 새 창 |
 | Windows | 그 터미널 창을 앞으로 (탭 선택은 불가) | Windows Terminal 또는 cmd 새 창 |
-| Linux | `wmctrl`이 있으면 창을 앞으로 | gnome-terminal / konsole / xterm |
+| Linux | 아래 순서로 되는 방법을 찾아요 | gnome-terminal / konsole / xterm |
+
+### 리눅스에서 "터미널로 이동"
+
+리눅스는 화면 방식(X11 / Wayland)과 터미널 프로그램에 따라 되는 방법이 달라서, 아래 순서로 시도해요.
+
+1. **tmux 안에서 claude를 실행 중이면**: 그 tmux 창·패널로 바로 전환해요. 설치할 것 없이, X11·Wayland 모두 돼요.
+2. **kitty**: 원격 제어(`allow_remote_control yes`, `listen_on unix:/tmp/kitty`)를 켜 두면 그 창을 앞으로 가져와요.
+3. **WezTerm**: 그 패널을 앞으로 가져와요.
+4. **GNOME + [Window Calls](https://extensions.gnome.org/extension/4724/window-calls/) 확장**: Wayland에서도 창을 앞으로 가져와요.
+5. **X11**: `wmctrl` 또는 `xdotool`로 가져와요. 둘 다 없으면 서버를 켤 때 설치할지 한 번 물어봐요. 대답은 `.agent_office_setup` 파일에 기억하고, 이 파일을 지우면 다시 물어봐요.
+
+- Wayland에서는 보안 때문에 `wmctrl`·`xdotool`이 동작하지 않아요. 우분투 기본 화면은 Wayland예요.
+- 서버를 켜면 터미널에 이 PC에서 무엇이 되는지("터미널로 이동: 준비됨" 또는 필요한 것)가 한 줄로 나와요.
+- gnome-terminal은 모든 창이 프로세스 하나로 돌아서, 창이 여러 개면 다른 창이 앞으로 올 수 있어요. tmux를 쓰면 정확해요.
 
 맥에서 처음 "터미널로 이동"을 누르면 "Python이 Terminal을 제어하려고 합니다"라는 창이 떠요. **허용**을 눌러야 동작해요.
 

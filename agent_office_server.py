@@ -344,25 +344,187 @@ for ($i = 0; $i -lt 10; $i++) {{
     return False, "터미널 창을 찾지 못했어요."
 
 
+# ── 리눅스: 환경마다 되는 방법이 달라서 차례로 시도한다 ──
+#   1) tmux 안이면 그 창·패널로 전환   (설치 불필요, X11·Wayland 모두)
+#   2) kitty / WezTerm 이면 터미널 자체 원격 기능으로   (Wayland도 가능)
+#   3) GNOME + "Window Calls" 확장이면 D-Bus로 창 활성화   (Wayland도 가능)
+#   4) X11 이면 xdotool 또는 wmctrl
+#   5) 다 안 되면 이 환경에서 무엇이 필요한지 알려줌
+
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().decode("utf-8", "replace")
+        return dict(x.split("=", 1) for x in data.split("\0") if "=" in x)
+    except OSError:
+        return {}
+
+
+def proc_ppid(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            s = fh.read()
+        return int(s[s.rindex(")") + 2:].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def ancestors(pid, limit=15):
+    chain = []
+    while pid > 1 and len(chain) < limit:
+        chain.append(pid)
+        pid = proc_ppid(pid)
+    return chain
+
+
+def linux_session():
+    """('x11'|'wayland'|'', 데스크톱 이름)"""
+    st = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if not st:
+        st = "wayland" if os.environ.get("WAYLAND_DISPLAY") else "x11" if os.environ.get("DISPLAY") else ""
+    return st, os.environ.get("XDG_CURRENT_DESKTOP", "")
+
+
+def run_ok(cmd, timeout=6, env=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def gnome_window_calls():
+    """GNOME 'Window Calls' 확장이 있으면 창 목록을 돌려준다. 없으면 None."""
+    if not shutil.which("gdbus"):
+        return None
+    out = run(["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+               "--object-path", "/org/gnome/Shell/Extensions/Windows",
+               "--method", "org.gnome.Shell.Extensions.Windows.List"])
+    m = re.match(r"\('(.*)',\)\s*$", out, re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(1).replace("\\'", "'"))
+    except ValueError:
+        return None
+
+
+def linux_hint():
+    st, de = linux_session()
+    if st == "wayland" and "GNOME" in de.upper():
+        return ("GNOME(Wayland)에서는 'Window Calls' 확장을 설치하면 터미널 창을 가져올 수 있어요 "
+                "(extensions.gnome.org에서 Window Calls 검색). tmux 안에서 claude를 쓰면 설치 없이도 돼요.")
+    if st == "wayland":
+        return (f"{de or '이 데스크톱'}(Wayland)에서는 바깥 프로그램이 창을 앞으로 가져올 수 없어요. "
+                "tmux·kitty·WezTerm 안에서 claude를 쓰면 돼요. 지금은 '이어하기'를 써 주세요.")
+    if st == "x11":
+        return "X11에서는 wmctrl이나 xdotool이 있으면 돼요: sudo apt install wmctrl  (서버를 켤 때 설치를 물어봐요)"
+    return "화면 세션(DISPLAY)을 찾지 못했어요. 데스크톱에서 연 터미널로 서버를 켜 주세요."
+
+
+def raise_window(chain):
+    pids = list(chain)
+    wins = gnome_window_calls()
+    if wins:
+        for pid in pids:
+            for w in wins:
+                if w.get("pid") == pid:
+                    run(["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+                         "--object-path", "/org/gnome/Shell/Extensions/Windows",
+                         "--method", "org.gnome.Shell.Extensions.Windows.Activate", str(w.get("id"))])
+                    return True, "터미널 창을 앞으로 가져왔어요."
+    st, _ = linux_session()
+    if st != "wayland":
+        if shutil.which("xdotool"):
+            for pid in pids:
+                ids = run(["xdotool", "search", "--pid", str(pid)]).split()
+                if ids:
+                    run(["xdotool", "windowactivate", ids[-1]])
+                    return True, "터미널 창을 앞으로 가져왔어요."
+        if shutil.which("wmctrl"):
+            wl = run(["wmctrl", "-lp"]).splitlines()
+            for pid in pids:
+                for w in wl:
+                    cols = w.split(None, 4)
+                    if len(cols) >= 3 and cols[2] == str(pid):
+                        run(["wmctrl", "-ia", cols[0]])
+                        return True, "터미널 창을 앞으로 가져왔어요."
+    return False, linux_hint()
+
+
 def focus_linux(p):
-    if not shutil.which("wmctrl"):
-        return False, "리눅스에서는 wmctrl이 있어야 창을 가져올 수 있어요."
-    wins = run(["wmctrl", "-lp"]).splitlines()
     pid = p["pid"]
-    for _ in range(10):
-        for w in wins:
-            cols = w.split(None, 4)
-            if len(cols) >= 3 and cols[2] == str(pid):
-                run(["wmctrl", "-ia", cols[0]])
-                return True, "터미널 창을 앞으로 가져왔어요."
-        info = run(["ps", "-o", "ppid=", "-p", str(pid)])
-        try:
-            pid = int(info)
-        except ValueError:
-            break
-        if pid <= 1:
-            break
-    return False, "터미널 창을 찾지 못했어요."
+    env = proc_env(pid)
+    chain = ancestors(pid)
+    picked = ""
+    # 1) tmux: 그 세션이 있는 창·패널로 전환 (터미널 창은 그다음에 앞으로)
+    if env.get("TMUX_PANE") and shutil.which("tmux"):
+        sock = env.get("TMUX", "").split(",")[0]
+        base = ["tmux"] + (["-S", sock] if sock else [])
+        if run_ok(base + ["select-window", "-t", env["TMUX_PANE"]]):
+            run_ok(base + ["select-pane", "-t", env["TMUX_PANE"]])
+            picked = "tmux에서 그 창을 골랐어요"
+            clients = run(base + ["list-clients", "-F", "#{client_pid}"]).split()
+            if clients and clients[0].isdigit():
+                chain = ancestors(int(clients[0]))
+    # 2) kitty (원격 제어가 켜져 있을 때)
+    if env.get("KITTY_WINDOW_ID") and env.get("KITTY_LISTEN_ON") and shutil.which("kitty"):
+        if run_ok(["kitty", "@", "--to", env["KITTY_LISTEN_ON"], "focus-window",
+                   "--match", "id:" + env["KITTY_WINDOW_ID"]]):
+            return True, "kitty에서 그 창을 앞으로 가져왔어요."
+    # 3) WezTerm
+    if env.get("WEZTERM_PANE") and shutil.which("wezterm"):
+        e2 = dict(os.environ)
+        if env.get("WEZTERM_UNIX_SOCKET"):
+            e2["WEZTERM_UNIX_SOCKET"] = env["WEZTERM_UNIX_SOCKET"]
+        if run_ok(["wezterm", "cli", "activate-pane", "--pane-id", env["WEZTERM_PANE"]], env=e2):
+            return True, "WezTerm에서 그 패널을 앞으로 가져왔어요."
+    # 4) 창 자체를 앞으로
+    ok, msg = raise_window(chain)
+    if ok:
+        return True, (picked + "고, " + msg) if picked else msg
+    if picked:
+        return True, picked + ". 터미널 창은 직접 눌러 주세요. (" + msg + ")"
+    return False, msg
+
+
+def linux_setup_check():
+    """서버를 켤 때 한 번: 이 리눅스에서 '터미널로 이동'이 되는지 알려주고, X11인데 도구가 없으면 설치를 제안."""
+    st, de = linux_session()
+    has_x = shutil.which("wmctrl") or shutil.which("xdotool")
+    gnome_ok = gnome_window_calls() is not None
+    label = f"{de or '알 수 없는 데스크톱'} · {st or '세션 없음'}"
+    if gnome_ok or (st == "x11" and has_x):
+        print(f"터미널로 이동: 준비됨 ({label})")
+        return
+    print(f"터미널로 이동: {linux_hint()}  [{label}]")
+    print("    tmux · kitty · WezTerm 안에서 claude를 쓰는 경우는 따로 설치하지 않아도 돼요.")
+    if st != "x11":
+        return
+    marker = os.path.join(HERE, ".agent_office_setup")
+    if os.path.exists(marker) or not (os.isatty(0) and os.isatty(1)):
+        return
+    pm = next(((name, cmd) for name, cmd in (
+        ("apt-get", ["sudo", "apt-get", "install", "-y", "wmctrl"]),
+        ("dnf", ["sudo", "dnf", "install", "-y", "wmctrl"]),
+        ("pacman", ["sudo", "pacman", "-S", "--noconfirm", "wmctrl"]),
+        ("zypper", ["sudo", "zypper", "install", "-y", "wmctrl"]),
+    ) if shutil.which(name)), None)
+    if not pm:
+        return
+    try:
+        ans = input(f"    wmctrl을 지금 설치할까요? ({' '.join(pm[1])}) [y/N] ").strip().lower()
+    except EOFError:
+        ans = ""
+    if ans in ("y", "yes", "ㅛ"):
+        r = subprocess.run(pm[1])
+        print("    설치했어요." if r.returncode == 0 else "    설치하지 못했어요. 위 메시지를 확인해 주세요.")
+    else:
+        print("    건너뛸게요. 다음부터는 묻지 않아요. (다시 물어보려면 .agent_office_setup 파일을 지우세요)")
+    try:
+        with open(marker, "w") as fh:
+            fh.write(ans or "n")
+    except OSError:
+        pass
 
 
 def do_focus(m):
@@ -1147,6 +1309,9 @@ def main():
     if not os.path.isdir(args.dir):
         print(f"[!] 로그 폴더가 없어요: {args.dir}")
         print("    Claude Code를 이 PC에서 한 번이라도 실행했는지 확인해 주세요.")
+
+    if SYSTEM == "Linux":
+        linux_setup_check()
 
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}"

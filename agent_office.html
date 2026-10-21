@@ -68,6 +68,9 @@ button:disabled{opacity:.35; cursor:default; box-shadow:none}
 }
 canvas#office{display:block; width:100%; height:auto; border-radius:9px}
 .back{position:absolute; top:16px; left:16px; z-index:2}
+canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
+.zoomctl{position:absolute; right:16px; bottom:16px; z-index:2; display:flex; flex-direction:column; gap:6px}
+.zoomctl button{width:34px; height:34px; padding:0; font-size:17px; line-height:1; border-radius:10px; box-shadow:2px 2px 0 var(--ink)}
 .agent.clickable{cursor:pointer; border-radius:8px}
 .agent.clickable:hover{background:var(--paper-2)}
 .agent.clickable:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
@@ -104,7 +107,7 @@ canvas#office{display:block; width:100%; height:auto; border-radius:9px}
 #btnExit{margin-top:10px; width:100%}
 .hint{font-size:12px; color:var(--muted); margin:10px 0 0; line-height:1.65}
 .hint code, details.api pre{font-family:var(--font-mono)}
-.hint code{font-size:11px; color:var(--ink)}
+.hint code{font-size:11px; color:var(--ink); word-break:break-all}
 details.api{font-size:13px; color:var(--muted)}
 details.api summary{cursor:pointer; font-family:var(--font-display); color:var(--ink); font-size:15px}
 details.api pre{
@@ -142,11 +145,36 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 @keyframes pop{from{transform:scale(.92); opacity:0} to{transform:none; opacity:1}}
 @media (prefers-reduced-motion: reduce){ .toast{animation:none; transition:none} .tbar i{transition:none} }
 @media (max-width:860px){
+  .stage{flex:none; width:100%}
   .main{flex-direction:column}
   .hud{flex:1 1 auto; width:100%}
   .sign{font-size:19px}
 }
 @media (prefers-reduced-motion: reduce){ .pbar i{transition:none} }
+@media (max-width:700px){
+  .toasts{top:auto; bottom:max(14px, env(safe-area-inset-bottom, 0px))}
+  .toast{padding:8px 12px}
+  .toast b{font-size:15px}
+  .toast span{font-size:12px}
+}
+@media (max-width:600px){
+  body{padding-block:12px}
+  .app{gap:10px}
+  header.bar{gap:10px}
+  .sign{font-size:17px; padding:6px 12px 7px; box-shadow:2px 2px 0 var(--ink)}
+  .sign small{font-size:11px}
+  .clock{font-size:11px; padding:3px 9px}
+  .controls{gap:6px}
+  .controls button{font-size:13px; padding:5px 11px}
+  .stage{padding:4px; box-shadow:3px 3px 0 var(--ink); border-radius:12px}
+  .back{top:10px; left:10px; font-size:13px; padding:5px 11px}
+  .zoomctl{right:10px; bottom:10px}
+  .card{padding:11px}
+  .kanban{gap:6px}
+  .kcell .n{font-size:16px}
+  .sum-actions{gap:6px}
+  button.mini{padding:5px 10px}
+}
 </style>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -166,7 +194,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -773,15 +801,57 @@ $("#btnExit").addEventListener("click", () => {
     else log("데모 종료 — 시뮬레이션으로 복귀", null);
   } else exitReplay();
 });
-cv.addEventListener("click", e => {
-  if (scene !== "campus") return;
-  const i = lotAt(e);
+function clampCam(){
+  const mx = (VW/2) * Math.max(0, 1 - 1/cam.tz) + 90, my = (VH/2) * Math.max(0, 1 - 1/cam.tz) + 90;
+  cam.tcx = Math.min(CENTER[0] + mx, Math.max(CENTER[0] - mx, cam.tcx));
+  cam.tcy = Math.min(CENTER[1] + my, Math.max(CENTER[1] - my, cam.tcy));
+}
+function zoomBy(f, px = VW/2, py = VH/2){          // (px,py) 지점을 기준으로 확대
+  const wx = (px - VW/2) / cam.z + cam.cx, wy = (py - VH/2) / cam.z + cam.cy;
+  cam.tz = Math.min(3, Math.max(overviewZ() * 0.8, cam.tz * f));
+  cam.tcx = wx - (px - VW/2) / cam.tz; cam.tcy = wy - (py - VH/2) / cam.tz;
+  clampCam();
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  if (scene !== "campus" || e.button > 0) return;
+  drag = {id:e.pointerId, x:e.clientX, y:e.clientY, cx:cam.tcx, cy:cam.tcy, moved:false};
+});
+cv.addEventListener("pointermove", e => {
+  if (drag && e.pointerId === drag.id){
+    const r = cv.getBoundingClientRect();
+    const dx = (e.clientX - drag.x) / r.width * VW, dy = (e.clientY - drag.y) / r.height * VH;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6){
+      drag.moved = true;
+      try { cv.setPointerCapture(e.pointerId); } catch {}
+    }
+    if (drag.moved){
+      cam.tcx = drag.cx - dx / cam.z; cam.tcy = drag.cy - dy / cam.z; clampCam();
+      cam.cx = cam.tcx; cam.cy = cam.tcy;
+      cv.style.cursor = "grabbing";
+    }
+    return;
+  }
+  cv.style.cursor = scene === "campus" ? (cam.focus === null && lotAt(e) >= 0 ? "pointer" : "grab") : "";
+});
+cv.addEventListener("pointerup", e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const moved = drag.moved; drag = null; cv.style.cursor = "";
+  if (moved || scene !== "campus") return;
+  const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
   if (i < 0){ if (cam.focus !== null) unfocus(); return; }
   if (cam.focus !== i) focusLot(i);
 });
-cv.addEventListener("mousemove", e => {
-  cv.style.cursor = scene === "campus" && cam.focus === null && lotAt(e) >= 0 ? "pointer" : "";
-});
+cv.addEventListener("pointercancel", () => { drag = null; });
+cv.addEventListener("wheel", e => {                     // Ctrl+휠, 트랙패드 핀치로 확대
+  if (scene !== "campus" || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  zoomBy(Math.exp(-e.deltaY * 0.004), (e.clientX - r.left) / r.width * VW, (e.clientY - r.top) / r.height * VH);
+}, {passive:false});
+$("#zIn").addEventListener("click", () => zoomBy(1.3));
+$("#zOut").addEventListener("click", () => zoomBy(1 / 1.3));
+$("#zFit").addEventListener("click", unfocus);
 addEventListener("keydown", e => { if (e.key === "Escape" && cam.focus !== null) unfocus(); });
 $("#btnBack").addEventListener("click", unfocus);
 $("#btnDemo").addEventListener("click", () => { enterLive("demo"); log("멀티 세션 데모 시작", "good"); });
@@ -817,7 +887,9 @@ function autoSpawn(dt){
 /* ───────── 렌더링: 펜 드로잉 아이소메트릭 ─────────
    논리 좌표(480×300 평면)는 그대로, 그릴 때만 투영. 깊이 = x+y.
    모든 면은 종이색으로 채우고 잉크 선으로 외곽을 그린다. 색은 고양이와 작은 포인트에만. */
-const VW = 860, VH = 560;
+const VW = 860;
+let VH = 560;                         // 좁은 화면에선 760으로 늘려 세로 공간을 더 씀
+const CENTER = [430, 280];            // 장면 내용의 중심 (카메라 기본 위치)
 const ISX = 0.78, ISY = 0.39, WALL_H = 62;
 let OX = 360, OY = 168;
 const isoX = (x,y) => OX + (x - y) * ISX;
@@ -1174,14 +1246,17 @@ function townItems(now){         // 사무실 앞·옆 (깊이 정렬에 섞임)
 let liveAvailable = false, liveLoop = 0, liveCanOpen = false;
 let live = null;   // {source, seq, sessions:Map(sid→Session), errors, count, done, ver, fail}
 let scene = "office";                // "office"(시뮬레이션·재생) | "campus"(라이브)
-const cam = {z:1, cx:VW/2, cy:VH/2, tz:1, tcx:VW/2, tcy:VH/2, focus:null};
+const cam = {z:1, cx:CENTER[0], cy:CENTER[1], tz:1, tcx:CENTER[0], tcy:CENTER[1], focus:null};
+let narrow = false;
+const overviewZ = () => scene === "campus" && narrow ? 1.5 : 1;
 let LW = 1.05;
 const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
 const perfNow = () => performance.now() / 1000;
 function setScene(s){
   scene = s; [OX, OY] = SCENE_ORIGIN[s];
-  cam.focus = null; cam.z = cam.tz = 1; cam.cx = cam.tcx = VW/2; cam.cy = cam.tcy = VH/2;
+  cam.focus = null; cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1];
   $("#btnBack").hidden = true;
+  $("#zoomCtl").hidden = s !== "campus";
 }
 
 const LOT_W = 224, LOT_D = 130, WALL = 26, DESK_W = 30, DESK_D = 13, MAX_DESKS = 9;
@@ -1647,7 +1722,8 @@ function toast(title, body){
   box.appendChild(el);
   setTimeout(() => el.classList.add("out"), 4600);
   setTimeout(() => el.remove(), 5200);
-  while (box.children.length > 3) box.firstChild.remove();
+  const maxToasts = matchMedia("(max-width:700px)").matches ? 1 : 2;   // 폰에선 화면을 덜 가리게 1개만
+  while (box.children.length > maxToasts) box.firstChild.remove();
 }
 function chime(){
   if (!notifyOn) return;
@@ -1706,7 +1782,7 @@ function focusLot(i){
   liveListVer = "";
 }
 function unfocus(){
-  cam.focus = null; cam.tz = 1; cam.tcx = VW/2; cam.tcy = VH/2;
+  cam.focus = null; cam.tz = overviewZ(); cam.tcx = CENTER[0]; cam.tcy = CENTER[1];
   $("#btnBack").hidden = true; liveListVer = "";
 }
 function updateCam(rdt){
@@ -2458,7 +2534,11 @@ function drawHead(a, hx, hy, eyeC, lineC, pose, now){
 let scale = 2, dpr = 1;
 function resize(){
   const box = cv.parentElement.getBoundingClientRect();
-  const cssW = Math.max(280, box.width - 12);
+  const cssW = Math.max(260, box.width - 12);
+  const wasNarrow = narrow;
+  narrow = cssW < 600;
+  VH = narrow ? 760 : 560;
+  if (wasNarrow !== narrow && cam.focus === null){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
   const cssH = cssW * VH / VW;
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   cv.style.height = cssH + "px";
@@ -2473,7 +2553,7 @@ function render(now){
   ctx.fillStyle = TOD.bg;
   ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(scale,0,0,scale,0,0);
-  if (scene === "campus"){ ctx.translate(VW/2, VH/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.cx, -cam.cy); }
+  ctx.translate(VW/2, VH/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.cx, -cam.cy);
   LW = 1.05 / Math.sqrt(cam.z);
   ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.lineWidth = LW;
   ctx.strokeStyle = TOD.ink;
@@ -2678,7 +2758,10 @@ function updateSummaries(){
     fillSumCard(s);
   });
 }
+const simOnly = [$("#btnAuto"), $("#btnAdd")];
 function updateHUD(){
+  const hideSim = mode !== "sim";
+  if (simOnly[0].hidden !== hideSim) for (const b of simOnly) b.hidden = hideSim;
   if (mode === "live" && live){
     const ss = [...live.sessions.values()];
     $("#kWait").textContent = ss.filter(s => s.phase === "working").length;

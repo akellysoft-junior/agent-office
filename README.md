@@ -16,6 +16,25 @@
 
 파이썬 표준 라이브러리만 쓰기 때문에 따로 설치할 것이 없어요.
 
+## 한 번만 설정하기 (추천)
+
+```bash
+git clone https://github.com/akellysoft-junior/agent-office.git
+cd agent-office
+python3 agent_office_server.py --install      # 윈도우: py agent_office_server.py --install
+```
+
+- **자동 시작**: 로그인할 때마다 서버가 뒤에서 자동으로 켜져요. 지금 바로도 켜져요.
+  - 리눅스: `~/.config/autostart/agent-office.desktop`
+  - 맥: `~/Library/LaunchAgents/com.agentoffice.server.plist`
+  - 윈도우: 시작프로그램 폴더의 `AgentOffice.vbs`
+- **앱 설치**: 열린 페이지에서 **📲 앱으로 설치**를 누르세요. 그다음부터는 **냥오피스 아이콘만 누르면** 돼요.
+- **자동 업데이트**: 서버가 켜질 때와 3시간마다 이 저장소의 새 버전을 받아 와요.
+  - 서버 코드가 바뀌면 서버가 스스로 다시 켜지고, 화면이 바뀌면 열린 창이 알아서 새로고침해요.
+  - 직접 고친 파일이 있으면 업데이트를 건너뛰어요. 끄려면 `--no-update`를 붙이세요.
+- **해제**: `python3 agent_office_server.py --uninstall`
+- **로그**: 리눅스 `~/.cache/agent-office.log`, 맥 `~/Library/Logs/agent-office.log`, 윈도우 `%LOCALAPPDATA%\agent-office.log`
+
 ## 실행
 
 파이썬 3.8 이상이 필요해요.
@@ -28,7 +47,12 @@ python3 agent_office_server.py
 py agent_office_server.py
 ```
 
-브라우저가 `http://localhost:8765`로 열리고 **🔴 LIVE**가 뜨면 성공이에요. 끌 때는 `Ctrl + C`.
+**🔴 LIVE**가 뜨면 성공이에요. 끌 때는 `Ctrl + C`.
+
+- **창이 이미 열려 있으면**: 앱이나 탭이 이미 열려 있으면 그 창이 서버에 다시 붙고, 새 창은 열지 않아요.
+- **창이 없으면**: 설치한 냥오피스 앱이 있으면 앱으로, 없으면 브라우저로 열어요.
+- **서버가 이미 켜져 있으면**: 자동 시작 등으로 켜져 있으면 다시 실행해도 서버를 또 켜지 않고 창만 열어요.
+- **창을 먼저 연 경우**: 서버가 꺼진 채로 창을 열어 두면, 서버가 켜지는 순간 알아서 라이브 모드로 바뀌어요.
 
 ### 옵션
 
@@ -36,7 +60,10 @@ py agent_office_server.py
 | --- | --- | --- |
 | `--dir PATH` | 감시할 Claude Code 로그 폴더 | `~/.claude/projects` |
 | `--port N` | 서버 포트 | `8765` |
-| `--no-browser` | 브라우저 자동 열기 끄기 | 꺼짐 |
+| `--no-browser` | 창 자동 열기 끄기 | 꺼짐 |
+| `--no-update` | 자동 업데이트 끄기 | 꺼짐 |
+| `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
+| `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
 
 ### 매번 치기 귀찮다면
 

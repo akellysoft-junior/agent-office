@@ -1482,6 +1482,12 @@ function startPoll(){
       const r = await fetch("api/events?since=" + live.seq, {cache:"no-store"});
       if (!r.ok) throw 0;
       const d = await r.json();
+      if (live.boot && d.boot && d.boot !== live.boot){      // 서버가 다시 켜짐 → 처음부터 다시 받기
+        log("서버가 다시 켜졌어요 — 세션을 다시 불러와요", null);
+        enterLive("server"); return;
+      }
+      live.boot = d.boot || live.boot;
+      checkHtmlVersion(d.v);
       live.seq = d.seq;
       for (const rec of d.events) liveHandle(rec);
       live.fail = 0;
@@ -3057,9 +3063,33 @@ if (LOCAL_APP){
   });
 }
 // 로컬 라이브 서버(agent_office_server.py)로 열렸으면 자동으로 실시간 모드
-fetch("api/ping", {cache:"no-store"})
-  .then(r => r.ok ? r.json() : null)
-  .then(d => { if (d && d.ok){ liveAvailable = true; liveCanOpen = !!d.open; enterLive("server"); log("로컬 라이브 서버 감지 — 실시간 모드 시작", "good"); } })
-  .catch(()=>{});
+let htmlV = 0;
+function checkHtmlVersion(v){
+  if (!v) return;
+  if (!htmlV){ htmlV = v; return; }
+  if (v !== htmlV && !document.querySelector(".sum-name input")){
+    htmlV = v;
+    toast("✨ 새 버전으로 바뀌었어요", "잠시 뒤 화면을 새로고침해요.");
+    setTimeout(() => location.reload(), 2500);
+  }
+}
+function pingServer(){
+  return fetch("api/ping", {cache:"no-store"})
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d || !d.ok) return false;
+      checkHtmlVersion(d.v);
+      if (mode === "sim"){
+        const first = !liveAvailable;
+        liveAvailable = true; liveCanOpen = !!d.open; enterLive("server");
+        log(first ? "로컬 라이브 서버 감지 — 실시간 모드 시작" : "서버에 다시 연결했어요 — 실시간 모드로 돌아와요", "good");
+      }
+      return true;
+    })
+    .catch(() => false);
+}
+pingServer();
+// 서버가 꺼져 있거나 나중에 켜져도 알아서 다시 붙는다 (로컬 서버로 연 창·앱만)
+if (LOCAL_APP) setInterval(() => { if (mode === "sim") pingServer(); }, 3000);
 })();
 </script>

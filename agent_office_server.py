@@ -13,16 +13,23 @@ Chrome·Edge에서 주소창의 "앱 설치"를 누르면 독립된 앱 창으�
 사용법 — agent_office.html 과 같은 폴더에 두고:
     python3 agent_office_server.py        (맥/리눅스)
     py agent_office_server.py             (윈도우)
-브라우저가 자동으로 열린다 (http://localhost:8765)
+이미 열린 창이 있으면 그 창이 다시 연결되고, 없으면 설치한 앱(없으면 브라우저)을 연다.
+
+한 번만 하면 되는 설정:
+    python3 agent_office_server.py --install     로그인할 때 서버 자동 시작 (지금도 켬)
+    python3 agent_office_server.py --uninstall   자동 시작 해제
+git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 받아 온다 (고친 파일이 있으면 건너뜀).
 
 옵션:
     --dir PATH    감시할 로그 폴더 (기본: ~/.claude/projects)
     --port N      포트 (기본: 8765)
-    --no-browser  브라우저 자동 열기 끄기
+    --no-browser  창 자동 열기 끄기
+    --no-update   자동 업데이트 끄기
 """
 import argparse
 import base64
 import collections
+import hashlib
 import json
 import os
 import platform
@@ -30,8 +37,11 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
+import urllib.request
+import uuid
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,6 +58,15 @@ partial = {}    # path -> 줄바꿈 전 미완성 조각
 meta = {}       # 세션 앞 8글자 -> {"id", "cwd", "started", "file"}
 seq = 0
 lock = threading.Lock()
+last_client = 0.0              # 페이지가 마지막으로 서버에 연결한 시각
+BOOT_ID = uuid.uuid4().hex[:8] # 서버가 다시 켜졌는지 페이지가 알아차리게
+
+
+def html_version():
+    try:
+        return int(os.stat(os.path.join(HERE, "agent_office.html")).st_mtime)
+    except OSError:
+        return 0
 
 
 def proj_label(dirname):
@@ -738,6 +757,8 @@ MANIFEST = {
     "display": "standalone",
     "background_color": "#fcf7ee",
     "theme_color": "#fcf7ee",
+    "id": "/",
+    "launch_handler": {"client_mode": ["focus-existing", "auto"]},
     "icons": [
         {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
         {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
@@ -1379,6 +1400,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-Agent-Office") == "1"
 
     def do_GET(self):
+        global last_client
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             try:
@@ -1405,7 +1427,9 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path in ICONS or u.path == "/favicon.ico":
             self._raw(ICONS.get(u.path, ICONS["/icon-192.png"]), "image/png", {"Cache-Control": "max-age=86400"})
         elif u.path == "/api/ping":
-            self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True})
+            last_client = time.time()
+            self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True,
+                        "v": html_version(), "boot": BOOT_ID})
         elif u.path == "/api/events":
             with lock:
                 scan(self.root)
@@ -1415,7 +1439,8 @@ class Handler(BaseHTTPRequestHandler):
                     since = 0
                 out = [e for e in events if e["q"] > since][:400]
                 cur = seq
-            self._json({"seq": cur, "events": out})
+            last_client = time.time()
+            self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID})
         else:
             self.send_error(404)
 
@@ -1450,32 +1475,304 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+# ───────── 창 열기: 이미 열린 창이 있으면 그대로, 설치한 앱이 있으면 앱으로 ─────────
+APP_NAMES = ("냥오피스", "Agent Office")
+
+
+def find_installed_app():
+    """Chrome·Edge로 설치한 냥오피스 앱을 찾는다: (종류, 경로) 또는 None."""
+    home = os.path.expanduser("~")
+    if SYSTEM == "Darwin":
+        for d in ("Chrome Apps.localized", "Chrome Apps", "Edge Apps.localized", "Edge Apps", "Chromium Apps.localized"):
+            for name in APP_NAMES:
+                p = os.path.join(home, "Applications", d, name + ".app")
+                if os.path.isdir(p):
+                    return "mac", p
+    elif SYSTEM == "Windows":
+        base = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")
+        for sub in ("Chrome Apps", "Edge Apps", ""):
+            for name in APP_NAMES:
+                p = os.path.join(base, sub, name + ".lnk")
+                if os.path.isfile(p):
+                    return "win", p
+    else:
+        appdir = os.path.join(home, ".local", "share", "applications")
+        try:
+            files = sorted(os.listdir(appdir))
+        except OSError:
+            files = []
+        for fn in files:
+            if not fn.endswith(".desktop"):
+                continue
+            p = os.path.join(appdir, fn)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            if "--app-id" in text and any(f"Name={n}" in text for n in APP_NAMES):
+                return "linux", p
+    return None
+
+
+def open_window(url):
+    app = find_installed_app()
+    if app:
+        kind, p = app
+        try:
+            if kind == "mac":
+                subprocess.Popen(["open", "-a", p])
+                return "설치한 앱"
+            if kind == "win":
+                os.startfile(p)  # noqa: 윈도우 전용
+                return "설치한 앱"
+            if shutil.which("gio"):
+                subprocess.Popen(["gio", "launch", p])
+                return "설치한 앱"
+            if shutil.which("gtk-launch"):
+                subprocess.Popen(["gtk-launch", os.path.basename(p)[:-8]])
+                return "설치한 앱"
+            with open(p, encoding="utf-8") as fh:
+                m = re.search(r"^Exec=(.*)$", fh.read(), re.M)
+            if m:
+                subprocess.Popen([a for a in shlex.split(m.group(1)) if not a.startswith("%")])
+                return "설치한 앱"
+        except Exception:
+            pass
+    webbrowser.open(url)
+    return "브라우저"
+
+
+def open_when_needed(url):
+    """서버가 막 켜졌을 때: 이미 열린 창이 다시 연결되면 그대로 두고, 아니면 연다."""
+    deadline = time.time() + 4.5
+    while time.time() < deadline:
+        if time.time() - last_client < 5:
+            print("이미 열린 창이 다시 연결됐어요. 새 창은 열지 않을게요.")
+            return
+        time.sleep(0.25)
+    print(f"{open_window(url)}으로 열었어요.")
+
+
+def server_alive(port):
+    """그 포트에서 에이전트 오피스 서버가 돌고 있으면 ping 응답을, 아니면 None."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1.5) as r:
+            d = json.loads(r.read() or b"{}")
+            return d if d.get("ok") else None
+    except Exception:
+        return None
+
+
+# ───────── 자동 업데이트: git 저장소에서 실행 중이면 새 버전을 받아 온다 ─────────
+UPDATE_EVERY = 3 * 3600
+
+
+def git(*a, timeout=60):
+    try:
+        r = subprocess.run(["git", "-C", HERE, *a], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout + r.stderr).strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def file_hash(p):
+    try:
+        with open(p, "rb") as fh:
+            return hashlib.sha1(fh.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+def try_update():
+    """새 버전을 받았고 서버 코드가 바뀌었으면 True (다시 켜야 함)."""
+    if not (os.path.isdir(os.path.join(HERE, ".git")) and shutil.which("git")):
+        return False
+    rc, _ = git("fetch", "--quiet")
+    if rc != 0:
+        return False
+    rc, behind = git("rev-list", "--count", "HEAD..@{u}")
+    if rc != 0 or not behind.isdigit() or int(behind) == 0:
+        return False
+    rc, dirty = git("status", "--porcelain", "--untracked-files=no")
+    if dirty:
+        print("[업데이트] 새 버전이 있지만 직접 고친 파일이 있어서 건너뛰어요. (git status로 확인)")
+        return False
+    before = file_hash(os.path.abspath(__file__))
+    rc, out = git("pull", "--ff-only", "--quiet")
+    if rc != 0:
+        print(f"[업데이트] 새 버전을 받지 못했어요: {out}")
+        return False
+    print(f"[업데이트] 새 버전을 받았어요 (커밋 {behind}개).")
+    return file_hash(os.path.abspath(__file__)) != before
+
+
+def restart_self():
+    args = [a for a in sys.argv[1:] if a not in ("--restarted",)]
+    if "--no-browser" not in args:
+        args.append("--no-browser")
+    print("[업데이트] 서버를 새 버전으로 다시 켤게요.", flush=True)
+    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + args + ["--restarted"])
+
+
+def update_loop():
+    while True:
+        time.sleep(UPDATE_EVERY)
+        try:
+            if try_update():
+                restart_self()
+        except Exception as e:
+            print(f"[업데이트] 확인 중 문제가 생겼어요: {e}")
+
+
+# ───────── 자동 시작: 로그인할 때 서버를 뒤에서 켠다 ─────────
+
+def autostart_paths():
+    home = os.path.expanduser("~")
+    if SYSTEM == "Darwin":
+        return os.path.join(home, "Library", "LaunchAgents", "com.agentoffice.server.plist")
+    if SYSTEM == "Windows":
+        return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs",
+                            "Startup", "AgentOffice.vbs")
+    return os.path.join(home, ".config", "autostart", "agent-office.desktop")
+
+
+def background_cmd(port, extra):
+    py = sys.executable
+    if SYSTEM == "Windows":
+        pyw = os.path.join(os.path.dirname(py), "pythonw.exe")
+        py = pyw if os.path.isfile(pyw) else py
+    return [py, os.path.abspath(__file__), "--no-browser"] + (["--port", str(port)] if port != 8765 else []) + extra
+
+
+def log_path():
+    if SYSTEM == "Darwin":
+        return os.path.expanduser("~/Library/Logs/agent-office.log")
+    if SYSTEM == "Windows":
+        return os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "agent-office.log")
+    return os.path.join(os.path.expanduser("~/.cache"), "agent-office.log")
+
+
+def start_background(port, extra):
+    lp = log_path()
+    os.makedirs(os.path.dirname(lp), exist_ok=True)
+    out = open(lp, "a", encoding="utf-8")
+    if SYSTEM == "Windows":
+        subprocess.Popen(background_cmd(port, extra), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                         creationflags=0x00000008 | 0x00000200)   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        subprocess.Popen(background_cmd(port, extra), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+
+
+def install_autostart(port, extra):
+    p = autostart_paths()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    cmd = background_cmd(port, extra)
+    if SYSTEM == "Darwin":
+        import plistlib
+        lp = log_path()
+        with open(p, "wb") as fh:
+            plistlib.dump({"Label": "com.agentoffice.server", "ProgramArguments": cmd, "RunAtLoad": True,
+                           "KeepAlive": {"SuccessfulExit": False}, "StandardOutPath": lp, "StandardErrorPath": lp,
+                           "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")}}, fh)
+        subprocess.run(["launchctl", "unload", p], capture_output=True)
+        subprocess.run(["launchctl", "load", "-w", p], capture_output=True)   # 지금 바로 켜짐
+    elif SYSTEM == "Windows":
+        line = " ".join('""' + c + '""' if " " in c or "\\" in c else c for c in cmd)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(f'CreateObject("WScript.Shell").Run "{line}", 0, False\n')
+    else:
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("[Desktop Entry]\nType=Application\nName=Agent Office 서버\n"
+                     "Comment=냥오피스 로컬 서버 (Claude Code 세션 감시)\n"
+                     f"Exec={' '.join(shlex.quote(c) for c in cmd)}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
+    return p
+
+
+def uninstall_autostart():
+    p = autostart_paths()
+    if not os.path.exists(p):
+        return None
+    if SYSTEM == "Darwin":
+        subprocess.run(["launchctl", "unload", "-w", p], capture_output=True)
+    os.remove(p)
+    return p
+
+
 def main():
     ap = argparse.ArgumentParser(description="에이전트 오피스 라이브 서버")
     ap.add_argument("--dir", default=os.path.expanduser("~/.claude/projects"))
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--no-update", action="store_true", help="자동 업데이트 끄기")
+    ap.add_argument("--install", action="store_true", help="로그인할 때 서버 자동 시작 (지금도 켬)")
+    ap.add_argument("--uninstall", action="store_true", help="자동 시작 해제")
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
+    ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    url = f"http://localhost:{args.port}"
+    extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
+            (["--no-update"] if args.no_update else [])
+
     if args.check_terminal:
         check_terminal()
         return
+    if args.uninstall:
+        p = uninstall_autostart()
+        print(f"자동 시작을 해제했어요: {p}" if p else "자동 시작이 설정돼 있지 않아요.")
+        print("지금 켜져 있는 서버는 그대로예요. 다음 로그인부터 자동으로 켜지지 않아요.")
+        return
+    if args.install:
+        p = install_autostart(args.port, extra)
+        print(f"자동 시작을 등록했어요: {p}")
+        if not server_alive(args.port) and SYSTEM != "Darwin":
+            start_background(args.port, extra)
+        for _ in range(20):
+            if server_alive(args.port):
+                break
+            time.sleep(0.25)
+        print("서버가 뒤에서 켜져 있어요." if server_alive(args.port) else f"서버를 켜지 못했어요. 로그를 확인해 주세요: {log_path()}")
+        print(f"로그: {log_path()}")
+        print(f"이제 {url} 를 Chrome·Edge로 열고 '📲 앱으로 설치'를 누르면, 다음부터는 냥오피스 아이콘만 누르면 돼요.")
+        if not args.no_browser:
+            open_when_needed(url)
+        return
+
+    # 이미 서버가 켜져 있으면(예: 자동 시작) 창만 연다
+    alive = server_alive(args.port)
+    if alive:
+        print(f"이미 서버가 켜져 있어요: {url}")
+        if not args.no_browser:
+            print(f"{open_window(url)}으로 열었어요.")
+        return
+
+    if not args.no_update and not args.restarted:
+        try:
+            if try_update():
+                restart_self()
+        except Exception as e:
+            print(f"[업데이트] 확인 중 문제가 생겼어요: {e}")
 
     Handler.root = args.dir
     Handler.port = args.port
     if not os.path.isdir(args.dir):
         print(f"[!] 로그 폴더가 없어요: {args.dir}")
         print("    Claude Code를 이 PC에서 한 번이라도 실행했는지 확인해 주세요.")
-
-    if SYSTEM == "Linux":
+    if SYSTEM == "Linux" and not args.restarted:
         linux_setup_check()
 
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    url = f"http://localhost:{args.port}"
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    except OSError as e:
+        print(f"[!] {args.port}번 포트를 쓸 수 없어요 ({e}). --port 9000 처럼 다른 번호로 켜 주세요.")
+        return
     print(f"에이전트 오피스 라이브 서버: {url}")
     print(f"감시 중: {args.dir}   (Ctrl+C 로 종료)")
-    if not args.no_browser:
-        webbrowser.open(url)
+    if not args.no_update:
+        threading.Thread(target=update_loop, daemon=True).start()
+    if not args.no_browser and not args.restarted:
+        threading.Thread(target=open_when_needed, args=(url,), daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

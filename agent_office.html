@@ -656,7 +656,7 @@ function replayAgentTick(a, dt){
     a.state = "working";
     a.workT += dt;
     if (a.workT >= a.workDur){
-      a.cur = null; a.state = "idle"; a.stateText = "대기 중";
+      a.cur = null; a.state = a.busy ? "busy" : "idle"; if (!a.busy) a.stateText = "대기 중";
       a.workT = 0; a.workDur = 0;
     }
     return;
@@ -673,7 +673,7 @@ function replayAgentTick(a, dt){
     if (!a.path.length) goTo(a, a.seat.x, a.seat.y);
     a.state = "walk";
     stepMove(a, dt);
-    if (!a.path.length){ a.state="idle"; a.stateText="대기 중"; }
+    if (!a.path.length){ a.state = a.busy ? "busy" : "idle"; if (!a.busy) a.stateText = "대기 중"; }
   }
 }
 
@@ -1419,9 +1419,11 @@ function liveKitten(sess, key){
   let h = 0; for (const ch of key) h = (h*31 + ch.charCodeAt(0)) >>> 0;
   let name = KITTEN_NAMES[h % KITTEN_NAMES.length];
   for (let j=1; names.has(name) && j<KITTEN_NAMES.length; j++) name = KITTEN_NAMES[(h + j) % KITTEN_NAMES.length];
-  kt = makeCat({id:"kit-"+key, name, role: sess.taskQ.shift() || "서브에이전트",
+  const role = sess.taskQ.shift();
+  kt = makeCat({id:"kit-"+key, name, role: role || "서브에이전트",
                 coat: KITTEN_COATS[h % KITTEN_COATS.length], k:0.8, zBase:0, napAfter:999,
                 lot:sess.slot, deskIdx:idx, router:lotRouter(L), pos:lotDoor(L), seat:lotSeat(L, idx)});
+  kt.roleSet = !!role; kt.busy = true;
   sess.kittens.set(key, kt); live.ver++;
   log(`${L.name}에 새끼냥 ${name} 출근 — ${kt.role}`, "good");
   return kt;
@@ -1435,6 +1437,7 @@ function bossToDesk(s){
 function setWaiting(s, reason, fresh){
   s.phase = "waiting"; s.waitReason = reason; s.waitSince = Date.now();
   s.pendingEndAt = 0; s.pendingTool = null;
+  for (const k of s.kittens.values()){ k.busy = false; k.pendingTool = null; }
   const b = s.boss;
   b.waiting = true; b.inLounge = false; b.seat = lotWait(SLOTS[s.slot]); b.seatLift = 0; b.napAfter = 90;
   b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
@@ -1539,17 +1542,32 @@ function liveHandle(rec){
   const fresh = isNaN(ts) || Date.now() - ts < 60000;
   sess.lastTs = isNaN(ts) ? Date.now() : ts;
   if (!side) trackMain(sess, o, fresh);
+  const c0 = o.message && o.message.content;
+  if (side && Array.isArray(c0) && o.type === "user" && c0.some(b => b && b.type === "tool_result")){
+    const k0 = sess.kittens.get(String(rec.a || o.agentId || "sub"));
+    if (k0) k0.pendingTool = null;
+  }
   if (!items.length) return;
   // 서브에이전트 호출 → 다음에 올 새끼냥의 역할 이름
   if (!side && o.type === "assistant")
     for (const b of o.message.content)
       if (b && b.type === "tool_use" && /^(Task|Agent)$/i.test(b.name || "")){
-        const inp = b.input || {};
-        sess.taskQ.push(clip(inp.description || inp.subagent_type || "서브에이전트", 16));
+        const inp = b.input || {}, role = clip(inp.description || inp.subagent_type || "서브에이전트", 16);
+        // 서브에이전트 로그가 먼저 도착해 이름 없이 출근한 새끼냥이 있으면 그 아이에게 붙여 줌
+        const unnamed = [...sess.kittens.values()].find(k => !k.roleSet);
+        if (unnamed){ unnamed.role = role; unnamed.roleSet = true; live.ver++; }
+        else sess.taskQ.push(role);
       }
   let actor = sess.boss;
   if (side){ const kt = liveKitten(sess, String(rec.a || o.agentId || "sub")); if (kt) actor = kt; }
   sess.lastMs = actor.lastMs = Date.now();
+  if (side && actor !== sess.boss && Array.isArray(c0)){
+    const hasTool = c0.some(b => b && b.type === "tool_use");
+    const hasText = c0.some(b => b && b.type === "text" && b.text && b.text.trim());
+    if (o.type === "assistant" && hasTool){ actor.busy = true; actor.pendingTool = true; }
+    else if (o.type === "assistant" && hasText){ actor.busy = o.message.stop_reason === "tool_use"; actor.pendingTool = null; }
+    else if (o.type === "user") actor.busy = true;
+  }
   if (actor.inLounge){                       // 쉬다가 일이 오면 책상으로 복귀
     actor.inLounge = false; actor.seat = {...actor.home}; actor.seatLift = 7; actor.napAfter = actor.napBase;
   }
@@ -1574,12 +1592,27 @@ function liveTick(dt){
     if (s.pendingEndAt && nowMs > s.pendingEndAt) complete(s, true);
     if (s.phase === "working" && nowMs - s.lastTs > 15*60000){ s.phase = "idle"; s.activity = "한동안 조용해요"; bossToDesk(s); live.ver++; }
     s.approval = s.phase === "working" && s.pendingTool && /^(Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch)$/.test(s.pendingTool.name)
-                 && nowMs - s.pendingTool.at > 15000;
+                 && nowMs - s.pendingTool.at > 40000;
     const L = SLOTS[s.slot], cats = [s.boss, ...s.kittens.values()];
     for (const c of cats){
+      if (c === s.boss){ c.busy = s.phase === "working" && !c.waiting; c.busyKind = s.pendingTool ? "tool" : "think"; }
+      else {
+        if (c.busy && nowMs - c.lastMs > 10*60000) c.busy = false;   // 10분 넘게 소식이 없으면 끝난 걸로
+        c.busyKind = c.pendingTool ? "tool" : "think";
+      }
+      if (c.busy && c.state === "idle" && !c.cur && !c.path.length) c.state = "busy";
+      if (!c.busy && c.state === "busy"){ c.state = "idle"; c.idleSince = null; c.stateText = "대기 중"; }
+      if (c.state === "busy"){
+        const act = c === s.boss ? s.activity : c.activity;
+        c.stateText = c.busyKind === "tool" ? `${act || "도구 실행"} · 결과 기다리는 중` : "💭 생각하는 중";
+        if (!c.bubble && nowMs - c.lastMs > 12000 && nowMs - (c.murmurAt || 0) > 25000){
+          c.murmurAt = nowMs;
+          say(c, c.busyKind === "tool" ? `${act || "기다리는 중"}…` : pick(["음… 생각 중", "어떻게 할까…", "정리하는 중…"]), 2.4);
+        }
+      }
       if (c.waiting && !c.cur && !c.q.length) c.stateText = s.approval ? "승인을 기다리는 걸지도" : c.stateText;
-      // 할 일이 없으면 휴게공간으로
-      if (c.leaving || c.waiting || c.inLounge || c.cur || c.q.length || c.path.length) continue;
+      // 정말 할 일이 없을 때만 휴게공간으로
+      if (c.busy || c.leaving || c.waiting || c.inLounge || c.cur || c.q.length || c.path.length) continue;
       if (nowMs - c.lastMs < 9000) continue;
       if (c === s.boss && s.phase === "working") continue;     // 세션이 일하는 동안 대장은 책상을 지킨다
       const spots = lotLounge(L);
@@ -1592,7 +1625,7 @@ function liveTick(dt){
       say(c, spots[i].say, 2);
     }
     for (const [key, kt] of s.kittens){
-      if (!kt.leaving && !kt.cur && !kt.q.length && nowMs - kt.lastMs > 45000){
+      if (!kt.busy && !kt.leaving && !kt.cur && !kt.q.length && nowMs - kt.lastMs > 45000){
         Object.assign(kt, {leaving:true, inLounge:false, seat:lotDoor(L), seatLift:0, stateText:"퇴근 중"});
         say(kt, "퇴근!", 2);
       }
@@ -1883,7 +1916,7 @@ function drawLot(i, now){
       L.appear[k] = L.appear[k] ?? now;
       const alpha = Math.min(1, (now - L.appear[k]) / 0.6);
       const d = lotDesk(L, k), seat = lotSeat(L, k);
-      const busy = cats.some(c => c.deskIdx === k && c.state === "working" && !c.inLounge && !c.waiting);
+      const busy = cats.some(c => c.deskIdx === k && (c.state === "working" || c.state === "busy") && !c.inLounge && !c.waiting);
       items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha)});
       items.push({z: seat.x + seat.y - 0.5, fn:() => { ctx.globalAlpha = alpha; drawStool(seat, 0); ctx.globalAlpha = 1; }});
     }
@@ -2025,6 +2058,7 @@ function startDemo(){
       if (S.subs.length && Math.random() < 0.55){
         const sub = pick(S.subs);
         emit(d, demoLine(d, sub.id));
+        if (Math.random() < 0.8) emit(d, {type:"user", isSidechain:true, agentId:sub.id, message:{content:[{type:"tool_result", content:"ok"}]}});
         if (--sub.left <= 0){
           emit(d, {type:"assistant", isSidechain:true, agentId:sub.id, message:{content:[{type:"text", text:"조사 끝, 결과 보고합니다"}]}});
           S.subs = S.subs.filter(x => x !== sub);
@@ -2035,12 +2069,14 @@ function startDemo(){
           input:{description: pick(["코드베이스 탐색","테스트 작성","회귀 확인","문서 조사","빌드 로그 분석","UI 리뷰","API 스펙 조사"])}}]}});
         S.subs.push(sub);
         emit(d, demoLine(d, sub.id));
+        emit(d, {type:"user", isSidechain:true, agentId:sub.id, message:{content:[{type:"tool_result", content:"ok"}]}});
       } else if (!S.asked && i === 1 && Math.random() < 0.15){
         S.asked = true; S.phase = "question"; S.at = t + 5;
         emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"AskUserQuestion",
           input:{questions:[{question:"차트 종류는 어떤 걸로 할까요?"}]}}]}});
       } else {
         emit(d, demoLine(d));
+        if (Math.random() < 0.85) emit(d, {type:"user", message:{content:[{type:"tool_result", content:"ok"}]}});
         if (++S.step % 4 === 0){
           S.cur++;
           if (S.cur < S.todos.length) todoWrite(d, S);
@@ -2272,6 +2308,7 @@ const catK = a => 1.7 + (a.pos.x + a.pos.y) / 780 * 0.35;
 function catPose(a, now){
   if (a.path.length) return "walk";
   if (a.state === "working") return "work";
+  if (a.state === "busy"){ a.idleSince = null; return a.busyKind === "think" ? "think" : "work"; }
   if (a.state === "idle"){
     a.idleSince = a.idleSince ?? now;
     if (now - a.idleSince > (a.napAfter ?? 7) && !a.bubble) return "sleep";
@@ -2349,6 +2386,19 @@ function drawCat(a, now){
   }
   if (a.carry){ shape([[9,-13],[14,-14.5],[15.2,-9.5],[10.2,-8]], "#ffffff"); }
   ctx.restore();
+  if (pose === "think" && !a.bubble){            // 💭 생각 구름 (점 세 개가 차례로 깜빡임)
+    const bx = sx + 11*k, by = sy - lift - 33*k;
+    ctx.strokeStyle = TOD.ink; ctx.lineWidth = LW;
+    ell(sx + 4*k, sy - lift - 22*k, 1.2*k, 1.2*k, TOD.paper);
+    ell(sx + 7*k, sy - lift - 26.5*k, 1.9*k, 1.9*k, TOD.paper);
+    ctx.fillStyle = TOD.paper; ctx.beginPath(); ctx.ellipse(bx, by, 8.5*k, 5*k, 0, 0, 7); ctx.fill(); ctx.stroke();
+    for (let i=0; i<3; i++){
+      const on = reduceMotion ? 1 : 0.35 + 0.65 * Math.max(0, Math.sin(now * 4 - i * 0.9));
+      ctx.globalAlpha = on; ctx.fillStyle = TOD.ink;
+      ctx.beginPath(); ctx.arc(bx + (i - 1) * 3.3*k, by, 0.95*k, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
   if (a.waiting && atStool){                     // "냥?" 팻말을 들고 기다림
     const bob = reduceMotion ? 0 : Math.sin(now * 3) * 1.2;
     const px = sx + 10*k, top = sy - lift - 31*k + bob;
@@ -2547,7 +2597,9 @@ function updateLiveList(){
   for (const r of liveRows){
     const c = r.c;
     r.st.textContent = c.leaving ? "🏠 퇴근 중" : c.inLounge ? "☕ 휴게공간에서 쉬는 중"
-                     : c.waiting ? "💬 " + c.stateText : (c.activity || c.stateText);
+                     : c.waiting ? "💬 " + c.stateText
+                     : c.state === "busy" ? (c.busyKind === "think" ? "💭 생각하는 중" : `⏳ ${c.activity || "도구 실행"} · 결과 기다리는 중`)
+                     : (c.activity || c.stateText);
     r.bar.style.width = (c.state==="working" && c.workDur>0 ? Math.min(100, c.workT/c.workDur*100) : 0) + "%";
   }
 }
@@ -2601,7 +2653,7 @@ function fillSumCard(s){
           : s.waitReason === "중단" ? "중단됐어요 · 다음 명령을 기다려요"
           : `💬 다음 명령을 기다려요 · ${mins(Date.now() - s.waitSince)}`)
       : s.phase === "idle" ? "😴 한동안 조용해요"
-      : `지금: ${s.activity || "준비 중"}${helping ? ` · 새끼냥 ${helping}마리 함께` : ""}${s.approval ? " · ⏳ 승인을 기다리는 걸지도" : ""}`;
+      : `지금: ${s.pendingTool ? `${s.activity} · 결과 기다리는 중` : s.boss.state === "busy" ? `💭 생각하는 중 · 직전: ${s.activity || "요청 확인"}` : (s.activity || "준비 중")}${helping ? ` · 새끼냥 ${helping}마리 함께` : ""}${s.approval ? " · ⏳ 승인을 기다리는 걸지도" : ""}`;
   if (s.todos.length){
     const done = s.todos.filter(t => t.status === "completed").length, cur = s.todos.find(t => t.status === "in_progress");
     c.todo.hidden = false; c.tbar.style.width = (done / s.todos.length * 100) + "%";

@@ -1326,7 +1326,7 @@ const lotRouter = L => (from, to) => {         // 책상과 휴게공간 사이�
 const BOSS_LOOKS = [
   {name:"루미", coat:{base:"#f2a54e", stripe:"#cf7a2b", paw:"#fff4e6"}},
   {name:"모카", coat:{base:"#f3dfc0", stripe:"#d9b98a", paw:"#fffaf0"}},
-  {name:"턱시", coat:{base:"#2f2d33", patch:"#ffffff", patch2:"#ffffff"}},
+  {name:"턱시", coat:{base:"#2f2d33", tux:true, paw:"#ffffff"}},
   {name:"구름", coat:{base:"#9aa5b8"}},
   {name:"호떡", coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#f2a54e"}},
   {name:"보리", coat:{base:"#c99a6b", stripe:"#9c6c42"}},
@@ -2502,6 +2502,7 @@ function drawCat(a, now){
     ctx.save(); ctx.clip();
     if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.4/k; for (const x of [-4,-1,2]) line([[x,-11],[x+1,-7]]); }
     if (C.patch){ ell(-3, -9, 4, 3, C.patch, true); ell(4, -4, 3, 2.4, C.patch2, true); }
+    if (C.tux){ ell(6.2, -5.2, 2.8, 3.6, "#ffffff", true); ell(0, -2.3, 5.5, 1.6, "#ffffff", true); }
     ctx.restore(); ctx.lineWidth = LW/k; inkStroke();
     drawHead(a, 8, -12.5, eyeC, lineC, pose, now);
   } else {
@@ -2517,6 +2518,12 @@ function drawCat(a, now){
     ctx.save(); ctx.clip();
     if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.4/k; line([[-6,-8],[-2,-7]]); line([[6,-8],[2,-7]]); line([[-6,-4],[-3,-3.5]]); }
     if (C.patch){ ell(-4, -9, 4.2, 3.6, C.patch, true); ell(4, -3, 3.4, 3, C.patch2, true); }
+    if (C.tux){                                    // 턱시도: 목에서 배까지 흰 셔츠
+      ctx.fillStyle = "#ffffff"; ctx.beginPath();
+      ctx.moveTo(-2.2, -12.6); ctx.quadraticCurveTo(0, -11.2, 2.2, -12.6);
+      ctx.quadraticCurveTo(4.2, -5, 2.6, 0.6); ctx.lineTo(-2.6, 0.6); ctx.quadraticCurveTo(-4.2, -5, -2.2, -12.6);
+      ctx.fill();
+    }
     ctx.restore(); ctx.lineWidth = LW/k; inkStroke();
     // 앞발 (일할 땐 번갈아 톡톡)
     const tap = pose === "work" && !reduceMotion ? Math.floor(now*8)%2 : 0;
@@ -2578,6 +2585,11 @@ function drawHead(a, hx, hy, eyeC, lineC, pose, now){
   ctx.save(); ctx.clip();
   if (C.stripe){ ctx.strokeStyle = C.stripe; ctx.lineWidth = 1.3; line([[hx-1.6,hy-5.5],[hx-1.4,hy-3]]); line([[hx+1.6,hy-5.5],[hx+1.4,hy-3]]); line([[hx,hy-5.6],[hx,hy-3.2]]); }
   if (C.patch){ ell(hx-4, hy-3, 3.6, 3.2, C.patch, true); ell(hx+4.5, hy-3.5, 2.6, 2.4, C.patch2, true); }
+  if (C.tux){
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.moveTo(hx - 0.9, hy + 1); ctx.lineTo(hx, hy - 3.6); ctx.lineTo(hx + 0.9, hy + 1); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(hx, hy + 3, 3.9, 2.9, 0, 0, Math.PI*2); ctx.fill();
+  }
   ctx.restore(); ctx.strokeStyle = ink; ctx.lineWidth = LW; ctx.stroke();
   // 얼굴
   if (pose === "sleep"){
@@ -2588,7 +2600,12 @@ function drawHead(a, hx, hy, eyeC, lineC, pose, now){
     else { ell(hx-2.4, hy+0.2, 0.95, 1.15, eyeC, true); ell(hx+2.4, hy+0.2, 0.95, 1.15, eyeC, true); }
   }
   // 입 ω
+  if (C.tux){                                     // 흰 입가 위: 분홍 코 + 진한 입
+    ctx.fillStyle = "#f08a8a"; ctx.beginPath(); ctx.moveTo(hx - 0.9, hy + 1.1); ctx.lineTo(hx + 0.9, hy + 1.1); ctx.lineTo(hx, hy + 2); ctx.fill();
+    ctx.save(); ctx.strokeStyle = "#1f1d1b";
+  }
   ctx.beginPath(); ctx.arc(hx-0.8, hy+2.2, 0.8, 0, Math.PI); ctx.arc(hx+0.8, hy+2.2, 0.8, 0, Math.PI); ctx.stroke();
+  if (C.tux) ctx.restore();
   // 볼터치
   ctx.fillStyle = "rgba(240,120,120,.35)";
   ctx.beginPath(); ctx.ellipse(hx-4, hy+2, 1.3, 0.8, 0, 0, 7); ctx.fill();

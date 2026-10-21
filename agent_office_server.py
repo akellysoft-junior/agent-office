@@ -421,6 +421,110 @@ def linux_hint():
     return "화면 세션(DISPLAY)을 찾지 못했어요. 데스크톱에서 연 터미널로 서버를 켜 주세요."
 
 
+# ── gnome-terminal 탭 고르기 ──
+# gnome-terminal은 '이 탭 보여줘' API가 없어서, 그 세션의 터미널 제목을 잠깐 표식으로 바꾼 뒤
+# 창마다 탭을 하나씩 넘겨 보며(org.gtk.Actions 'active-tab' 또는 'tab-switch-right')
+# 창 제목이 표식이 되는 탭을 찾는다. 창 제목은 Window Calls 확장으로 읽는다.
+
+def gt_windows():
+    out = run(["gdbus", "introspect", "--session", "--dest", "org.gnome.Terminal",
+               "--object-path", "/org/gnome/Terminal/window"])
+    # 첫 줄 'node /org/gnome/Terminal/window {'(자기 자신)는 빼고 하위 노드(창)만
+    return ["/org/gnome/Terminal/window/" + n for n in re.findall(r"node\s+([^/\s]\S*)\s*\{", out)]
+
+
+def gt_action(path, method, *args):
+    return run(["gdbus", "call", "--session", "--dest", "org.gnome.Terminal", "--object-path", path,
+                "--method", "org.gtk.Actions." + method, *args]).strip()
+
+
+def set_tty_title(tty, title):
+    try:
+        with open(tty, "w") as fh:
+            fh.write(f"\033]0;{title}\007")
+        return True
+    except OSError:
+        return False
+
+
+def gnome_terminal_pick(p):
+    """그 세션이 있는 탭을 띄우고, 그 창의 Window Calls 정보를 돌려준다. 못 찾으면 None."""
+    if not p.get("tty") or not shutil.which("gdbus"):
+        return None
+    tty = "/dev/" + p["tty"]
+    if not re.fullmatch(r"/dev/pts/\d+", tty):
+        return None
+    marker = f"agent-office-{os.getpid()}-{int(time.time() * 1000) % 1000000}"
+    if not set_tty_title(tty, marker):
+        return None
+
+    def find():
+        for w in gnome_window_calls() or []:
+            if w.get("title") == marker:
+                return w
+        return None
+
+    hit = None
+    try:
+        for _ in range(6):                     # 제목이 반영될 때까지 잠깐 기다림
+            time.sleep(0.05)
+            hit = find()
+            if hit:
+                break
+        if not hit:
+            for path in gt_windows():
+                # 방법 A: active-tab 상태를 0, 1, 2… 로 바꿔 본다
+                orig = re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
+                if gt_action(path, "SetState", "active-tab", "<int32 0>", "{}") == "()":
+                    for i in range(0, 40):
+                        if i:
+                            gt_action(path, "SetState", "active-tab", f"<int32 {i}>", "{}")
+                        state = re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
+                        if state and int(state[-1]) != i:
+                            break              # 탭 개수를 넘어감
+                        time.sleep(0.04)
+                        hit = find()
+                        if hit:
+                            break
+                    if not hit and orig:           # 이 창엔 없었으면 원래 보던 탭으로 되돌림
+                        gt_action(path, "SetState", "active-tab", f"<int32 {orig[-1]}>", "{}")
+                else:
+                    # 방법 B: 오른쪽 탭으로 넘기기를 한 바퀴
+                    for _ in range(40):
+                        if gt_action(path, "Activate", "tab-switch-right", "[]", "{}") != "()":
+                            break
+                        time.sleep(0.04)
+                        hit = find()
+                        if hit:
+                            break
+                if hit:
+                    break
+    finally:
+        set_tty_title(tty, "")                 # 표식 지우기 (Claude Code가 곧 제목을 다시 씀)
+    return hit
+
+
+def check_terminal():
+    """--check-terminal: 이 리눅스에서 '터미널로 이동'에 쓰이는 것들을 점검해서 출력."""
+    st, de = linux_session()
+    print(f"화면: {st or '(없음)'} · 데스크톱: {de or '(없음)'}")
+    for tool in ("gdbus", "tmux", "kitty", "wezterm", "wmctrl", "xdotool"):
+        print(f"  {tool:8s} {'있음' if shutil.which(tool) else '-'}")
+    wins = gnome_window_calls()
+    print(f"Window Calls 확장: {'동작함 (창 ' + str(len(wins)) + '개)' if wins is not None else '없음'}")
+    gws = gt_windows()
+    print(f"gnome-terminal 창: {len(gws)}개 {gws[:3]}")
+    if gws:
+        print("  active-tab:", gt_action(gws[0], "Describe", "active-tab") or "(지원 안 함)")
+        print("  tab-switch-right:", gt_action(gws[0], "Describe", "tab-switch-right") or "(지원 안 함)")
+    procs = claude_processes()
+    print(f"실행 중인 claude: {len(procs)}개")
+    for pr in procs[:8]:
+        env = proc_env(pr["pid"])
+        keys = [k for k in ("TMUX_PANE", "GNOME_TERMINAL_SCREEN", "KITTY_WINDOW_ID", "WEZTERM_PANE", "TERM_PROGRAM") if env.get(k)]
+        print(f"  pid {pr['pid']}  tty {pr['tty']}  cwd {pr['cwd']}  {' '.join(k + '=' + env[k] for k in keys)}")
+
+
 def raise_window(chain):
     pids = list(chain)
     wins = gnome_window_calls()
@@ -478,9 +582,19 @@ def focus_linux(p):
             e2["WEZTERM_UNIX_SOCKET"] = env["WEZTERM_UNIX_SOCKET"]
         if run_ok(["wezterm", "cli", "activate-pane", "--pane-id", env["WEZTERM_PANE"]], env=e2):
             return True, "WezTerm에서 그 패널을 앞으로 가져왔어요."
-    # 4) 창 자체를 앞으로
+    # 4) gnome-terminal이면 그 세션의 탭을 먼저 띄운다 (Window Calls 필요)
+    if not picked and env.get("GNOME_TERMINAL_SCREEN"):
+        hit = gnome_terminal_pick(p)
+        if hit:
+            run(["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+                 "--object-path", "/org/gnome/Shell/Extensions/Windows",
+                 "--method", "org.gnome.Shell.Extensions.Windows.Activate", str(hit.get("id"))])
+            return True, "gnome-terminal에서 그 탭을 띄우고 창을 앞으로 가져왔어요."
+    # 5) 창 자체를 앞으로
     ok, msg = raise_window(chain)
     if ok:
+        if env.get("GNOME_TERMINAL_SCREEN") and not picked:
+            msg += " (그 탭을 찾지 못해 창만 가져왔어요. --check-terminal 결과를 알려주시면 고칠게요)"
         return True, (picked + "고, " + msg) if picked else msg
     if picked:
         return True, picked + ". 터미널 창은 직접 눌러 주세요. (" + msg + ")"
@@ -1336,7 +1450,11 @@ def main():
     ap.add_argument("--dir", default=os.path.expanduser("~/.claude/projects"))
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
     args = ap.parse_args()
+    if args.check_terminal:
+        check_terminal()
+        return
 
     Handler.root = args.dir
     Handler.port = args.port

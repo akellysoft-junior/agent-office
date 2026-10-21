@@ -94,7 +94,8 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 
 - Wayland에서는 보안 때문에 `wmctrl`·`xdotool`이 동작하지 않아요. 우분투 기본 화면은 Wayland예요.
 - 서버를 켜면 터미널에 이 PC에서 무엇이 되는지("터미널로 이동: 준비됨" 또는 필요한 것)가 한 줄로 나와요.
-- gnome-terminal은 모든 창이 프로세스 하나로 돌아서, 창이 여러 개면 다른 창이 앞으로 올 수 있어요. tmux를 쓰면 정확해요.
+- **gnome-terminal 탭**: gnome-terminal에는 탭을 고르는 기능이 바깥에 열려 있지 않아요. 그래서 그 세션 탭의 제목을 잠깐 표식으로 바꾸고, 탭을 하나씩 넘기며 찾아서 띄워요. Window Calls 확장이 필요해요. 찾는 동안 탭이 잠깐 넘어가는 게 보일 수 있고, 다른 창의 탭은 원래대로 되돌려요. 탭 제목은 Claude Code가 곧 다시 써요.
+- 잘 안 되면 `python3 agent_office_server.py --check-terminal`을 실행해 보세요. 이 PC에서 무엇이 되는지 점검 결과를 보여줘요.
 
 맥에서 처음 "터미널로 이동"을 누르면 "Python이 Terminal을 제어하려고 합니다"라는 창이 떠요. **허용**을 눌러야 동작해요.
 

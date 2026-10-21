@@ -133,6 +133,7 @@ details.api pre{
 .sum-todo{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); min-width:0}
 .tbar{flex:0 0 64px; height:8px; border:1.5px solid var(--ink); border-radius:999px; overflow:hidden}
 .tbar i{display:block; height:100%; width:0; background:var(--good); transition:width .4s}
+.sum-bg, .sum-tools{font-size:12px; color:var(--muted); overflow-wrap:anywhere}
 .sum-result{font-size:12px; border-left:3px solid var(--good); padding-left:7px; overflow-wrap:anywhere}
 .sum-actions{display:flex; flex-wrap:wrap; gap:5px; margin-top:3px}
 button.mini{font-size:12px; padding:3px 9px; box-shadow:1.5px 1.5px 0 var(--ink)}
@@ -1387,10 +1388,127 @@ function renameSession(s, name){
 
 /* ── 무슨 일을 하는지 한 줄 요약 ── */
 const baseName = p => String(p || "").split(/[\\/]/).filter(Boolean).pop() || "";
+/* ── 부가 도구: 백그라운드 작업(모니터링 스크립트·개발 서버 등)·MCP·스킬 ──
+   Bash(run_in_background) → 결과의 "background with ID: X"로 작업 ID를 알고,
+   BashOutput 결과의 <status>/<exit_code>, KillShell, 알림 문구로 상태를 따라간다. */
+const TOOL_KIND = name =>
+  /^mcp__/.test(name) ? "mcp" : name === "Skill" ? "skill"
+  : /^(Read|Glob|Grep|LS|NotebookRead)$/.test(name) ? "read"
+  : /^(Edit|Write|MultiEdit|NotebookEdit|str_replace_based_edit_tool)$/.test(name) ? "edit"
+  : /^(Bash|BashOutput|KillShell|KillBash|Monitor|TaskOutput|TaskStop)$/.test(name) ? "cmd"
+  : /^(WebSearch|WebFetch)$/.test(name) ? "web" : /^(Task|Agent)$/i.test(name) ? "sub" : "etc";
+function bgLabel(cmd, desc){
+  const c = String(cmd || "").trim();
+  if (/\badb\b.*\blogcat\b/.test(c)) return "logcat";
+  if (/\b(npm|pnpm|yarn|bun) (run )?(dev|start|serve)\b/.test(c)) return "개발 서버";
+  if (/\btail\s+-[fF]\b/.test(c)) return "로그 " + clip(baseName(c.split(/\s+/).pop()), 10);
+  if (/gradlew?\b/.test(c)) return "gradle " + clip((c.match(/gradlew?\s+(\S+)/) || [])[1] || "", 12);
+  if (/(--watch|\bwatch\b|--looponfail)/.test(c)) return "감시 " + clip(baseName(c.split(/\s+/)[0]), 10);
+  if (desc) return clip(desc, 14);
+  const first = c.split(/\s+/).filter(w => !/^\w+=/.test(w))[0] || "스크립트";
+  return clip(baseName(first), 14);
+}
+function bgTask(s, ref){
+  ref = String(ref || "");
+  return s.bg.get(ref) || (s.bgShell.has(ref) ? s.bg.get(s.bgShell.get(ref)) : null);
+}
+function bgStatusFrom(t, txt){
+  const st = (txt.match(/<status>(\w+)<\/status>/) || [])[1];
+  const ex = (txt.match(/<exit_code>(-?\d+)<\/exit_code>/) || [])[1];
+  if (st) t.status = st === "running" ? "running"
+                   : st === "completed" ? (ex && ex !== "0" ? "failed" : "done")
+                   : st === "killed" ? "stopped" : st === "failed" ? "failed" : t.status;
+  if (ex != null) t.exit = +ex;
+  if (t.status !== "running" && !t.endMs){ t.endMs = Date.now(); live.ver++; }
+}
+function bgNotice(s, text){          // "Background ... bash_1 ... completed (exit code 0)" 같은 알림 문구
+  text = String(text || "");
+  if (!s.bg.size || !/(complet|exit|fail|kill|종료|완료)/i.test(text)) return;
+  for (const t of s.bg.values()){
+    if (t.status !== "running" || !t.shellId || !text.includes(t.shellId)) continue;
+    const ex = (text.match(/exit(?:ed)?(?: with)?(?: code)?[:\s]+(-?\d+)/i) || [])[1];
+    t.status = /kill/i.test(text) ? "stopped" : (/fail/i.test(text) || (ex && ex !== "0")) ? "failed" : "done";
+    if (ex != null) t.exit = +ex;
+    t.endMs = Date.now(); live.ver++;
+  }
+}
+function trackTools(s, o){
+  const c = o.message && o.message.content;
+  if (o.type === "user" && typeof c === "string"){ bgNotice(s, c); return; }
+  if (!Array.isArray(c)) return;
+  if (o.type === "assistant"){
+    for (const b of c){
+      if (!b || b.type !== "tool_use") continue;
+      const name = b.name || "", inp = b.input || {}, kind = TOOL_KIND(name);
+      s.tools[kind] = (s.tools[kind] || 0) + 1;
+      if (kind === "mcp"){ const srv = name.split("__")[1] || "MCP"; s.mcp[srv] = (s.mcp[srv] || 0) + 1; }
+      if (kind === "skill"){ const sk = clip(inp.skill || inp.name || "스킬", 14); s.skills[sk] = (s.skills[sk] || 0) + 1; }
+      if ((name === "Bash" && inp.run_in_background) || name === "Monitor"){
+        const key = b.id || ("bg" + (++s.bgSeq));
+        s.bg.set(key, {key, label: bgLabel(inp.command, inp.description), cmd: clip(inp.command || inp.description || "", 70),
+                       status:"running", startMs:Date.now(), lastCheck:0, flash:0, endMs:0, exit:null, shellId:""});
+        if (b.id) s.bgPending.set(b.id, key);
+        live.ver++;
+      }
+      const ref = inp.bash_id || inp.shell_id || inp.task_id;
+      if (/^(BashOutput|TaskOutput)$/.test(name) && ref){
+        const t = bgTask(s, ref);
+        if (t){ t.lastCheck = Date.now(); t.flash = perfNow() + 1.6; if (b.id) s.bgCheck.set(b.id, t.key); s.activity = `📈 ${t.label} 확인하는 중`; }
+      }
+      if (/^(KillShell|KillBash|TaskStop)$/.test(name) && ref){
+        const t = bgTask(s, ref);
+        if (t && t.status === "running"){ t.status = "stopped"; t.endMs = Date.now(); s.activity = `⏹ ${t.label} 멈춤`; live.ver++; }
+      }
+    }
+  } else if (o.type === "user"){
+    for (const b of c){
+      if (!b) continue;
+      if (b.type === "text"){ bgNotice(s, b.text); continue; }
+      if (b.type !== "tool_result" || !b.tool_use_id) continue;
+      const txt = String(flat(b.content) || "");
+      if (s.bgPending.has(b.tool_use_id)){
+        const t = s.bg.get(s.bgPending.get(b.tool_use_id));
+        s.bgPending.delete(b.tool_use_id);
+        if (t){
+          if (b.is_error){ t.status = "failed"; t.endMs = Date.now(); live.ver++; }
+          const r = o.toolUseResult || {};
+          const m = txt.match(/background with ID:\s*([\w-]+)/i) || txt.match(/\bID:\s*([\w-]+)/);
+          const tid = r.backgroundTaskId || r.shellId || r.bashId || (m && m[1]);
+          if (tid){ t.shellId = String(tid); s.bgShell.set(String(tid), t.key); }
+        }
+      }
+      if (s.bgCheck.has(b.tool_use_id)){
+        const t = s.bg.get(s.bgCheck.get(b.tool_use_id));
+        s.bgCheck.delete(b.tool_use_id);
+        if (t) bgStatusFrom(t, txt);
+      }
+    }
+  }
+}
+const agoText = ms => ms < 60000 ? "방금" : `${Math.floor(ms / 60000)}분 전`;
+function bgStateText(t){
+  const now = Date.now();
+  if (t.status === "running")
+    return `실행 중 · ${now - t.startMs < 60000 ? "방금 시작" : Math.floor((now - t.startMs) / 60000) + "분째"}` +
+           (t.lastCheck ? ` · ${agoText(now - t.lastCheck)} 확인` : "");
+  const ex = t.exit != null ? ` (종료 코드 ${t.exit})` : "";
+  return t.status === "done" ? `끝남${ex}` : t.status === "failed" ? `실패${ex}` : "멈춤";
+}
+const BG_COLOR = {running:"#5ee08a", done:"#7fb2ea", failed:"#f07068", stopped:"#a19d96"};
+
 function phrase(name, inp){
   inp = inp || {};
   const f = baseName(inp.file_path || inp.notebook_path || inp.path);
+  if (name.startsWith("mcp__")){
+    const parts = name.split("__");
+    return `🔌 ${parts[1] || "MCP"} · ${clip(parts.slice(2).join("_") || "도구", 18)}`;
+  }
+  if (name === "Bash" && inp.run_in_background) return `🖥 ${bgLabel(inp.command, inp.description)} 백그라운드로 켬`;
   switch (name){
+    case "Skill": return `🧩 ${clip(inp.skill || inp.name || "스킬", 16)} 스킬 쓰는 중`;
+    case "BashOutput": case "TaskOutput": return "📈 백그라운드 출력 확인";
+    case "KillShell": case "KillBash": case "TaskStop": return "⏹ 백그라운드 작업 멈춤";
+    case "Monitor": return `📈 ${clip(inp.description || "모니터링", 16)}`;
     case "Read": return f ? `${f} 읽는 중` : "파일 읽는 중";
     case "Edit": case "MultiEdit": case "str_replace_based_edit_tool": return f ? `${f} 고치는 중` : "코드 고치는 중";
     case "Write": return f ? `${f} 쓰는 중` : "새 파일 쓰는 중";
@@ -1520,6 +1638,7 @@ function liveSession(rec){
     napAfter:boss.napBase, activity:"", lastMs:Date.now()});
   s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
        phase:"idle", goal:"", topic:"", todos:[], activity:"", files:new Set(), cmds:0, errs:0, subTotal:0,
+       bg:new Map(), bgShell:new Map(), bgPending:new Map(), bgCheck:new Map(), bgSeq:0, tools:{}, mcp:{}, skills:{},
        startMs:0, result:"", lastText:"", cwd:"", branch:"", fullId:"", pendingEndAt:0, pendingTool:null,
        waitReason:"", waitSince:0, doneAt:0, stampUntil:0, didWork:false, card:null};
   live.sessions.set(rec.s, s); live.ver++;
@@ -1611,7 +1730,7 @@ function trackMain(s, o, fresh){
       s.pendingEndAt = 0;
       s.goal = clip(tt, 70); if (!s.topic) s.topic = clip(tt, 40);
       s.attention = false;
-      Object.assign(s, {phase:"working", startMs:Date.now(), files:new Set(), cmds:0, errs:0, subTotal:0,
+      Object.assign(s, {phase:"working", startMs:Date.now(), files:new Set(), cmds:0, errs:0, subTotal:0, tools:{}, mcp:{}, skills:{},
                         result:"", didWork:false, waitReason:"", activity:"요청 살펴보는 중", doneAt:0});
       bossToDesk(s); live.ver++;
       return;
@@ -1670,6 +1789,7 @@ function liveHandle(rec){
   const fresh = isNaN(ts) || Date.now() - ts < 60000;
   sess.lastTs = isNaN(ts) ? Date.now() : ts;
   if (!side) trackMain(sess, o, fresh);
+  trackTools(sess, o);
   const c0 = o.message && o.message.content;
   if (side && Array.isArray(c0) && o.type === "user" && c0.some(b => b && b.type === "tool_result")){
     const k0 = sess.kittens.get(String(rec.a || o.agentId || "sub"));
@@ -2015,6 +2135,38 @@ function loungeCoffee(L){
   isoBox(x, y, 12, 10, 0, 18, P.paper, P.paper, P.side);
   wallQuad(x + 2, y + 10, x + 10, y + 10, 8, 14, P.side);
 }
+function drawMonitorWall(L, list, now){
+  const P = TOD, y = L.y;
+  list.slice(0, 3).forEach((t, i) => {
+    const x0 = L.x + 70 + i * 27, x1 = x0 + 23, flash = t.flash > now;
+    wallQuad(x0 - 1.5, y, x1 + 1.5, y, 5.5, 20.5, flash ? "#f09a3e" : P.paper);
+    wallQuad(x0, y, x1, y, 7, 19, t.status === "running" ? "#14272b" : t.status === "done" ? "#162a22"
+                                  : t.status === "failed" ? "#3a1a1a" : "#2a2a2e", true);
+    if (t.status === "running"){                               // 심전도처럼 흐르는 선
+      ctx.save(); ctx.strokeStyle = "#5ee08a"; ctx.lineWidth = LW * 0.9;
+      const pts = [];
+      for (let k = 0; k <= 22; k++){
+        const ph = (k + (reduceMotion ? 0 : now * 14)) % 22;
+        const zz = 13 + (ph > 9 && ph < 10.5 ? 4.5 : ph >= 10.5 && ph < 12 ? -3.5 : 0) + Math.sin(k * 0.9 + now * 2) * 0.4;
+        pts.push(gpt(x0 + 0.5 + k, y, zz));
+      }
+      line(pts); ctx.restore();
+      const led = gpt(x1 - 2, y, 17.3);
+      ctx.fillStyle = Math.floor(now * 2) % 2 ? "#5ee08a" : "#2e7a4a"; ctx.fillRect(led[0] - 0.8, led[1] - 0.8, 1.6, 1.6);
+    } else {
+      ctx.fillStyle = t.status === "done" ? "#5ee08a" : t.status === "failed" ? "#f07068" : "#a19d96";
+      ctx.font = "7px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(t.status === "done" ? "✓" : t.status === "failed" ? "✕" : "■", isoX(x0 + 11.5, y), isoY(x0 + 11.5, y, 13));
+    }
+    ctx.fillStyle = P.ink; ctx.font = "4.5px 'Gowun Dodum', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(clip(t.label, 9), isoX(x0 + 11.5, y), isoY(x0 + 11.5, y, 23.2));   // 모니터 위 벽 띠에 (책상에 가리지 않게)
+    ctx.textAlign = "left";
+  });
+  if (list.length > 3){
+    ctx.fillStyle = P.ink; ctx.font = "6px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(`+${list.length - 3}`, isoX(L.x + 152, y), isoY(L.x + 152, y, 13)); ctx.textAlign = "left";
+  }
+}
 function drawLot(i, now){
   const L = SLOTS[i], P = TOD, s = slotSession(i);
   const act = s ? (s.phase === "working" ? 1 : 0.4) : 0;
@@ -2041,7 +2193,9 @@ function drawLot(i, now){
   wallQuad(L.x, L.y, L.x, L.y+L.d, WALL-3.5, WALL, L.trim);
   wallQuad(L.x, L.y, L.x+L.w, L.y, WALL-3.5, WALL, L.trim);
   line([gpt(L.x, L.y+L.d, 3.5), gpt(L.x, L.y, 3.5), gpt(L.x+L.w, L.y, 3.5)]);
-  for (const wx of [L.x+30, L.x+100]){                         // 북쪽 창문
+  const bgList = s ? [...s.bg.values()].sort((a, b) => (a.status === "running" ? 0 : 1) - (b.status === "running" ? 0 : 1) || b.startMs - a.startMs) : [];
+  for (const wx of [L.x+30, L.x+100]){                         // 북쪽 창문 (백그라운드 작업이 있으면 두 번째 창이 관제 모니터로)
+    if (wx === L.x+100 && bgList.length){ drawMonitorWall(L, bgList, now); continue; }
     wallQuad(wx, L.y, wx+34, L.y, 8, 19, P.glass);
     if (todW[2] > .05){ ctx.globalAlpha = todW[2]; ctx.fillStyle = "#ffe08a";
       for (const [sx, sz] of [[8,16],[22,12]]) ctx.fillRect(isoX(wx+sx, L.y)-1, isoY(wx+sx, L.y, sz)-1, 2, 2);
@@ -2154,19 +2308,22 @@ const DEMO_SESS = [
    todos:[["로그인 화면 구조 파악","LoginScreen Compose로 작성","ViewModel 연결","프리뷰·테스트 추가"],
           ["크래시 로그 분석","딥링크 파싱 수정","회귀 테스트 추가"]],
    files:["app/src/main/java/com/ex/login/LoginViewModel.kt","app/src/main/java/com/ex/login/LoginScreen.kt","app/src/main/AndroidManifest.xml"],
-   cmds:["./gradlew assembleDebug","./gradlew testDebugUnitTest"]},
+   cmds:["./gradlew assembleDebug","./gradlew testDebugUnitTest"],
+   bg:{command:"adb logcat -s LoginActivity:V", description:"logcat 모니터링"}, mcp:["mcp__github__create_pull_request"]},
   {s:"77ef01aa", p:"webtool", cwd:"/Users/you/work/webtool", branch:"main",
    asks:["대시보드에 빌드 시간 차트 추가해줘","차트 다크모드 색 맞춰줘"],
    todos:[["데이터 형태 확인","차트 컴포넌트 작성","대시보드에 배치"],["색상 토큰 확인","차트 테마 적용"]],
-   files:["src/App.tsx","src/charts/BuildTime.tsx","package.json"], cmds:["npm run build","npm test"]},
+   files:["src/App.tsx","src/charts/BuildTime.tsx","package.json"], cmds:["npm run build","npm test"],
+   bg:{command:"npm run dev", description:"개발 서버"}, bgKill:true, mcp:["mcp__playwright__browser_take_screenshot","mcp__playwright__browser_navigate"]},
   {s:"c0ffee12", p:"design-sys", cwd:"/Users/you/work/design-sys", branch:"dark-tokens",
    asks:["다크모드 색상 토큰 정리해줘"],
    todos:[["기존 토큰 목록 정리","다크 토큰 추가","컴포넌트에 적용","린트 통과 확인"]],
-   files:["tokens/color.json","ui/Button.kt","ui/Theme.kt"], cmds:["./gradlew :design:lint"]},
+   files:["tokens/color.json","ui/Button.kt","ui/Theme.kt"], cmds:["./gradlew :design:lint"], skill:"frontend-design"},
   {s:"9d8e7f6a", p:"api-server", cwd:"/Users/you/work/api-server", branch:"pagination",
    asks:["유저 API에 페이지네이션 추가해줘"],
    todos:[["엔드포인트 확인","페이지네이션 구현","테스트 작성"]],
-   files:["server/routes/user.py","tests/test_user.py"], cmds:["pytest -q","ruff check ."]},
+   files:["server/routes/user.py","tests/test_user.py"], cmds:["pytest -q","ruff check ."],
+   bg:{command:"pytest -q --looponfail", description:"테스트 감시"}, mcp:["mcp__github__list_issues"]},
 ];
 const pick = arr => arr[Math.floor(Math.random()*arr.length)];
 function demoLine(d, agentId){
@@ -2193,6 +2350,18 @@ function startDemo(){
     S.todos = d.todos[k]; S.cur = 0; S.step = 0; S.asked = false; S.phase = "work";
     emit(d, {type:"user", message:{content: d.asks[k]}});
     todoWrite(d, S);
+    if (d.bg && !S.bgId){                                   // 모니터링 스크립트·개발 서버를 백그라운드로
+      const tid = "toolu_" + Math.random().toString(16).slice(2, 10);
+      S.bgId = "bash_" + (++bgCounter); S.bgEnd = false;
+      emit(d, {type:"assistant", message:{content:[{type:"tool_use", id:tid, name:"Bash", input:{...d.bg, run_in_background:true}}]}});
+      emit(d, {type:"user", message:{content:[{type:"tool_result", tool_use_id:tid, content:`Command running in background with ID: ${S.bgId}`}]}});
+    }
+  };
+  let bgCounter = 0;
+  const toolPair = (d, name, input, result) => {
+    const tid = "toolu_" + Math.random().toString(16).slice(2, 10);
+    emit(d, {type:"assistant", message:{content:[{type:"tool_use", id:tid, name, input}]}});
+    emit(d, {type:"user", message:{content:[{type:"tool_result", tool_use_id:tid, content: result}]}});
   };
   let t = 0;
   (function tick(){
@@ -2229,6 +2398,13 @@ function startDemo(){
         S.asked = true; S.phase = "question"; S.at = t + 5;
         emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"AskUserQuestion",
           input:{questions:[{question:"차트 종류는 어떤 걸로 할까요?"}]}}]}});
+      } else if (S.bgId && Math.random() < 0.12){
+        toolPair(d, "BashOutput", {bash_id: S.bgId}, S.bgEnd ? "<status>completed</status>\n<exit_code>0</exit_code>"
+                                                             : "<status>running</status>\n<stdout>...</stdout>");
+      } else if (d.mcp && Math.random() < 0.08){
+        toolPair(d, pick(d.mcp), {}, "ok");
+      } else if (d.skill && Math.random() < 0.06){
+        toolPair(d, "Skill", {skill: d.skill}, "ok");
       } else {
         emit(d, demoLine(d));
         if (Math.random() < 0.85) emit(d, {type:"user", message:{content:[{type:"tool_result", content:"ok"}]}});
@@ -2238,6 +2414,10 @@ function startDemo(){
         }
         if (S.cur >= S.todos.length && !S.subs.length){
           todoWrite(d, S);
+          if (S.bgId && d.bgKill){ toolPair(d, "KillShell", {shell_id: S.bgId}, "Shell killed"); S.bgId = null; }
+          else if (S.bgId && d.bg && /looponfail/.test(d.bg.command)){
+            S.bgEnd = true; toolPair(d, "BashOutput", {bash_id: S.bgId}, "<status>completed</status>\n<exit_code>0</exit_code>");
+          }
           emit(d, {type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text",
             text: pick(["요청하신 작업을 마쳤어요. 빌드와 테스트 모두 통과했어요.","변경 사항을 정리해 뒀어요. 확인해 주세요!","다 했어요. 다음에 할 일을 알려 주세요."])}]}});
           S.phase = "wait"; S.at = t + 10 + Math.floor(Math.random()*8);
@@ -2772,9 +2952,18 @@ function updateLiveList(){
       const p = document.createElement("p"); p.className = "hint"; p.style.margin = "0";
       p.textContent = "빈 사무실이에요. 새 세션이 시작되면 여기로 입주해요.";
       agentList.appendChild(p); liveRows = [];
-    } else liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));
+    } else {
+      liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));
+      for (const t of s.bg.values()) liveRows.push({t, ...hudRow(BG_COLOR[t.status], `🖥 ${t.label}`, "백그라운드 작업")});
+    }
   }
   for (const r of liveRows){
+    if (r.t){
+      r.st.textContent = bgStateText(r.t);
+      r.el.querySelector(".chip").style.background = BG_COLOR[r.t.status];
+      r.bar.style.width = r.t.status === "running" ? "100%" : "0%";
+      continue;
+    }
     const c = r.c;
     r.st.textContent = c.leaving ? "🏠 퇴근 중" : c.inLounge ? "☕ 휴게공간에서 쉬는 중"
                      : c.waiting ? "💬 " + c.stateText
@@ -2789,7 +2978,7 @@ function buildSumCard(s){
     <button class="icon ren" type="button" title="이름 바꾸기" aria-label="이름 바꾸기">✎</button><span class="pill"></span></div>
     <div class="sum-sub"></div><div class="sum-goal"></div><div class="sum-now"></div>
     <div class="sum-todo" hidden><span class="tbar"><i></i></span><span class="tt"></span></div>
-    <div class="sum-stats"></div><div class="sum-result" hidden></div>
+    <div class="sum-stats"></div><div class="sum-bg" hidden></div><div class="sum-tools" hidden></div><div class="sum-result" hidden></div>
     <div class="sum-actions">
       <button class="mini" type="button" data-a="focus">터미널로 이동</button>
       <button class="mini" type="button" data-a="resume">이어하기</button>
@@ -2800,7 +2989,7 @@ function buildSumCard(s){
   const q = sel => el.querySelector(sel);
   const c = {el, chip:q(".chip"), name:q(".sum-name"), pill:q(".pill"), sub:q(".sum-sub"), goal:q(".sum-goal"),
              now:q(".sum-now"), todo:q(".sum-todo"), tbar:q(".tbar i"), tt:q(".tt"), stats:q(".sum-stats"),
-             result:q(".sum-result"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
+             result:q(".sum-result"), bg:q(".sum-bg"), tools:q(".sum-tools"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
   c.chip.style.background = s.boss.coat.base;
   el.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => openAction(s, b.dataset.a, c.msg)));
   q(".ren").addEventListener("click", () => {
@@ -2842,6 +3031,15 @@ function fillSumCard(s){
   c.stats.textContent = [s.files.size && `파일 ${s.files.size}개 수정`, s.cmds && `명령 ${s.cmds}회`,
                          s.subTotal && `새끼냥 ${s.subTotal}마리 출동`, s.errs && `에러 ${s.errs}`,
                          s.phase === "working" && s.startMs && mins(Date.now() - s.startMs)].filter(Boolean).join(" · ") || "아직 기록이 없어요";
+  const bgs = [...s.bg.values()].sort((a, b) => (a.status === "running" ? 0 : 1) - (b.status === "running" ? 0 : 1) || b.startMs - a.startMs);
+  c.bg.hidden = !bgs.length;
+  if (bgs.length) c.bg.textContent = "🖥 백그라운드: " + bgs.slice(0, 3).map(t => `${t.label} ${bgStateText(t)}`).join(" / ") +
+                                     (bgs.length > 3 ? ` 외 ${bgs.length - 3}개` : "");
+  const T = s.tools;
+  const tl = [T.read && `읽기 ${T.read}`, T.edit && `수정 ${T.edit}`, T.cmd && `명령 ${T.cmd}`, T.web && `웹 ${T.web}`,
+              ...Object.entries(s.mcp).map(([k, v]) => `🔌${k} ${v}`), ...Object.entries(s.skills).map(([k, v]) => `🧩${k} ${v}`)].filter(Boolean);
+  c.tools.hidden = !tl.length;
+  if (tl.length) c.tools.textContent = "🧰 도구: " + tl.join(" · ");
   if (s.result && s.phase === "waiting"){ c.result.hidden = false; c.result.textContent = `결과: ${s.result}`; }
   else c.result.hidden = true;
 }

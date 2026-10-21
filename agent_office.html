@@ -1419,7 +1419,19 @@ function bgLabel(cmd, desc){
 }
 function bgTask(s, ref){
   ref = String(ref || "");
-  return s.bg.get(ref) || (s.bgShell.has(ref) ? s.bg.get(s.bgShell.get(ref)) : null);
+  if (!ref) return null;
+  return s.bg.get(ref) || (s.bgShell.has(ref) ? s.bg.get(s.bgShell.get(ref)) : null)
+      || (s.bgAlias.has(ref) ? s.bg.get(s.bgAlias.get(ref)) : null);
+}
+const normCmd = c => String(c || "").replace(/\s+/g, " ").trim();
+function bgFindSame(s, cmd){                 // 같은 명령으로 켠 작업 (다시 켠 경우 한 항목으로 이어 보여주려고)
+  const n = normCmd(cmd);
+  if (!n) return null;
+  for (const t of s.bg.values()) if (t.norm === n) return t;
+  return null;
+}
+function bgLatestRunning(s){
+  return [...s.bg.values()].filter(t => t.status === "running").sort((a, b) => b.startMs - a.startMs)[0] || null;
 }
 function bgStatusFrom(t, txt){
   const st = (txt.match(/<status>(\w+)<\/status>/) || [])[1];
@@ -1452,14 +1464,34 @@ function trackTools(s, o){
       s.tools[kind] = (s.tools[kind] || 0) + 1;
       if (kind === "mcp"){ const srv = name.split("__")[1] || "MCP"; s.mcp[srv] = (s.mcp[srv] || 0) + 1; }
       if (kind === "skill"){ const sk = clip(inp.skill || inp.name || "스킬", 14); s.skills[sk] = (s.skills[sk] || 0) + 1; }
-      if ((name === "Bash" && inp.run_in_background) || name === "Monitor"){
-        const key = b.id || ("bg" + (++s.bgSeq));
-        s.bg.set(key, {key, label: bgLabel(inp.command, inp.description), cmd: clip(inp.command || inp.description || "", 70),
-                       status:"running", startMs:Date.now(), lastCheck:0, flash:0, endMs:0, exit:null, shellId:""});
-        if (b.id) s.bgPending.set(b.id, key);
+      const ref = inp.bash_id || inp.shell_id || inp.task_id;
+      // Monitor: 이미 돌고 있는 스크립트를 '지켜보는' 도구 → 새 작업이 아니라 그 작업의 확인으로 처리
+      let watched = null;
+      if (name === "Monitor") watched = bgTask(s, ref) || bgFindSame(s, inp.command) || bgLatestRunning(s);
+      if (watched){
+        watched.lastCheck = Date.now(); watched.flash = perfNow() + 1.6;
+        s.activity = `📈 ${watched.label} 지켜보는 중`;
+      } else if ((name === "Bash" && inp.run_in_background) || name === "Monitor"){
+        const same = bgFindSame(s, inp.command);
+        if (same){                                   // 같은 스크립트를 다시 켬 → 한 항목으로 이어서
+          Object.assign(same, {status:"running", startMs:Date.now(), endMs:0, exit:null, restarts:(same.restarts || 0) + 1});
+          if (b.id){ s.bgAlias.set(b.id, same.key); s.bgPending.set(b.id, same.key); }
+        } else {
+          const key = b.id || ("bg" + (++s.bgSeq));
+          s.bg.set(key, {key, label: bgLabel(inp.command, inp.description), cmd: clip(inp.command || inp.description || "", 70),
+                         norm: normCmd(inp.command), status:"running", startMs:Date.now(), lastCheck:0, flash:0,
+                         endMs:0, exit:null, shellId:"", restarts:0});
+          if (b.id) s.bgPending.set(b.id, key);
+        }
         live.ver++;
       }
-      const ref = inp.bash_id || inp.shell_id || inp.task_id;
+      // 일반 명령으로 끈 경우: pkill -f <패턴> / killall <이름> / kill %<id>
+      if (name === "Bash" && !inp.run_in_background){
+        const cmd = String(inp.command || "");
+        const pat = (cmd.match(/\bpkill\s+(?:-\w+\s+)*-f\s+["']?([^"';|&]+)/) || cmd.match(/\b(?:pkill|killall)\s+(?:-\w+\s+)*["']?([^\s"';|&]+)/) || [])[1];
+        if (pat) for (const t of s.bg.values())
+          if (t.status === "running" && t.norm && t.norm.includes(pat.trim())){ t.status = "stopped"; t.endMs = Date.now(); live.ver++; }
+      }
       if (/^(BashOutput|TaskOutput)$/.test(name) && ref){
         const t = bgTask(s, ref);
         if (t){ t.lastCheck = Date.now(); t.flash = perfNow() + 1.6; if (b.id) s.bgCheck.set(b.id, t.key); s.activity = `📈 ${t.label} 확인하는 중`; }
@@ -1497,6 +1529,11 @@ function trackTools(s, o){
 const agoText = ms => ms < 60000 ? "방금" : `${Math.floor(ms / 60000)}분 전`;
 function bgStateText(t){
   const now = Date.now();
+  const again = t.restarts ? ` · 다시 켬 ${t.restarts}번` : "";
+  if (t.status === "running" && again) return bgStateTextBase(t, now) + again;
+  return bgStateTextBase(t, now);
+}
+function bgStateTextBase(t, now){
   if (t.status === "running")
     return `실행 중 · ${now - t.startMs < 60000 ? "방금 시작" : Math.floor((now - t.startMs) / 60000) + "분째"}` +
            (t.lastCheck ? ` · ${agoText(now - t.lastCheck)} 확인` : "");
@@ -1647,7 +1684,7 @@ function liveSession(rec){
     napAfter:boss.napBase, activity:"", lastMs:Date.now()});
   s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
        phase:"idle", goal:"", topic:"", todos:[], activity:"", files:new Set(), cmds:0, errs:0, subTotal:0,
-       bg:new Map(), bgShell:new Map(), bgPending:new Map(), bgCheck:new Map(), bgSeq:0, tools:{}, mcp:{}, skills:{},
+       bg:new Map(), bgShell:new Map(), bgAlias:new Map(), bgPending:new Map(), bgCheck:new Map(), bgSeq:0, seen:new Set(), tools:{}, mcp:{}, skills:{},
        startMs:0, result:"", lastText:"", cwd:"", branch:"", fullId:"", pendingEndAt:0, pendingTool:null,
        waitReason:"", waitSince:0, doneAt:0, stampUntil:0, didWork:false, card:null};
   live.sessions.set(rec.s, s); live.ver++;
@@ -1790,7 +1827,9 @@ function liveHandle(rec){
   }
   const items = lineItems(o);
   let sess = live.sessions.get(rec.s);
+  if (sess && o.uuid && sess.seen.has(o.uuid)) return;          // 같은 기록을 두 번 처리하지 않음
   if (!sess){ if (!items.length) return; sess = liveSession(rec); }
+  if (o.uuid){ sess.seen.add(o.uuid); if (sess.seen.size > 20000) sess.seen.clear(); }
   if (o.cwd && !side) sess.cwd = o.cwd;
   if (o.gitBranch && !side) sess.branch = o.gitBranch;
   if (o.sessionId && !side) sess.fullId = o.sessionId;
@@ -2967,7 +3006,11 @@ function updateLiveList(){
       agentList.appendChild(p); liveRows = [];
     } else {
       liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));
-      for (const t of s.bg.values()) liveRows.push({t, ...hudRow(BG_COLOR[t.status], `🖥 ${t.label}`, "백그라운드 작업")});
+      for (const t of s.bg.values()){
+        const r = {t, ...hudRow(BG_COLOR[t.status], `🖥 ${t.label}`, "백그라운드 작업" + (t.shellId ? ` · ${t.shellId}` : ""))};
+        r.el.title = t.cmd;                          // 마우스를 올리면 실제 명령이 보임
+        liveRows.push(r);
+      }
     }
   }
   for (const r of liveRows){

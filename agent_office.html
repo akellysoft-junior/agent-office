@@ -29,6 +29,7 @@
   --accent:#f4a95a; --good:#6cc48c; --warn:#f0a35a; --bad:#f07068; --info:#7fb2ea;
   color-scheme: dark;
 }
+[hidden]{display:none !important}
 html,body{height:100%}
 body{
   margin:0; background:var(--paper); color:var(--ink);
@@ -37,7 +38,7 @@ body{
   padding-right:max(16px, env(safe-area-inset-right, 0px));
   padding-block:18px;
 }
-.app{max-width:1200px; margin:0 auto; display:flex; flex-direction:column; gap:14px}
+.app{max-width:1680px; margin:0 auto; display:flex; flex-direction:column; gap:14px}
 header.bar{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
 .sign{
   font-family:var(--font-display); font-size:22px; line-height:1.1;
@@ -66,7 +67,7 @@ button:disabled{opacity:.35; cursor:default; box-shadow:none}
   background:var(--paper); border:1.5px solid var(--ink); border-radius:14px;
   padding:6px; box-shadow:4px 4px 0 var(--ink);
 }
-canvas#office{display:block; width:100%; height:auto; border-radius:9px}
+canvas#office{display:block; width:100%; height:auto; border-radius:9px; margin:0 auto}
 .back{position:absolute; top:16px; left:16px; z-index:2}
 canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
 .followchip{position:absolute; top:16px; right:16px; z-index:2; font-size:12px; background:var(--paper); color:var(--ink);
@@ -147,10 +148,18 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .toast.out{opacity:0; transform:translateY(-6px)}
 @keyframes pop{from{transform:scale(.92); opacity:0} to{transform:none; opacity:1}}
 @media (prefers-reduced-motion: reduce){ .toast{animation:none; transition:none} .tbar i{transition:none} }
-@media (max-width:860px){
+/* 1440px 미만에선 사무실 화면을 가로 꽉 채우고 카드는 아래로 (세로로 긴 창에 맞춤) */
+@media (max-width:1439px){
   .stage{flex:none; width:100%}
   .main{flex-direction:column}
   .hud{flex:1 1 auto; width:100%}
+}
+@media (max-width:1439px) and (min-width:700px){
+  .hud{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:start}
+  #summaryCard, .hud > .card:first-child{grid-column:1 / -1}
+  .sums{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); align-items:start}
+}
+@media (max-width:860px){
   .sign{font-size:19px}
 }
 @media (prefers-reduced-motion: reduce){ .pbar i{transition:none} }
@@ -2615,10 +2624,14 @@ function drawHead(a, hx, hy, eyeC, lineC, pose, now){
 let scale = 2, dpr = 1;
 function resize(){
   const box = cv.parentElement.getBoundingClientRect();
-  const cssW = Math.max(260, box.width - 12);
+  const availW = Math.max(260, box.width - 12);
   const wasNarrow = narrow;
-  narrow = cssW < 600;
+  narrow = availW < 600;
   VH = narrow ? 760 : 560;
+  const top = Math.max(0, cv.parentElement.getBoundingClientRect().top + scrollY);
+  const maxH = Math.max(320, innerHeight - Math.min(top, 220) - 24);
+  const cssW = Math.max(260, Math.min(availW, maxH * VW / VH));
+  cv.style.width = cssW + "px";
   if (wasNarrow !== narrow && cam.focus === null){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
   const cssH = cssW * VH / VW;
   dpr = Math.min(window.devicePixelRatio || 1, 2);

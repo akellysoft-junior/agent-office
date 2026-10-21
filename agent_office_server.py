@@ -1387,6 +1387,11 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.send_error(404, "agent_office.html not found next to this script")
                 return
+            if not body.lstrip()[:15].lower().startswith(b"<!doctype"):
+                # 문서 형식 선언·화면 설정을 붙여 표준 모드로 (폰에서도 모바일 레이아웃이 제대로 적용됨)
+                body = (b'<!doctype html>\n<meta charset="utf-8">\n'
+                        b'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+                        + body)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")

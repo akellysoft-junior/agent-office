@@ -40,6 +40,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import webbrowser
@@ -1389,6 +1390,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _host_ok(self):
+        """DNS 리바인딩 막기: localhost 주소로 들어온 요청만."""
+        return self.headers.get("Host") in {f"localhost:{self.port}", f"127.0.0.1:{self.port}"}
+
     def _trusted(self):
         """이 페이지에서 보낸 요청만 받는다 (다른 웹사이트가 몰래 부르는 것 차단)."""
         okhosts = {f"localhost:{self.port}", f"127.0.0.1:{self.port}"}
@@ -1417,6 +1422,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
+            # 위젯으로 끼워 넣기: 내 PC(localhost)의 웹 툴과 --allow-embed 로 허용한 사이트만
+            anc = " ".join(["'self'", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*"] + EMBED_ORIGINS)
+            self.send_header("Content-Security-Policy", "frame-ancestors " + anc)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -1426,6 +1434,17 @@ class Handler(BaseHTTPRequestHandler):
             self._raw(SW_JS.encode(), "text/javascript; charset=utf-8", {"Service-Worker-Allowed": "/"})
         elif u.path in ICONS or u.path == "/favicon.ico":
             self._raw(ICONS.get(u.path, ICONS["/icon-192.png"]), "image/png", {"Cache-Control": "max-age=86400"})
+        elif u.path == "/widget.js":
+            self._raw(WIDGET_JS.encode(), "text/javascript; charset=utf-8")
+        elif u.path.startswith("/api/") and not self._host_ok():
+            self._json({"ok": False}, 403)
+        elif u.path == "/api/team":
+            repo = (parse_qs(u.query).get("repo") or [""])[0].strip()
+            if repo and not REPO_RE.match(repo):
+                self._json({"repo": None, "members": [], "error": "저장소 이름 형식이 이상해요 (owner/repo)."}, 400)
+                return
+            repo = repo or DEFAULT_REPO or detect_repo()
+            self._json(get_team(repo) if repo else {"repo": None, "members": []})
         elif u.path == "/api/ping":
             last_client = time.time()
             self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True,
@@ -1473,6 +1492,189 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):   # 요청 로그는 조용히
         pass
+
+
+# ───────── 깃허브 팀: 저장소 기여자 정보 (위젯의 본사 건물에 출근) ─────────
+REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+GH_URL_RE = re.compile(r"github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
+TEAM_TTL = 30 * 60             # 30분마다 새로 받기 (API 한도 아끼기)
+TEAM_MAX = 24                  # 본사에 등록하는 최대 인원
+DEFAULT_REPO = None            # --repo 로 정한 기본 저장소
+EMBED_ORIGINS = []             # --allow-embed 로 허용한 바깥 사이트
+team_cache = {}                # repo -> {"at": 시각, "data": {...}}
+team_locks = collections.defaultdict(threading.Lock)
+repo_of_cwd = {}
+_gh_token = None
+
+
+def repo_of(cwd):
+    """작업 폴더의 git origin 이 깃허브면 'owner/repo'."""
+    if cwd in repo_of_cwd:
+        return repo_of_cwd[cwd]
+    r = None
+    if cwd and os.path.isdir(cwd):
+        m = GH_URL_RE.search(run(["git", "-C", cwd, "config", "--get", "remote.origin.url"], timeout=3) or "")
+        if m:
+            r = f"{m.group(1)}/{m.group(2)}"
+    repo_of_cwd[cwd] = r
+    return r
+
+
+def detect_repo():
+    """가장 최근에 움직인 세션의 작업 폴더에서 저장소를 찾는다."""
+    with lock:
+        items = [(m.get("file"), m.get("cwd")) for m in meta.values() if m.get("cwd")]
+    def mtime(p):
+        try:
+            return os.stat(p).st_mtime
+        except (OSError, TypeError):
+            return 0
+    for _, cwd in sorted(items, key=lambda x: -mtime(x[0])):
+        r = repo_of(cwd)
+        if r:
+            return r
+    return None
+
+
+def gh_token():
+    """GITHUB_TOKEN / GH_TOKEN, 없으면 gh CLI 로그인 토큰 (있으면 API 한도가 넉넉해짐)."""
+    global _gh_token
+    if _gh_token is None:
+        _gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        if not _gh_token and shutil.which("gh"):
+            _gh_token = run(["gh", "auth", "token"], timeout=5) or ""
+    return _gh_token
+
+
+def gh_get(path, use_token=True):
+    global _gh_token
+    req = urllib.request.Request("https://api.github.com" + path, headers={
+        "Accept": "application/vnd.github+json", "User-Agent": "agent-office"})
+    tok = gh_token() if use_token else ""
+    if tok:
+        req.add_header("Authorization", "Bearer " + tok)
+    try:
+        with urllib.request.urlopen(req, timeout=12) as r:
+            body = r.read()
+    except urllib.error.HTTPError as e:
+        if tok and e.code == 401:              # 토큰이 만료됐으면 토큰 없이 다시
+            _gh_token = ""
+            return gh_get(path, False)
+        raise
+    return json.loads(body) if body else []
+
+
+def fetch_team(repo):
+    contributors = gh_get(f"/repos/{repo}/contributors?per_page=60") or []
+    try:
+        commits = gh_get(f"/repos/{repo}/commits?per_page=100") or []
+    except Exception:
+        commits = []
+    last, recent = {}, collections.Counter()
+    month = time.time() - 30 * 86400
+    for c in commits:
+        login = (c.get("author") or {}).get("login")
+        info = c.get("commit") or {}
+        ts = parse_ts(((info.get("author") or {}).get("date")) or "")
+        if not login or ts is None:
+            continue
+        if login not in last:
+            last[login] = {"ts": ts, "msg": (info.get("message") or "").split("\n")[0][:120]}
+        if ts >= month:
+            recent[login] += 1
+    members = []
+    for c in contributors:
+        login = c.get("login") or ""
+        if not login or c.get("type") == "Bot" or login.endswith("[bot]"):
+            continue
+        lc = last.get(login) or {}
+        members.append({"login": login, "avatar": c.get("avatar_url") or "", "url": c.get("html_url") or "",
+                        "contributions": c.get("contributions") or 0, "lastAt": int(lc["ts"] * 1000) if lc else 0,
+                        "lastMsg": lc.get("msg", ""), "recent": recent.get(login, 0),
+                        "name": "", "bio": "", "company": "", "location": ""})
+        if len(members) >= TEAM_MAX:
+            break
+    for m in members[:12]:                      # 자기소개용 프로필 (상위 12명만, 한도 아끼기)
+        try:
+            u = gh_get(f"/users/{m['login']}")
+        except Exception:
+            break
+        for k in ("name", "bio", "company", "location"):
+            m[k] = (u.get(k) or "").strip()[:160]
+    return {"repo": repo, "fetched": int(time.time() * 1000), "members": members}
+
+
+def team_cache_path(repo):
+    base = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office")
+    return os.path.join(base, "team_" + repo.replace("/", "__") + ".json")
+
+
+def get_team(repo):
+    with team_locks[repo]:                      # 같은 저장소를 동시에 두 번 받지 않게
+        c = team_cache.get(repo)
+        if not c:
+            try:
+                with open(team_cache_path(repo), encoding="utf-8") as fh:
+                    c = team_cache[repo] = json.load(fh)
+            except (OSError, ValueError):
+                c = None
+        if c and time.time() - c["at"] < TEAM_TTL:
+            return c["data"]
+        try:
+            data = fetch_team(repo)
+        except Exception as e:
+            msg = str(getattr(e, "code", "") or e)
+            if c:                               # 못 받아 오면 예전 정보라도
+                return dict(c["data"], stale=True, error=msg)
+            return {"repo": repo, "members": [], "error": msg}
+        c = team_cache[repo] = {"at": time.time(), "data": data}
+        try:
+            os.makedirs(os.path.dirname(team_cache_path(repo)), exist_ok=True)
+            with open(team_cache_path(repo), "w", encoding="utf-8") as fh:
+                json.dump(c, fh, ensure_ascii=False)
+        except OSError:
+            pass
+        return data
+
+
+# 다른 웹 툴에 끼워 넣는 위젯 스크립트: <div data-agent-office></div><script src=".../widget.js"></script>
+WIDGET_JS = r"""(function(){
+  "use strict";
+  var me = document.currentScript, base = new URL(".", me ? me.src : location.href), ORIGIN = base.origin;
+  var KEYS = ["repo", "theme", "tod", "team", "follow", "demo"];
+  function mount(el, opts){
+    if (!el || el.__agentOffice) return el && el.__agentOffice;
+    opts = opts || {};
+    var p = new URLSearchParams({embed: "1"});
+    KEYS.forEach(function(k){ var v = opts[k] != null ? opts[k] : el.getAttribute("data-" + k); if (v != null && v !== "") p.set(k, v); });
+    var f = document.createElement("iframe");
+    f.src = base.href + "?" + p.toString();
+    f.title = el.getAttribute("data-title") || "냥오피스";
+    f.allow = "clipboard-write";
+    f.style.cssText = "display:block;width:100%;height:100%;border:0;border-radius:inherit;color-scheme:normal";
+    if (!el.style.height && el.clientHeight < 40) el.style.height = opts.height || el.getAttribute("data-height") || "420px";
+    el.appendChild(f);
+    el.__agentOffice = {frame: f, el: el, send: function(type, data){ f.contentWindow && f.contentWindow.postMessage(Object.assign({source: "agent-office-host", type: type}, data || {}), ORIGIN); }};
+    return el.__agentOffice;
+  }
+  addEventListener("message", function(e){
+    var d = e.data;
+    if (e.origin !== ORIGIN || !d || d.source !== "agent-office") return;
+    var els = document.querySelectorAll("[data-agent-office]");
+    for (var i = 0; i < els.length; i++){
+      var w = els[i].__agentOffice;
+      if (w && w.frame.contentWindow === e.source)
+        els[i].dispatchEvent(new CustomEvent("agent-office:" + d.type, {detail: d, bubbles: true}));
+    }
+  });
+  function scan(root){ (root.querySelectorAll ? root : document).querySelectorAll("[data-agent-office]").forEach(function(el){ mount(el); }); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function(){ scan(document); }); else scan(document);
+  new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){
+    if (n.nodeType !== 1) return; if (n.hasAttribute("data-agent-office")) mount(n); scan(n); }); }); })
+    .observe(document.documentElement, {childList: true, subtree: true});
+  window.AgentOffice = {mount: mount, origin: ORIGIN};
+})();
+"""
 
 
 # ───────── 창 열기: 이미 열린 창이 있으면 그대로, 설치한 앱이 있으면 앱으로 ─────────
@@ -1709,11 +1911,27 @@ def main():
     ap.add_argument("--install", action="store_true", help="로그인할 때 서버 자동 시작 (지금도 켬)")
     ap.add_argument("--uninstall", action="store_true", help="자동 시작 해제")
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
+    ap.add_argument("--repo", help="위젯 본사에 보여줄 깃허브 저장소 (owner/repo, 기본: 세션 폴더에서 자동으로 찾음)")
+    ap.add_argument("--allow-embed", action="append", default=[], metavar="ORIGIN",
+                    help="위젯을 끼워 넣을 수 있는 바깥 사이트 (예: https://tool.example.com). localhost 는 기본 허용")
     ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
     url = f"http://localhost:{args.port}"
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
-            (["--no-update"] if args.no_update else [])
+            (["--no-update"] if args.no_update else []) + \
+            (["--repo", args.repo] if args.repo else []) + \
+            [x for o in args.allow_embed for x in ("--allow-embed", o)]
+    global DEFAULT_REPO
+    if args.repo:
+        if not REPO_RE.match(args.repo):
+            print("[!] --repo 는 owner/repo 형식으로 적어 주세요 (예: square/okhttp).")
+            return
+        DEFAULT_REPO = args.repo
+    for o in args.allow_embed:
+        if not re.fullmatch(r"(\*|https?://[A-Za-z0-9.-]+(:\d+|:\*)?)", o):
+            print(f"[!] --allow-embed 값이 이상해요: {o} (예: https://tool.example.com)")
+            return
+        EMBED_ORIGINS.append(o)
 
     if args.check_terminal:
         check_terminal()

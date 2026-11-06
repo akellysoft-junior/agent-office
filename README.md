@@ -64,6 +64,8 @@ py agent_office_server.py
 | `--no-update` | 자동 업데이트 끄기 | 꺼짐 |
 | `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
 | `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
+| `--repo owner/name` | 본사에 보여줄 깃허브 저장소 | 세션 폴더의 git origin에서 자동으로 찾음 |
+| `--allow-embed ORIGIN` | 위젯을 끼워 넣을 수 있는 바깥 사이트 (여러 번 쓸 수 있음) | localhost만 허용 |
 
 ### 매번 치기 귀찮다면
 
@@ -87,6 +89,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 ## 화면 보는 법
 
 - **동네 화면**: 입주한 사무실 위 이름표에 상태(⚙ 작업 중 · 💬 명령 대기 · ✓ 완료 · ❓ 답변 대기 · ⏳ 승인 필요?)가 떠요.
+- **고양이 클릭**: 그 고양이에게 확대되고 대화창에서 자기소개를 해요. 대사를 누르거나 Enter로 다음, `Esc`로 닫아요.
 - **사무실 클릭**: 그 사무실로 확대되고, 오른쪽 목록이 고양이별(대장 + 새끼냥) 현황으로 바뀌어요. `Esc` 또는 "← 동네로"로 돌아와요.
 - **지금 하는 일 카드**
   - ✎ 이름 바꾸기 (브라우저에 저장)
@@ -101,6 +104,51 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 - **둘러보기**: 마우스로 끌기, 폰에선 가로로 쓸기. ＋/－/⤢ 버튼이나 Ctrl+휠로 확대해요.
 - **멀티 세션 데모**: 서버 없이 가짜 세션 4개로 모든 기능을 체험할 수 있어요.
 - 서버 없이 HTML만 열면 시뮬레이션과 로그 파일(.jsonl) 재생 모드로 동작해요.
+
+## 내 웹 툴에 위젯으로 넣기
+
+서버를 켜 둔 상태에서, 내 웹 툴의 원하는 자리에 아래 두 줄을 넣으면 그 상자 크기에 맞춰 동네 화면만 들어가요. 설명 카드나 버튼은 빠지고, 고양이를 누르면 확대되면서 자기소개를 해요.
+
+```html
+<div data-agent-office data-theme="light" style="height:420px"></div>
+<script src="http://localhost:8765/widget.js"></script>
+```
+
+| 속성 | 설명 |
+| --- | --- |
+| `data-repo="owner/name"` | 본사에 보여줄 깃허브 저장소. 없으면 서버가 정한 저장소(`--repo` 또는 자동) |
+| `data-theme="light\|dark\|auto"` | 페이지 테마 |
+| `data-tod="day\|dusk\|night\|auto"` | 동네 그림의 낮·밤 |
+| `data-team="0"` | 깃허브 팀 끄기 |
+| `data-follow="0"` | 자동 따라가기 끄기 |
+| `data-demo="1"` | 가짜 세션·가짜 팀으로 보기 |
+| `data-height="360px"` | 상자에 높이가 없을 때 쓸 높이 (기본 420px) |
+
+- React·Vue처럼 화면을 나중에 그리는 앱도 괜찮아요. `data-agent-office`가 붙은 요소가 생기면 알아서 채워요. 직접 넣으려면 `AgentOffice.mount(요소, {repo:"owner/name"})`.
+- iframe 한 줄로 넣어도 돼요: `<iframe src="http://localhost:8765/?embed=1&repo=owner/name" style="width:100%;height:420px;border:0"></iframe>`
+- 기본으로 `localhost`에서 도는 웹 툴만 끼워 넣을 수 있어요. 다른 주소의 사이트라면 서버를 `--allow-embed https://tool.example.com`으로 켜 주세요.
+
+**위젯이 보내는 이벤트** (위젯을 넣은 요소에서 받아요)
+
+```js
+const box = document.querySelector("[data-agent-office]");
+box.addEventListener("agent-office:select", e => console.log(e.detail));    // 고양이를 눌렀을 때 {kind:"human"|"ai-main"|"ai-sub", name, login?, session?}
+box.addEventListener("agent-office:close", () => {});                       // 대화창을 닫았을 때
+box.addEventListener("agent-office:attention", e => e.detail.count);        // 확인 안 한 완료·질문 수
+box.addEventListener("agent-office:team", e => e.detail);                   // 팀 정보를 불러왔을 때 {repo, members}
+box.__agentOffice.send("select", {login:"octocat"});                         // 바깥에서 그 사람에게 말 걸기
+```
+
+### 깃허브 팀 (본사)
+
+저장소에 커밋한 사람들이 **본사** 건물에 고양이로 출근해요. AI 고양이와 구별되게 안경·리본·헤드폰·비니·목도리 중 하나를 하고 있어요.
+
+- **상주 멤버**: 기여 상위 2명이거나, 3일 안에 커밋했거나, 최근 한 달 커밋이 10개 이상. 거의 늘 자리에 있고 가끔 휴게실에 다녀와요.
+- **자주 오는 멤버**: 기여 비중이 8% 이상이거나 한 달 안에 커밋했어요. 몇 분 일하다 퇴근하고 조금 뒤 다시 와요.
+- **가끔 들르는 손님**: 그 밖의 기여자. 아주 가끔 잠깐 들렀다 사라져요.
+- 누르면 이름·소개(bio)·커밋 수·기여 순위·마지막 커밋 메시지를 이야기하고, GitHub 프로필로 갈 수 있어요.
+- 저장소는 `data-repo` → 서버의 `--repo` → 가장 최근에 움직인 세션 폴더의 git origin 순서로 정해요.
+- 깃허브 정보는 30분마다 새로 받고 `~/.cache/agent-office`에 저장해 둬요. `GITHUB_TOKEN`이나 `gh` 로그인이 있으면 그걸 써서 비공개 저장소도 볼 수 있고 API 한도도 넉넉해져요. 토큰은 서버 안에서만 쓰고 페이지로 보내지 않아요.
 
 ## 터미널 열기 지원 범위
 
@@ -134,6 +182,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 
 - 서버는 Claude Code 로그를 **읽기만** 해요. 설정이나 파일을 바꾸지 않아요.
 - `127.0.0.1`에만 열려 있어서 다른 기기에서는 접속할 수 없어요.
+- 다른 웹사이트가 이 서버를 몰래 부르지 못하게 `localhost` 주소로 온 요청만 받아요. 위젯도 localhost와 `--allow-embed`로 허용한 사이트에만 끼워 넣을 수 있어요.
 - 터미널 열기 API는 이 페이지에서 보낸 요청만 받고(Host·Origin·전용 헤더 확인), 정해진 동작(이동·이어하기·폴더)만 실행해요.
 
 ## 자주 생기는 상황

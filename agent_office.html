@@ -1,6 +1,8 @@
 <title>에이전트 오피스</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&family=IBM+Plex+Mono:wght@500&display=swap">
+<script>/* 위젯 모드는 그리기 전에 표시 (헤더·카드가 잠깐 보였다 사라지지 않게) */
+if (/[?&]embed(=1|=true)?(&|$)/.test(location.search)) document.documentElement.classList.add("embed");</script>
 <style>
 /* Layout: 펜으로 그린 아이소메트릭 사무실이 주인공, 오른쪽엔 종이 메모 같은 HUD. 모바일에선 세로로 쌓임. */
 :root{
@@ -164,6 +166,52 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
   .sign{font-size:19px}
 }
 @media (prefers-reduced-motion: reduce){ .pbar i{transition:none} }
+
+/* ── 캐릭터 대화창 (게임 대사 상자) ── */
+.talk{position:absolute; left:50%; transform:translateX(-50%); bottom:14px; z-index:3; width:min(600px, calc(100% - 28px));
+  display:flex; gap:12px; align-items:flex-start; background:var(--paper); color:var(--ink);
+  border:2px solid var(--ink); border-radius:14px; box-shadow:4px 4px 0 var(--ink); padding:12px 14px 10px;
+  animation:pop .25s ease-out}
+.talk-face{position:relative; flex:none; width:76px; height:76px; border:1.5px solid var(--ink); border-radius:50%; overflow:hidden; background:var(--paper-2)}
+.talk-face canvas{width:100%; height:100%; display:block}
+.talk-face img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover}
+.talk-badge{position:absolute; left:52px; top:52px; width:30px; height:30px; border:1.5px solid var(--ink); border-radius:50%; background:var(--paper); overflow:hidden}
+.talk-badge canvas{width:100%; height:100%; display:block}
+.talk-body{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:4px}
+.talk-name{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
+.talk-name b{font-family:var(--font-display); font-weight:400; font-size:17px}
+.talk-tag{font-size:12px; color:var(--muted)}
+.talk-text{margin:0; font-size:14px; line-height:1.6; min-height:3.2em; cursor:pointer; overflow-wrap:anywhere}
+.talk-text::after{content:"▼"; font-size:10px; margin-left:6px; color:var(--accent); opacity:0}
+.talk.done .talk-text::after{opacity:1; animation:blinkdn 1s steps(2) infinite}
+@keyframes blinkdn{50%{opacity:0}}
+.talk-actions{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+.talk-actions .pg{font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-right:auto}
+.talk-actions a.mini{font-family:var(--font-display); font-size:12px; color:var(--ink); text-decoration:none;
+  border:1.5px solid var(--ink); border-radius:999px; padding:3px 9px; box-shadow:1.5px 1.5px 0 var(--ink)}
+.talk-msg{font-size:12px; color:var(--info)}
+.talk-close{position:absolute; top:6px; right:8px; border:0; box-shadow:none; background:none; font-size:16px; padding:2px 6px}
+@media (max-width:520px), (max-height:360px){
+  .talk{padding:9px 10px 8px; gap:9px; bottom:8px; width:calc(100% - 16px)}
+  .talk-face{width:52px; height:52px}
+  .talk-badge{left:34px; top:34px; width:22px; height:22px}
+  .talk-name b{font-size:15px}
+  .talk-text{font-size:13px; min-height:2.6em}
+}
+@media (prefers-reduced-motion: reduce){ .talk{animation:none} .talk.done .talk-text::after{animation:none} }
+
+/* ── 위젯 모드 (?embed=1): 장면만 꽉 차게, 설명 카드·버튼은 숨김 ── */
+html.embed, html.embed body{height:100%; overflow:hidden}
+html.embed body{padding:0}
+html.embed .app{max-width:none; height:100%; gap:0}
+html.embed header.bar, html.embed .controls, html.embed .hud{display:none !important}
+html.embed .main{height:100%}
+html.embed .stage{flex:none; width:100%; height:100%; border:0; border-radius:0; box-shadow:none; padding:0}
+html.embed canvas#office{border-radius:0}
+html.embed .followchip{display:none}
+html.embed .back{top:10px; left:10px; font-size:13px; padding:4px 11px}
+html.embed .zoomctl{right:10px; top:10px; bottom:auto; flex-direction:row}
+html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
 @media (max-width:700px){
   .toasts{top:auto; bottom:max(14px, env(safe-area-inset-bottom, 0px))}
   .toast{padding:8px 12px}
@@ -211,7 +259,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -286,7 +334,13 @@ office.stopReplay();</pre>
 (() => {
 "use strict";
 const $ = s => document.querySelector(s);
-const cv = $("#office"), ctx = cv.getContext("2d");
+/* 주소 옵션: ?embed=1(위젯) &repo=owner/name &theme=dark &tod=night &team=0 &follow=0 &demo=1 */
+const QS = new URLSearchParams(location.search);
+const EMBED = document.documentElement.classList.contains("embed");
+const OPT = {repo:(QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
+             tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1"};
+const cv = $("#office");
+let ctx = cv.getContext("2d");   // 초상화 그릴 때 잠깐 다른 캔버스로 바꿔 씀
 if (!ctx.roundRect){ // 구형 브라우저 대비
   ctx.roundRect = function(x,y,w,h){ this.rect(x,y,w,h); };
 }
@@ -843,19 +897,23 @@ cv.addEventListener("pointermove", e => {
       try { cv.setPointerCapture(e.pointerId); } catch {}
     }
     if (drag.moved){
+      if (talkSel.cat) closeTalk(false);
       cam.tcx = drag.cx - dx / cam.z; cam.tcy = drag.cy - dy / cam.z; clampCam();
       cam.cx = cam.tcx; cam.cy = cam.tcy;
       cv.style.cursor = "grabbing";
     }
     return;
   }
-  cv.style.cursor = scene === "campus" ? (cam.focus === null && lotAt(e) >= 0 ? "pointer" : "grab") : "";
+  cv.style.cursor = scene === "campus" ? (catAt(e) || (cam.focus === null && lotAt(e) >= 0) ? "pointer" : "grab") : "";
 });
 cv.addEventListener("pointerup", e => {
   if (!drag || e.pointerId !== drag.id) return;
   const moved = drag.moved; drag = null; cv.style.cursor = "";
   if (scene === "campus") followPause();
   if (moved || scene !== "campus") return;
+  const c = catAt(e);                                   // 고양이를 누르면 확대 + 자기소개
+  if (c){ if (talkSel.cat === c) advanceTalk(); else openTalk(c); return; }
+  if (talkSel.cat){ closeTalk(); return; }
   const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
   if (i < 0){ if (cam.focus !== null) unfocus(); return; }
   const picked = slotSession(i); if (picked) picked.attention = false;
@@ -865,14 +923,19 @@ cv.addEventListener("pointercancel", () => { drag = null; });
 cv.addEventListener("wheel", e => {                     // Ctrl+휠, 트랙패드 핀치로 확대
   if (scene !== "campus" || !(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
+  if (talkSel.cat) closeTalk(false);
   const r = cv.getBoundingClientRect();
   followPause();
   zoomBy(Math.exp(-e.deltaY * 0.004), (e.clientX - r.left) / r.width * VW, (e.clientY - r.top) / r.height * VH);
 }, {passive:false});
-$("#zIn").addEventListener("click", () => { followPause(); zoomBy(1.3); });
-$("#zOut").addEventListener("click", () => { followPause(); zoomBy(1 / 1.3); });
+$("#zIn").addEventListener("click", () => { followPause(); closeTalk(false); zoomBy(1.3); });
+$("#zOut").addEventListener("click", () => { followPause(); closeTalk(false); zoomBy(1 / 1.3); });
 $("#zFit").addEventListener("click", () => { followPause(); unfocus(); });
-addEventListener("keydown", e => { if (e.key === "Escape" && cam.focus !== null){ followPause(); unfocus(); } });
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && talkSel.cat){ closeTalk(); return; }
+  if (e.key === "Escape" && cam.focus !== null){ followPause(); unfocus(); return; }
+  if (talkSel.cat && (e.key === "Enter" || e.key === " ") && !/^(BUTTON|A|INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){ e.preventDefault(); advanceTalk(); }
+});
 $("#btnBack").addEventListener("click", () => { followPause(); unfocus(); });
 /* 페이지 테마: 자동(OS 설정) → 라이트 → 다크 */
 const THEMES = ["auto", "light", "dark"], THEME_LABEL = {auto:"자동", light:"라이트", dark:"다크"};
@@ -888,7 +951,9 @@ $("#btnTheme").addEventListener("click", () => {
   try { localStorage.setItem("ao.theme", theme); } catch {}
   applyTheme();
 });
+if (THEMES.includes(OPT.theme)) theme = OPT.theme;
 applyTheme();
+if (OPT.follow === "0") follow.on = false;
 const btnFollow = $("#btnFollow");
 function followText(){ btnFollow.textContent = "🎥 자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐"); btnFollow.setAttribute("aria-pressed", follow.on); }
 btnFollow.addEventListener("click", () => {
@@ -994,6 +1059,7 @@ const TOD_MODES = ["auto","day","dusk","night"];
 const TOD_LABEL = {auto:"자동", day:"낮", dusk:"노을", night:"밤"};
 let todMode = "auto";
 try { const s = localStorage.getItem("ao.tod"); if (TOD_MODES.includes(s)) todMode = s; } catch {}
+if (TOD_MODES.includes(OPT.tod)) todMode = OPT.tod;
 let todW = null, TOD = {};
 function targetW(){
   if (todMode === "day")   return [1,0,0];
@@ -1300,7 +1366,8 @@ let live = null;   // {source, seq, sessions:Map(sid→Session), errors, count, 
 let scene = "office";                // "office"(시뮬레이션·재생) | "campus"(라이브)
 const cam = {z:1, cx:CENTER[0], cy:CENTER[1], tz:1, tcx:CENTER[0], tcy:CENTER[1], focus:null};
 let narrow = false;
-const overviewZ = () => scene === "campus" && narrow ? 1.5 : 1;
+let embedZ = 1;
+const overviewZ = () => scene !== "campus" ? 1 : EMBED ? embedZ : narrow ? 1.5 : 1;
 let LW = 1.05;
 const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
 const perfNow = () => performance.now() / 1000;
@@ -1319,7 +1386,7 @@ const SLOTS = [
   {name:"언덕 위 집",   x:0,   y:180, trim:"#f0c96b", theme:"books"},
   {name:"냥냥마트",     x:274, y:180, trim:"#7fb2ea", theme:"shelf"},
   {name:"빨간 지붕 집", x:548, y:180, trim:"#e5534b", theme:"sofa"},
-].map(s => ({...s, w:LOT_W, d:LOT_D, appear:[]}));
+].map(s => ({...s, baseName:s.name, w:LOT_W, d:LOT_D, appear:[]}));
 const lotDesk  = (L, i) => ({x: L.x + 12 + (i % 3) * 46, y: L.y + 12 + Math.floor(i / 3) * 38});
 const lotSeat  = (L, i) => { const d = lotDesk(L, i); return {x: d.x + DESK_W/2, y: d.y + DESK_D + 9}; };
 const lotAisle = L => L.x + 148;
@@ -1372,6 +1439,7 @@ function visibleCats(){
   if (mode !== "live" || !live) return AGENTS;
   const out = [];
   for (const s of live.sessions.values()){ out.push(s.boss); for (const kt of s.kittens.values()) out.push(kt); }
+  if (team) for (const m of team.members) if (m.present) out.push(m.cat);
   return out;
 }
 const deskBusy = key => visibleCats().some(a => a.desk === key && a.state === "working");
@@ -1622,10 +1690,13 @@ function enterLive(source = "server"){
   $("#summaryList").innerHTML = "";
   $("#logDetails").open = false;
   liveListVer = "";
+  loadTeam();                       // 팀 본사 자리를 먼저 맡아 둔다 (세션이 먼저 들어가지 않게)
   if (source === "demo") startDemo(); else startPoll();
+  emitHost("ready", {mode:source});
 }
 function exitLive(){
   liveLoop++;
+  closeTalk(false); clearTeam();
   mode = "sim";
   setScene("office");
   resetAgents();
@@ -1668,6 +1739,7 @@ function liveSession(rec){
   let s = live.sessions.get(rec.s);
   if (s) return s;
   const used = new Set([...live.sessions.values()].map(v => v.slot));
+  if (teamSlot() >= 0) used.add(teamSlot());           // 깃허브 팀 본사는 비워 둔다
   let slot = SLOTS.findIndex((_, i) => !used.has(i));
   if (slot < 0){                         // 빈 사무실이 없으면 가장 오래 조용한 세션이 이사 나감
     let old = null;
@@ -1884,6 +1956,7 @@ function liveHandle(rec){
 }
 function liveTick(dt){
   for (const a of visibleCats()) replayAgentTick(a, dt);
+  teamTick();
   followTick();
   const nowMs = Date.now();
   for (const s of live.sessions.values()){
@@ -1933,6 +2006,397 @@ function liveTick(dt){
     }
   }
 }
+
+/* ── 깃허브 팀: 저장소 기여자가 본사 건물에 출퇴근 ──
+   기여도와 최근 커밋으로 세 부류로 나눈다.
+   - 상주: 거의 늘 자리에 있고 가끔 휴게실에 다녀옴
+   - 자주: 몇 분 일하다 퇴근하고, 조금 뒤 다시 출근
+   - 가끔: 아주 가끔 잠깐 들렀다 사라짐
+   사람도 이 동네에선 고양이 — 안경·리본·헤드폰 같은 소품으로 AI 고양이와 구별한다. */
+let team = null;            // {repo, members:[...], slot, source, fetched}
+let teamWanted = false;     // 팀 정보를 받는 동안 본사 자리를 비워 둔다
+const teamSlot = () => team ? team.slot : teamWanted ? 0 : -1;
+const MIN = 60000;
+const rand = (a, b) => a + Math.random() * (b - a);
+const hashStr = s => { let h = 0; for (const ch of String(s)) h = (h*31 + ch.charCodeAt(0)) >>> 0; return h; };
+const HUMAN_ACC = ["glasses", "bow", "headphones", "beanie", "scarf"];
+const ACC_COLORS = ["#7fb2ea", "#e5534b", "#8fbf9a", "#f0c96b", "#c79bff", "#f08a8a"];
+const TIER_LABEL = {core:"상주 멤버", regular:"자주 오는 멤버", guest:"가끔 들르는 손님"};
+const TIER_TIME = {                       // 머무는 시간 / 다시 올 때까지 (ms)
+  core:    {stay:[8*MIN, 16*MIN], away:[1*MIN, 3*MIN]},
+  regular: {stay:[2*MIN, 5*MIN],  away:[3*MIN, 8*MIN]},
+  guest:   {stay:[25000, 70000],  away:[5*MIN, 12*MIN]},
+};
+const tierTime = (m, key) => rand(...TIER_TIME[m.tier][key]) * (team && team.source === "demo" ? 0.35 : 1);
+function teamTier(d, rank, maxC){
+  const days = d.lastAt ? (Date.now() - d.lastAt) / 86400000 : Infinity;
+  if (rank < 2 || days <= 3 || (d.recent || 0) >= 10) return "core";
+  if ((d.contributions || 0) / maxC >= 0.08 || days <= 30 || rank < 6) return "regular";
+  return "guest";
+}
+function clearTeam(){
+  if (team){ const L = SLOTS[team.slot]; L.name = L.baseName; L.appear = []; }
+  team = null; teamWanted = false;
+  if (talkSel.cat && talkSel.cat.human) closeTalk();
+}
+function setTeam(data, source){
+  const list = ((data && data.members) || []).filter(m => m && m.login);
+  if (!list.length || mode !== "live" || !live) return false;
+  let slot = team ? team.slot : -1;
+  if (slot < 0){                                 // 본사(0번)가 비어 있으면 거기, 아니면 빈 건물
+    const used = new Set([...live.sessions.values()].map(s => s.slot));
+    slot = !used.has(0) ? 0 : SLOTS.findIndex((_, i) => !used.has(i));
+    if (slot < 0) return false;
+  }
+  const maxC = Math.max(1, ...list.map(m => m.contributions || 0));
+  const old = new Map(team ? team.members.map(m => [m.login, m]) : []);
+  let cores = 0;
+  const members = list.map((d, rank) => {
+    let tier = teamTier(d, rank, maxC);
+    if (tier === "core" && ++cores > 4) tier = "regular";
+    const prev = old.get(d.login);
+    if (prev) return Object.assign(prev, {info:d, rank, tier});
+    const h = hashStr(d.login), coats = [...BOSS_LOOKS.map(b => b.coat), ...KITTEN_COATS];
+    return {login:d.login, info:d, rank, tier, present:false, leaving:false, cat:null,
+            nextAt:0, leaveAt:0, breakAt:0, backAt:0, murmurAt:0, first:true,
+            coat:coats[h % coats.length], acc:HUMAN_ACC[(h >>> 3) % HUMAN_ACC.length], accColor:ACC_COLORS[(h >>> 7) % ACC_COLORS.length]};
+  });
+  team = {repo:data.repo || "", members, slot, source, fetched:data.fetched || Date.now()};
+  for (const m of members) if (m.first && !m.nextAt){
+    // 처음 열었을 때: 상주 멤버(와 자주 오는 멤버 일부)는 이미 자리에, 나머지는 시간차를 두고 출근
+    if (m.tier === "core" || (m.tier === "regular" && Math.random() < 0.4)) m.nextAt = 1;
+    else m.nextAt = Date.now() + (m.tier === "regular" ? rand(15000, 2*MIN) : rand(30000, 5*MIN)) * (source === "demo" ? 0.3 : 1);
+  }
+  const L = SLOTS[slot];
+  L.name = clip(`${String(team.repo).split("/").pop() || "팀"} 본사`, 18);
+  teamWanted = false;
+  live.ver++;
+  emitHost("team", {repo:team.repo, members:members.length});
+  return true;
+}
+function teamArrive(m){
+  const L = SLOTS[team.slot];
+  const used = new Set(team.members.filter(x => x.present && x !== m).map(x => x.cat.deskIdx));
+  let idx = -1;
+  for (let i=0; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
+  if (idx < 0) return false;                     // 책상이 꽉 차면 다음에
+  const instant = m.first && m.nextAt === 1;
+  const c = makeCat({id:"gh-"+m.login, name:m.info.name || m.login, role:TIER_LABEL[m.tier], coat:m.coat, k:0.9, zBase:0,
+                     napAfter:999, lot:team.slot, deskIdx:idx, router:lotRouter(L),
+                     pos: instant ? lotSeat(L, idx) : lotDoor(L), seat:lotSeat(L, idx)});
+  Object.assign(c, {human:m, acc:m.acc, accColor:m.accColor, busy:true, busyKind:"tool", stateText:"출근!"});
+  Object.assign(m, {cat:c, present:true, leaving:false, first:false,
+                    leaveAt: Date.now() + tierTime(m, "stay"), breakAt: Date.now() + rand(1.5*MIN, 4*MIN)});
+  if (!instant) say(c, m.tier === "guest" ? "잠깐 들렀어요!" : pick(["출근했어요!", "좋은 아침~", "오늘도 커밋!"]), 2.4);
+  live.ver++;
+  return true;
+}
+function teamMurmur(m){
+  const d = m.info;
+  return pick(["커밋 하나 더!", "리뷰 남겨야지", "PR 올려야겠다", "테스트 초록불!", "빌드 기다리는 중…",
+               d.lastMsg ? `“${clip(d.lastMsg, 16)}”` : "코드 읽는 중"]);
+}
+function teamTick(){
+  if (!team) return;
+  const nowMs = Date.now(), L = SLOTS[team.slot];
+  for (const m of team.members){
+    if (!m.present){
+      if (nowMs >= m.nextAt && !teamArrive(m)) m.nextAt = nowMs + 20000;
+      continue;
+    }
+    const c = m.cat, talking = talkSel.cat === c;
+    if (m.leaving){
+      if (!c.path.length && Math.hypot(c.pos.x - c.seat.x, c.pos.y - c.seat.y) < 4){
+        Object.assign(m, {present:false, leaving:false, cat:null, nextAt: nowMs + tierTime(m, "away")});
+        live.ver++;
+      }
+      continue;
+    }
+    if (nowMs >= m.leaveAt && !talking){          // 이야기하는 중엔 퇴근을 미룬다
+      Object.assign(c, {busy:false, inLounge:false, leaving:true, seat:lotDoor(L), seatLift:0, stateText:"퇴근 중", napAfter:999});
+      if (c.state === "busy"){ c.state = "idle"; c.idleSince = null; }
+      m.leaving = true;
+      say(c, m.tier === "guest" ? "또 올게요~" : pick(["퇴근!", "오늘은 여기까지", "내일 봐요"]), 2.2);
+      continue;
+    }
+    if (c.busy && nowMs >= m.breakAt && m.tier !== "guest" && !talking){   // 잠깐 휴게실
+      const spots = lotLounge(L);
+      const taken = new Set(team.members.filter(x => x.present && x.cat.inLounge).map(x => x.cat.loungeIdx));
+      const free = spots.map((_, i) => i).filter(i => !taken.has(i));
+      if (free.length){
+        const i = pick(free);
+        Object.assign(c, {busy:false, inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,
+                          napAfter:spots[i].nap, stateText:"휴게실에서 쉬는 중"});
+        if (c.state === "busy"){ c.state = "idle"; c.idleSince = null; }
+        say(c, pick(["커피 한 잔", "잠깐 쉬자", spots[i].say]), 2);
+        m.backAt = nowMs + rand(30000, 90000);
+      }
+      m.breakAt = nowMs + rand(3*MIN, 6*MIN);
+    }
+    if (c.inLounge && nowMs >= m.backAt && !talking)
+      Object.assign(c, {busy:true, inLounge:false, seat:{...c.home}, seatLift:7, napAfter:999, stateText:"다시 자리로"});
+    if (c.busy && c.state === "idle" && !c.cur && !c.path.length) c.state = "busy";
+    if (c.state === "busy"){
+      c.stateText = "작업 중";
+      if (!c.bubble && !talking && nowMs > m.murmurAt){
+        if (m.murmurAt) say(c, teamMurmur(m), 2.6);
+        m.murmurAt = nowMs + rand(18000, 45000);
+      }
+    }
+  }
+}
+/* 팀 정보: 서버(/api/team) → 없으면 브라우저에서 깃허브 API 직접 → 데모면 가짜 팀 */
+async function fetchTeamDirect(repo){
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  const get = p => fetch("https://api.github.com" + p, {headers:{Accept:"application/vnd.github+json"}})
+    .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)));
+  const [cs, cm] = await Promise.all([get(`/repos/${repo}/contributors?per_page=40`), get(`/repos/${repo}/commits?per_page=100`).catch(() => [])]);
+  const last = {}, recent = {}, month = Date.now() - 30*86400000;
+  for (const c of cm || []){
+    const login = c.author && c.author.login, ts = Date.parse(c.commit && c.commit.author && c.commit.author.date);
+    if (!login || !ts) continue;
+    if (!last[login]) last[login] = {ts, msg: String(c.commit.message || "").split("\n")[0].slice(0, 120)};
+    if (ts >= month) recent[login] = (recent[login] || 0) + 1;
+  }
+  const members = (cs || []).filter(c => c.login && c.type !== "Bot" && !/\[bot\]$/.test(c.login)).slice(0, 24).map(c => ({
+    login:c.login, avatar:c.avatar_url || "", url:c.html_url || "", contributions:c.contributions || 0,
+    lastAt: last[c.login] ? last[c.login].ts : 0, lastMsg: last[c.login] ? last[c.login].msg : "", recent: recent[c.login] || 0,
+    name:"", bio:"", company:"", location:""}));
+  await Promise.all(members.slice(0, 6).map(m => get(`/users/${m.login}`).then(u => {
+    for (const k of ["name", "bio", "company", "location"]) m[k] = String(u[k] || "").trim().slice(0, 160);
+  }).catch(() => {})));
+  return {repo, fetched: Date.now(), members};
+}
+const DEMO_TEAM = () => { const h = 3600e3, d = 24*h, now = Date.now(); return {repo:"demo/myapp", members:[
+  {login:"haneul-dev", name:"하늘", bio:"안드로이드 앱 만들어요 · Compose 좋아함", location:"서울", contributions:412, recent:18, lastAt:now - 2*h, lastMsg:"로그인 화면 Compose로 전환"},
+  {login:"minjun-k", name:"민준", bio:"빌드랑 CI 담당", company:"냥냥컴퍼니", contributions:288, recent:9, lastAt:now - 26*h, lastMsg:"Gradle 캐시 설정 정리"},
+  {login:"seoyeon-ui", name:"서연", bio:"디자인 시스템 · 다크모드 장인", contributions:131, recent:4, lastAt:now - 3*d, lastMsg:"다크 테마 색상 토큰 추가"},
+  {login:"jiho-park", name:"", bio:"", contributions:57, recent:1, lastAt:now - 12*d, lastMsg:"딥링크 파싱 테스트 추가"},
+  {login:"yuna-qa", name:"유나", bio:"QA · 버그 사냥꾼", contributions:23, recent:0, lastAt:now - 40*d, lastMsg:"크래시 재현 절차 문서화"},
+  {login:"doyoon", name:"도윤", bio:"", contributions:6, recent:0, lastAt:now - 90*d, lastMsg:"README 오타 수정"},
+  {login:"first-pr-cat", name:"", bio:"오픈소스 첫 기여 연습 중", contributions:2, recent:0, lastAt:now - 200*d, lastMsg:"Fix typo in docs"},
+]}; };
+let teamLoadId = 0;
+async function loadTeam(refresh = false){
+  if (!refresh) clearTeam();
+  if (!OPT.team || mode !== "live" || !live) return;
+  const id = ++teamLoadId, src = live.source;
+  if (!refresh) teamWanted = true;
+  let data = null;
+  try {
+    if (src === "server"){
+      const r = await fetch("api/team" + (OPT.repo ? "?repo=" + encodeURIComponent(OPT.repo) : ""), {cache:"no-store"});
+      data = await r.json();
+    } else if (OPT.repo) data = await fetchTeamDirect(OPT.repo);
+  } catch (e) { data = {members:[], error: String(e && e.message || e)}; }
+  if (id !== teamLoadId || mode !== "live" || !live || live.source !== src) return;
+  if ((!data || !data.members || !data.members.length) && src === "demo") data = DEMO_TEAM();
+  if (data && data.members && data.members.length){
+    if (!setTeam(data, src)) setTimeout(() => { if (!team) loadTeam(true); }, 60000);
+    else if (!refresh) log(`🐙 ${team.repo} 팀 ${team.members.length}명이 ${SLOTS[team.slot].name}에 등록됐어요`, "good");
+    if (data.error && data.stale) log(`깃허브 정보를 새로 못 받아서 예전 정보를 보여줘요 (${data.error})`, "warn");
+  } else {
+    teamWanted = false;
+    if (data && data.error) log(`깃허브 팀 정보를 못 불러왔어요: ${data.error}`, "bad");
+    if (src === "server" && !OPT.repo && !(data && data.repo)) setTimeout(() => { if (!team && live && live.source === "server") loadTeam(true); }, 60000);
+  }
+}
+setInterval(() => { if (team && live && live.source === "server") loadTeam(true); }, 30*MIN);
+
+/* ── 캐릭터 클릭 → 확대 + 자기소개 대화창 ── */
+const talkSel = {cat:null, lines:[], idx:0, shown:0};
+const talk = {box:$("#talk"), cv:$("#talkCv"), img:$("#talkImg"), badge:$("#talkBadge"), bcv:$("#talkBadgeCv"),
+  name:$("#talkName"), tag:$("#talkTag"), text:$("#talkText"), actions:$("#talkActions"), pg:$("#talkPg"), msg:$("#talkMsg")};
+const SEL_Z = 3.4;
+function catSessionOf(c){
+  if (!live) return null;
+  for (const s of live.sessions.values()) if (s.boss === c || [...s.kittens.values()].includes(c)) return s;
+  return null;
+}
+function catLift(a){
+  const atS = Math.hypot(a.pos.x - a.seat.x, a.pos.y - a.seat.y) < 3 && !a.path.length;
+  return a.lift ?? (atS ? (a.seatLift ?? 7) : 0);
+}
+function catAt(e){
+  if (scene !== "campus" || mode !== "live") return null;
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
+  const x = (px - VW/2) / cam.z + cam.cx, y = (py - VH/2) / cam.z + cam.cy;
+  let best = null, bd = Infinity;
+  for (const a of visibleCats()){
+    const k = a.k ?? 1;
+    const d = Math.hypot(x - isoX(a.pos.x, a.pos.y), y - (isoY(a.pos.x, a.pos.y, a.zBase || 0) - catLift(a) - 10*k));
+    if (d < 12*k + 5 / cam.z && d < bd){ bd = d; best = a; }
+  }
+  return best;
+}
+function ago(ms){
+  const s = (Date.now() - ms) / 1000;
+  if (s < 90) return "방금";
+  if (s < 3600) return `${Math.round(s / 60)}분 전`;
+  if (s < 86400) return `${Math.round(s / 3600)}시간 전`;
+  if (s < 86400 * 45) return `${Math.round(s / 86400)}일 전`;
+  if (s < 86400 * 400) return `${Math.round(s / 86400 / 30)}달 전`;
+  return `${Math.round(s / 86400 / 365)}년 전`;
+}
+function talkInfo(c){
+  if (c.human){
+    const m = c.human, d = m.info, who = d.name ? `${d.name}(@${m.login})` : `@${m.login}`;
+    const lines = [`반가워요! ${who}입니다.` + (d.location ? ` ${d.location}에서 일해요.` : "")];
+    if (d.bio || d.company) lines.push([d.bio ? `“${clip(d.bio, 90)}”` : "", d.company ? `${d.company} 소속이에요.` : ""].filter(Boolean).join(" "));
+    lines.push(`${team ? team.repo + " 저장소에" : "이 저장소에"} 커밋 ${d.contributions || 0}개를 남겼어요. 기여 순위 ${m.rank + 1}위!`);
+    if (d.lastAt) lines.push(`마지막 커밋은 ${ago(d.lastAt)}이에요: “${clip(d.lastMsg || "…", 60)}”` + (d.recent ? ` 최근 한 달 동안 ${d.recent}번 커밋했어요.` : ""));
+    const left = Math.round((m.leaveAt - Date.now()) / MIN);
+    lines.push((m.tier === "core" ? "상주 멤버라서 거의 늘 사무실에 있어요." : m.tier === "regular" ? "자주 와서 일하다 가요." : "가끔 잠깐 들러요. 지금 만난 건 행운이에요!")
+               + (m.leaving ? " 지금은 퇴근하는 길이에요." : left >= 1 ? ` 이번엔 ${left}분쯤 더 있다 갈 거예요.` : " 곧 가 봐야 해요."));
+    return {name: d.name || "@" + m.login, tag:`GitHub 기여자 · ${TIER_LABEL[m.tier]}`, lines,
+            avatar: d.avatar || "", link: d.url || `https://github.com/${m.login}`,
+            ref:{kind:"human", login:m.login, name:d.name || m.login, repo:team ? team.repo : ""}};
+  }
+  const s = catSessionOf(c);
+  if (!s) return null;
+  if (c === s.boss){
+    const look = phaseLook(s), lines = [];
+    lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
+    if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
+    else if (s.phase === "waiting") lines.push(`${look.icon} ${look.text} — 다음 명령을 기다리고 있어요!`);
+    else lines.push("지금은 조용해요. 부르면 바로 달려갈게요.");
+    if (s.goal){
+      const done = s.todos.filter(t => t.status === "completed").length;
+      lines.push(`부탁받은 일: “${s.goal}”` + (s.todos.length ? ` (할 일 ${done}/${s.todos.length} 끝)` : ""));
+    }
+    if (s.kittens.size) lines.push(`새끼냥 ${s.kittens.size}마리가 함께 일해요: ` + [...s.kittens.values()].map(k => `${k.name}(${clip(k.role, 12)})`).join(", "));
+    const bg = [...s.bg.values()].filter(t => t.status === "running");
+    if (bg.length) lines.push(`뒤에서 돌리는 작업도 있어요: ${bg.map(t => t.label).join(", ")}`);
+    if (s.phase === "waiting" && s.result) lines.push(`방금 끝낸 일: ${s.result}`);
+    return {name:c.name, tag:`AI 메인 에이전트 · ${sessName(s)}`, lines, session:s,
+            ref:{kind:"ai-main", name:c.name, session:sessName(s), phase:s.phase}};
+  }
+  const lines = [`저는 ${c.name}! ‘${sessName(s)}’ 사무실의 새끼냥이에요.`,
+                 `팀장 ${s.boss.name}의 부탁으로 “${clip(c.role, 40)}” 일을 맡았어요.`,
+                 `지금 상태: ${c.stateText}`,
+                 c.leaving ? "일 다 끝나서 이제 퇴근해요!" : c.inLounge ? "잠깐 쉬는 중이에요. 금방 다시 일해요." : "끝나면 팀장한테 결과를 보고할 거예요."];
+  return {name:c.name, tag:"AI 서브에이전트", lines, session:s, ref:{kind:"ai-sub", name:c.name, session:sessName(s), role:c.role}};
+}
+function talkButton(text, fn, cls = "mini"){
+  const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = text;
+  b.addEventListener("click", e => { e.stopPropagation(); fn(); });
+  talk.actions.appendChild(b); return b;
+}
+function openTalk(c){
+  const info = talkInfo(c);
+  if (!info) return;
+  Object.assign(talkSel, {cat:c, lines:info.lines, idx:0, shown:0});
+  c.idleSince = null;
+  cam.focus = c.lot; cam.tz = SEL_Z;
+  $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${SLOTS[c.lot].name}`;
+  talk.name.textContent = info.name; talk.tag.textContent = info.tag;
+  talk.img.hidden = talk.badge.hidden = !info.avatar;
+  if (info.avatar){
+    talk.img.src = info.avatar + (info.avatar.includes("?") ? "&" : "?") + "s=160";
+    talk.img.onerror = () => { talk.img.hidden = talk.badge.hidden = true; };
+  } else talk.img.removeAttribute("src");
+  talk.msg.hidden = true;
+  [...talk.actions.querySelectorAll("button, a")].forEach(el => el.remove());
+  if (info.link){
+    const a = document.createElement("a"); a.className = "mini"; a.href = info.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = "GitHub 프로필 ↗"; talk.actions.appendChild(a);
+  }
+  if (info.session && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));
+  if (info.session) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
+  talkSel.next = talkButton("다음 ▶", advanceTalk, "mini primary");
+  talk.box.hidden = false;
+  showTalkLine();
+  say(c, pick(["냥!", "안녕하세요!", "저요?", "반가워요!"]), 1.6);
+  emitHost("select", info.ref);
+}
+function showTalkLine(){
+  const n = talkSel.lines.length;
+  talk.pg.textContent = n > 1 ? `${talkSel.idx + 1} / ${n}` : "";
+  talkSel.shown = reduceMotion ? 1e9 : 0;
+  talk.text.textContent = "";
+  talk.box.classList.remove("done");
+  if (talkSel.next) talkSel.next.textContent = talkSel.idx >= n - 1 ? "닫기" : "다음 ▶";
+}
+function advanceTalk(){
+  if (!talkSel.cat) return;
+  const line = talkSel.lines[talkSel.idx] || "";
+  if (talkSel.shown < line.length){ talkSel.shown = line.length; return; }      // 글자가 다 나오기 전이면 한 번에 보여주기
+  if (talkSel.idx >= talkSel.lines.length - 1){ closeTalk(); return; }
+  const info = talkInfo(talkSel.cat);                                              // 그 사이 바뀐 내용 반영
+  if (info) talkSel.lines = info.lines;
+  talkSel.idx = Math.min(talkSel.idx + 1, talkSel.lines.length - 1);
+  showTalkLine();
+}
+function closeTalk(keepZoom = true){
+  if (!talkSel.cat) return;
+  const lot = talkSel.cat.lot;
+  talkSel.cat = null; talk.box.hidden = true;
+  if (keepZoom && scene === "campus") focusLot(lot);
+  emitHost("close", {});
+}
+talk.text.addEventListener("click", advanceTalk);
+$("#talkClose").addEventListener("click", () => closeTalk());
+talk.box.addEventListener("pointerdown", e => e.stopPropagation());
+function drawPortrait(pcv, c, now){
+  const p = pcv.getContext("2d"), saved = ctx, savedLW = LW;
+  ctx = p;
+  try {
+    p.setTransform(1, 0, 0, 1, 0, 0);
+    p.fillStyle = TOD.paper; p.fillRect(0, 0, pcv.width, pcv.height);
+    const s = pcv.width / 21;
+    p.translate(pcv.width / 2, pcv.height * 0.56); p.scale(s, s);
+    LW = 0.6; p.lineWidth = LW; p.lineJoin = p.lineCap = "round"; p.strokeStyle = TOD.ink;
+    p.beginPath(); p.ellipse(0, 10.5, 8.5, 6.5, 0, 0, 7); p.fillStyle = c.coat.base; p.fill(); p.stroke();
+    if (c.coat.tux){ p.fillStyle = "#ffffff"; p.beginPath(); p.ellipse(0, 10, 3.2, 5, 0, 0, 7); p.fill(); }
+    drawHead(c, 0, 0, c.coat.base === "#2f2d33" ? "#ffd86b" : "#1f1d1b", null, "sit", now);
+  } finally { ctx = saved; LW = savedLW; }
+}
+function talkTick(rdt, now){
+  const c = talkSel.cat;
+  if (!c) return;
+  if (mode !== "live" || !visibleCats().includes(c)){ closeTalk(false); return; }
+  const line = talkSel.lines[talkSel.idx] || "";
+  if (talkSel.shown < line.length) talkSel.shown = Math.min(line.length, talkSel.shown + rdt * 40);
+  const vis = line.slice(0, Math.floor(talkSel.shown));
+  if (talk.text.textContent !== vis) talk.text.textContent = vis;
+  talk.box.classList.toggle("done", talkSel.shown >= line.length);
+  drawPortrait(talk.img.hidden ? talk.cv : talk.bcv, c, now);
+}
+function talkCamera(){                              // 고르는 고양이를 따라가며 대화창 위 빈 곳 가운데에
+  const c = talkSel.cat;
+  if (!c || scene !== "campus") return;
+  const r = cv.getBoundingClientRect();
+  const boxH = r.height ? (talk.box.offsetHeight + 14) / r.height * VH : 0;
+  cam.tz = SEL_Z;
+  cam.tcx = isoX(c.pos.x, c.pos.y);
+  cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 10 * (c.k ?? 1) + (boxH / 2) / cam.tz;
+}
+
+/* ── 위젯 ↔ 끼워 넣은 페이지 메시지 ── */
+const HOST_ORIGIN = (() => {
+  try {
+    const ao = location.ancestorOrigins;
+    if (ao && ao.length && ao[0] !== "null") return ao[0];
+    if (document.referrer) return new URL(document.referrer).origin;
+  } catch {}
+  return "*";
+})();
+function emitHost(type, data){
+  if (!EMBED || parent === window) return;
+  try { parent.postMessage({source:"agent-office", type, ...data}, HOST_ORIGIN); } catch {}
+}
+addEventListener("message", e => {
+  const d = e.data;
+  if (!EMBED || e.source !== parent || !d || d.source !== "agent-office-host") return;
+  if (HOST_ORIGIN !== "*" && e.origin !== HOST_ORIGIN) return;
+  if (d.type === "close") closeTalk();
+  else if (d.type === "theme" && THEMES.includes(d.value)){ theme = d.value; applyTheme(); }
+  else if (d.type === "select" && d.login && team){
+    const m = team.members.find(x => x.login === d.login);
+    if (m && m.present) openTalk(m.cat);
+  }
+});
 
 /* ── 알림: 화면 위 토스트 / 소리 / PC 알림 ── */
 let notifyOn = false, audioCtx = null;
@@ -2007,7 +2471,7 @@ const followActive = () => follow.on && mode === "live" && scene === "campus" &&
 function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; }
 function followNote(s, pri){
   follow.lastEventMs = Date.now();
-  if (!followActive() || cam.focus === s.slot) return;
+  if (!followActive() || cam.focus === s.slot || talkSel.cat) return;
   const nowMs = Date.now(), dwell = nowMs - follow.since;
   const cur = cam.focus !== null ? slotSession(cam.focus) : null;
   const curQuiet = !cur || nowMs - cur.lastMs > 6000;
@@ -2016,7 +2480,7 @@ function followNote(s, pri){
   }
 }
 function followTick(){
-  if (!followActive() || !follow.auto || cam.focus === null) return;
+  if (!followActive() || !follow.auto || cam.focus === null || talkSel.cat) return;
   if (Date.now() - follow.lastEventMs > 45000){ unfocus(true); }
 }
 function focusLot(i, auto = false){
@@ -2028,11 +2492,13 @@ function focusLot(i, auto = false){
   liveListVer = "";
 }
 function unfocus(auto = false){
+  if (talkSel.cat){ talkSel.cat = null; talk.box.hidden = true; emitHost("close", {}); }
   follow.auto = false; if (auto) follow.since = Date.now();
   cam.focus = null; cam.tz = overviewZ(); cam.tcx = CENTER[0]; cam.tcy = CENTER[1];
   $("#btnBack").hidden = true; liveListVer = "";
 }
 function updateCam(rdt){
+  talkCamera();
   const k = reduceMotion ? 1 : Math.min(1, rdt * 5);
   cam.z += (cam.tz - cam.z) * k; cam.cx += (cam.tcx - cam.cx) * k; cam.cy += (cam.tcy - cam.cy) * k;
 }
@@ -2217,8 +2683,9 @@ function drawMonitorWall(L, list, now){
   }
 }
 function drawLot(i, now){
-  const L = SLOTS[i], P = TOD, s = slotSession(i);
-  const act = s ? (s.phase === "working" ? 1 : 0.4) : 0;
+  const L = SLOTS[i], P = TOD, s = slotSession(i), hq = !!team && team.slot === i;
+  const cats = hq ? team.members.filter(m => m.present).map(m => m.cat) : s ? [s.boss, ...s.kittens.values()] : null;
+  const act = s ? (s.phase === "working" ? 1 : 0.4) : hq ? (cats.length ? 0.8 : 0.15) : 0;
   wallQuad(L.x, L.y+L.d, L.x+L.w, L.y+L.d, GZ, 0, P.side);
   wallQuad(L.x+L.w, L.y+L.d, L.x+L.w, L.y, GZ, 0, P.side);
   floorPoly(L.x, L.y, L.w, L.d, P.floor);
@@ -2269,8 +2736,7 @@ function drawLot(i, now){
   loungeRug(L);
   // 실내 (깊이 정렬)
   const items = [];
-  if (s){
-    const cats = [s.boss, ...s.kittens.values()];
+  if (cats){
     const maxIdx = cats.reduce((m, c) => Math.max(m, c.deskIdx), 0);
     const n = Math.max(3, maxIdx + 1);
     for (let k=0; k<n; k++){
@@ -2291,7 +2757,7 @@ function drawLot(i, now){
   items.push({z: L.x + 8 + L.y + L.d - 8, fn:() => drawPlant(L.x + 2, L.y + L.d - 15, 18)});
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
-  if (!s){                                                     // 빈 사무실 안내판
+  if (!s && !hq){                                              // 빈 사무실 안내판
     const cx = L.x + 78, cy = L.y + L.d/2;
     line([gpt(cx, cy, 0), gpt(cx, cy, 12)]);
     wallQuad(cx - 18, cy, cx + 18, cy, 11, 21, P.paper);
@@ -2322,6 +2788,32 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   if (scene !== "campus" || !live) return;
   ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`;
   ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr;
+  if (team && (cam.focus === null || cam.focus === team.slot)){
+    const L = SLOTS[team.slot], n = team.members.filter(m => m.present).length;
+    const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
+    const txt = `🐙 ${team.repo} · 출근 ${n}/${team.members.length}`;
+    const w = ctx.measureText(txt).width + 18*dpr, hh = 20*dpr, bx = Math.max(4, Math.min(cv.width - w - 4, tx - w/2));
+    if (ty >= hh){
+      ctx.strokeStyle = TOD.ink; ctx.fillStyle = TOD.paper;
+      ctx.beginPath(); ctx.roundRect(bx, ty - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = TOD.ink; ctx.fillText(txt, bx + 9*dpr, ty - hh/2 + 0.5);
+    }
+  }
+  if (cam.focus !== null && cam.z > 1.6){                     // 확대하면 발밑에 이름표 (누르면 자기소개)
+    ctx.save();
+    ctx.font = `${Math.max(9, 10*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = 1*dpr;
+    for (const a of visibleCats()){
+      if (a.lot !== cam.focus || a === talkSel.cat) continue;
+      const x = SX(isoX(a.pos.x, a.pos.y)), y = SY(isoY(a.pos.x, a.pos.y, a.zBase || 0)) + 5*dpr;
+      const t = a.human ? (a.human.info.name || "@" + a.human.login) : a.name;
+      const w = ctx.measureText(t).width + 10*dpr, hh = 15*dpr;
+      ctx.globalAlpha = 0.9; ctx.fillStyle = a.human ? TOD.paper : "#fff8e6"; ctx.strokeStyle = TOD.ink;
+      ctx.beginPath(); ctx.roundRect(x - w/2, y, w, hh, hh/2); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = a.human ? TOD.ink : "#1f1d1b"; ctx.fillText(t, x, y + hh/2 + 0.5);
+    }
+    ctx.restore();
+    ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr;
+  }
   for (const s of live.sessions.values()){
     if (cam.focus !== null && cam.focus !== s.slot) continue;
     const L = SLOTS[s.slot], look = phaseLook(s);
@@ -2694,6 +3186,7 @@ function drawTable(){
 const catK = a => 1.7 + (a.pos.x + a.pos.y) / 780 * 0.35;
 function catPose(a, now){
   if (a.path.length) return "walk";
+  if (a === talkSel.cat){ a.idleSince = null; return a.state === "working" || a.state === "busy" ? "work" : "sit"; }
   if (a.state === "working") return "work";
   if (a.state === "busy"){ a.idleSince = null; return a.busyKind === "think" ? "think" : "work"; }
   if (a.state === "idle"){
@@ -2716,6 +3209,11 @@ function drawCat(a, now){
   const hop = a.cheerUntil && now < a.cheerUntil && !reduceMotion ? Math.abs(Math.sin((a.cheerUntil - now) * 10)) * 6 * k : 0;
   const baseLift = a.lift ?? (atStool ? (a.seatLift ?? 7) : 0);
   const lift = baseLift + hop;
+  if (a === talkSel.cat){                         // 이야기 중인 고양이: 발밑에 반짝이는 동그라미
+    ctx.save(); ctx.strokeStyle = "#f09a3e"; ctx.lineWidth = LW * 1.6; ctx.setLineDash([3, 2]);
+    ctx.lineDashOffset = reduceMotion ? 0 : -now * 6;
+    ctx.beginPath(); ctx.ellipse(sx, sy + 1, 13*k, 5*k, 0, 0, 7); ctx.stroke(); ctx.restore();
+  }
   if (a.waiting && atStool){                     // 명령 대기: 발밑에 깜빡이는 동그라미
     const r = reduceMotion ? 1 : 1 + 0.25 * Math.sin(now * 3);
     ctx.save(); ctx.strokeStyle = "#f09a3e"; ctx.lineWidth = LW * 1.4;
@@ -2857,10 +3355,48 @@ function drawHead(a, hx, hy, eyeC, lineC, pose, now){
   ctx.fillStyle = "rgba(240,120,120,.35)";
   ctx.beginPath(); ctx.ellipse(hx-4, hy+2, 1.3, 0.8, 0, 0, 7); ctx.fill();
   ctx.beginPath(); ctx.ellipse(hx+4, hy+2, 1.3, 0.8, 0, 0, 7); ctx.fill();
+  if (a.acc) drawAcc(a, hx, hy, ink);
+}
+function drawAcc(a, hx, hy, ink){                // 사람(깃허브 기여자) 고양이의 소품
+  const col = a.accColor || "#7fb2ea";
+  ctx.save(); ctx.strokeStyle = ink; ctx.lineWidth = LW;
+  if (a.acc === "glasses"){
+    ctx.beginPath(); ctx.arc(hx - 2.4, hy + 0.2, 1.9, 0, 7); ctx.moveTo(hx + 4.3, hy + 0.2); ctx.arc(hx + 2.4, hy + 0.2, 1.9, 0, 7);
+    ctx.moveTo(hx - 0.5, hy); ctx.lineTo(hx + 0.5, hy); ctx.stroke();
+  } else if (a.acc === "bow"){
+    shape([[hx - 4.2, hy - 4.4], [hx - 7.6, hy - 6.6], [hx - 7.2, hy - 2.6]], col);
+    shape([[hx - 4.2, hy - 4.4], [hx - 1.4, hy - 7.0], [hx - 1.2, hy - 3.0]], col);
+    ell(hx - 4.2, hy - 4.4, 0.9, 0.9, col);
+  } else if (a.acc === "headphones"){
+    ctx.beginPath(); ctx.arc(hx, hy - 0.4, 7, Math.PI * 1.06, Math.PI * 1.94); ctx.lineWidth = 1.6; ctx.stroke(); ctx.lineWidth = LW;
+    ell(hx - 6.5, hy + 0.4, 1.7, 2.5, col); ell(hx + 6.5, hy + 0.4, 1.7, 2.5, col);
+  } else if (a.acc === "beanie"){
+    ctx.beginPath(); ctx.moveTo(hx - 6.3, hy - 2.3); ctx.quadraticCurveTo(hx, hy - 11.5, hx + 6.3, hy - 2.3); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill(); ctx.stroke();
+    shape([[hx - 6.5, hy - 2.1], [hx + 6.5, hy - 2.1], [hx + 6.1, hy - 4.1], [hx - 6.1, hy - 4.1]], "#ffffff");
+    ell(hx, hy - 7.6, 1.4, 1.4, "#ffffff");
+  } else if (a.acc === "scarf"){
+    ell(hx, hy + 5.3, 4.8, 1.6, col);
+    shape([[hx + 1.8, hy + 5.6], [hx + 3.4, hy + 9.6], [hx + 5.1, hy + 9.1], [hx + 3.8, hy + 5.2]], col);
+  }
+  ctx.restore();
 }
 
 let scale = 2, dpr = 1;
 function resize(){
+  if (EMBED){                                         // 위젯: 받은 상자를 그대로 꽉 채움 (가로세로 비율도 상자에 맞춤)
+    const box = cv.parentElement.getBoundingClientRect();
+    const w = Math.max(160, box.width), hh = Math.max(120, box.height);
+    narrow = w < 600;
+    VH = VW * hh / w;
+    embedZ = Math.max(0.3, Math.min(1.6, VH / 540));
+    if (cam.focus === null && !talkSel.cat){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.style.width = w + "px"; cv.style.height = hh + "px";
+    cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr);
+    scale = cv.width / VW;
+    return;
+  }
   const box = cv.parentElement.getBoundingClientRect();
   const availW = Math.max(260, box.width - 12);
   const wasNarrow = narrow;
@@ -2946,7 +3482,7 @@ function drawParticlesAndOverlay(now){
   ctx.textBaseline = "middle";
   ctx.lineWidth = 1.4*dpr;
   const bubbleCats = scene !== "campus" ? visibleCats()
-    : visibleCats().filter(a => cam.focus === null ? a.deskIdx === 0 : a.lot === cam.focus);
+    : visibleCats().filter(a => cam.focus === null ? a.deskIdx === 0 && !a.human : a.lot === cam.focus);
   for (const a of bubbleCats){
     if (!a.bubble) continue;
     const k = a.k ?? catK(a);
@@ -3115,6 +3651,7 @@ function updateSummaries(){
 /* 앱 아이콘 배지 + 창 제목: 확인 안 한 완료·질문 수 */
 let lastBadge = -1;
 function setBadge(n){
+  if (n !== lastBadge) emitHost("attention", {count:n});
   if (n === lastBadge) return;
   lastBadge = n;
   document.title = n ? `(${n}) 에이전트 오피스` : "에이전트 오피스";
@@ -3195,6 +3732,7 @@ function frame(nowMs){
   last = nowMs;
   updateTOD(dt);   // 일시정지와 무관하게 실제 시간으로 전환
   updateCam(dt);
+  talkTick(dt, now);
   if (!paused){
     dt *= SPEEDS[speedIdx];
     if (mode === "sim"){
@@ -3335,14 +3873,27 @@ function pingServer(){
       checkHtmlVersion(d.v);
       if (mode === "sim"){
         const first = !liveAvailable;
-        liveAvailable = true; liveCanOpen = !!d.open; enterLive("server");
+        liveAvailable = true; liveCanOpen = !!d.open;
+        if (OPT.demo){ enterLive("demo"); return true; }
+        enterLive("server");
         log(first ? "로컬 라이브 서버 감지 — 실시간 모드 시작" : "서버에 다시 연결했어요 — 실시간 모드로 돌아와요", "good");
       }
       return true;
     })
     .catch(() => false);
 }
-pingServer();
+pingServer().then(ok => {
+  // 위젯을 서버 없이 열었거나(&demo=1) — 데모 세션과 데모 팀으로
+  if (!ok && mode === "sim" && (EMBED || OPT.demo)) enterLive("demo");
+});
+if (EMBED){
+  addEventListener("resize", () => { if (talkSel.cat) talkCamera(); });
+  let seen = false; try { seen = localStorage.getItem("ao.talkHint") === "1"; } catch {}
+  if (!seen) setTimeout(() => {
+    toast("🐾 고양이를 눌러 보세요", "가까이 다가가서 자기소개를 해 줘요.");
+    try { localStorage.setItem("ao.talkHint", "1"); } catch {}
+  }, 2500);
+}
 // 서버가 꺼져 있거나 나중에 켜져도 알아서 다시 붙는다 (로컬 서버로 연 창·앱만)
 if (LOCAL_APP) setInterval(() => { if (mode === "sim") pingServer(); }, 3000);
 })();

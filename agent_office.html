@@ -209,6 +209,7 @@ html.embed .main{height:100%}
 html.embed .stage{flex:none; width:100%; height:100%; border:0; border-radius:0; box-shadow:none; padding:0}
 html.embed canvas#office{border-radius:0}
 html.embed .followchip{display:none}
+html.embed .toasts{top:10px; bottom:auto}
 html.embed .back{top:10px; left:10px; font-size:13px; padding:4px 11px}
 html.embed .zoomctl{right:10px; top:10px; bottom:auto; flex-direction:row}
 html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
@@ -953,7 +954,6 @@ $("#btnTheme").addEventListener("click", () => {
 });
 if (THEMES.includes(OPT.theme)) theme = OPT.theme;
 applyTheme();
-if (OPT.follow === "0") follow.on = false;
 const btnFollow = $("#btnFollow");
 function followText(){ btnFollow.textContent = "🎥 자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐"); btnFollow.setAttribute("aria-pressed", follow.on); }
 btnFollow.addEventListener("click", () => {
@@ -2012,14 +2012,13 @@ function liveTick(dt){
    - 상주: 거의 늘 자리에 있고 가끔 휴게실에 다녀옴
    - 자주: 몇 분 일하다 퇴근하고, 조금 뒤 다시 출근
    - 가끔: 아주 가끔 잠깐 들렀다 사라짐
-   사람도 이 동네에선 고양이 — 안경·리본·헤드폰 같은 소품으로 AI 고양이와 구별한다. */
+   AI는 고양이, 사람은 같은 그림체의 꼬마 사람으로 그린다. */
 let team = null;            // {repo, members:[...], slot, source, fetched}
 let teamWanted = false;     // 팀 정보를 받는 동안 본사 자리를 비워 둔다
 const teamSlot = () => team ? team.slot : teamWanted ? 0 : -1;
 const MIN = 60000;
 const rand = (a, b) => a + Math.random() * (b - a);
 const hashStr = s => { let h = 0; for (const ch of String(s)) h = (h*31 + ch.charCodeAt(0)) >>> 0; return h; };
-const HUMAN_ACC = ["glasses", "bow", "headphones", "beanie", "scarf"];
 const ACC_COLORS = ["#7fb2ea", "#e5534b", "#8fbf9a", "#f0c96b", "#c79bff", "#f08a8a"];
 const TIER_LABEL = {core:"상주 멤버", regular:"자주 오는 멤버", guest:"가끔 들르는 손님"};
 const TIER_TIME = {                       // 머무는 시간 / 다시 올 때까지 (ms)
@@ -2059,7 +2058,7 @@ function setTeam(data, source){
     const h = hashStr(d.login), coats = [...BOSS_LOOKS.map(b => b.coat), ...KITTEN_COATS];
     return {login:d.login, info:d, rank, tier, present:false, leaving:false, cat:null,
             nextAt:0, leaveAt:0, breakAt:0, backAt:0, murmurAt:0, first:true,
-            coat:coats[h % coats.length], acc:HUMAN_ACC[(h >>> 3) % HUMAN_ACC.length], accColor:ACC_COLORS[(h >>> 7) % ACC_COLORS.length]};
+            coat:coats[h % coats.length], look:personLook(d.login)};
   });
   team = {repo:data.repo || "", members, slot, source, fetched:data.fetched || Date.now()};
   for (const m of members) if (m.first && !m.nextAt){
@@ -2084,7 +2083,7 @@ function teamArrive(m){
   const c = makeCat({id:"gh-"+m.login, name:m.info.name || m.login, role:TIER_LABEL[m.tier], coat:m.coat, k:0.9, zBase:0,
                      napAfter:999, lot:team.slot, deskIdx:idx, router:lotRouter(L),
                      pos: instant ? lotSeat(L, idx) : lotDoor(L), seat:lotSeat(L, idx)});
-  Object.assign(c, {human:m, acc:m.acc, accColor:m.accColor, busy:true, busyKind:"tool", stateText:"출근!"});
+  Object.assign(c, {human:m, look:m.look, busy:true, busyKind:"tool", stateText:"출근!"});
   Object.assign(m, {cat:c, present:true, leaving:false, first:false,
                     leaveAt: Date.now() + tierTime(m, "stay"), breakAt: Date.now() + rand(1.5*MIN, 4*MIN)});
   if (!instant) say(c, m.tier === "guest" ? "잠깐 들렀어요!" : pick(["출근했어요!", "좋은 아침~", "오늘도 커밋!"]), 2.4);
@@ -2122,13 +2121,13 @@ function teamTick(){
     if (c.busy && nowMs >= m.breakAt && m.tier !== "guest" && !talking){   // 잠깐 휴게실
       const spots = lotLounge(L);
       const taken = new Set(team.members.filter(x => x.present && x.cat.inLounge).map(x => x.cat.loungeIdx));
-      const free = spots.map((_, i) => i).filter(i => !taken.has(i));
+      const free = [0, 1, 3, 4].filter(i => !taken.has(i));     // 사람은 소파·러그만 (캣타워·밥그릇은 고양이 자리)
       if (free.length){
         const i = pick(free);
         Object.assign(c, {busy:false, inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,
                           napAfter:spots[i].nap, stateText:"휴게실에서 쉬는 중"});
         if (c.state === "busy"){ c.state = "idle"; c.idleSince = null; }
-        say(c, pick(["커피 한 잔", "잠깐 쉬자", spots[i].say]), 2);
+        say(c, pick(["커피 한 잔", "잠깐 쉬자", "스트레칭~", "고양이들 귀엽다"]), 2);
         m.backAt = nowMs + rand(30000, 90000);
       }
       m.breakAt = nowMs + rand(3*MIN, 6*MIN);
@@ -2225,7 +2224,7 @@ function catAt(e){
   let best = null, bd = Infinity;
   for (const a of visibleCats()){
     const k = a.k ?? 1;
-    const d = Math.hypot(x - isoX(a.pos.x, a.pos.y), y - (isoY(a.pos.x, a.pos.y, a.zBase || 0) - catLift(a) - 10*k));
+    const d = Math.hypot(x - isoX(a.pos.x, a.pos.y), y - (isoY(a.pos.x, a.pos.y, a.zBase || 0) - catLift(a) - (a.human ? 12 : 10)*k));
     if (d < 12*k + 5 / cam.z && d < bd){ bd = d; best = a; }
   }
   return best;
@@ -2307,7 +2306,7 @@ function openTalk(c){
   talkSel.next = talkButton("다음 ▶", advanceTalk, "mini primary");
   talk.box.hidden = false;
   showTalkLine();
-  say(c, pick(["냥!", "안녕하세요!", "저요?", "반가워요!"]), 1.6);
+  say(c, c.human ? pick(["안녕하세요!", "저요?", "반가워요!"]) : pick(["냥!", "냥냥?", "부르셨냥?"]), 1.6);
   emitHost("select", info.ref);
 }
 function showTalkLine(){
@@ -2347,9 +2346,14 @@ function drawPortrait(pcv, c, now){
     const s = pcv.width / 21;
     p.translate(pcv.width / 2, pcv.height * 0.56); p.scale(s, s);
     LW = 0.6; p.lineWidth = LW; p.lineJoin = p.lineCap = "round"; p.strokeStyle = TOD.ink;
-    p.beginPath(); p.ellipse(0, 10.5, 8.5, 6.5, 0, 0, 7); p.fillStyle = c.coat.base; p.fill(); p.stroke();
-    if (c.coat.tux){ p.fillStyle = "#ffffff"; p.beginPath(); p.ellipse(0, 10, 3.2, 5, 0, 0, 7); p.fill(); }
-    drawHead(c, 0, 0, c.coat.base === "#2f2d33" ? "#ffd86b" : "#1f1d1b", null, "sit", now);
+    if (c.human){
+      p.beginPath(); p.ellipse(0, 12.5, 8.5, 6, 0, 0, 7); p.fillStyle = c.look.shirt; p.fill(); p.stroke();
+      drawPersonHead(c, 0, 0.5, "sit", now, TOD.ink);
+    } else {
+      p.beginPath(); p.ellipse(0, 10.5, 8.5, 6.5, 0, 0, 7); p.fillStyle = c.coat.base; p.fill(); p.stroke();
+      if (c.coat.tux){ p.fillStyle = "#ffffff"; p.beginPath(); p.ellipse(0, 10, 3.2, 5, 0, 0, 7); p.fill(); }
+      drawHead(c, 0, 0, c.coat.base === "#2f2d33" ? "#ffd86b" : "#1f1d1b", null, "sit", now);
+    }
   } finally { ctx = saved; LW = savedLW; }
 }
 function talkTick(rdt, now){
@@ -2467,6 +2471,7 @@ function lotCenter(i){ const L = SLOTS[i]; return [isoX(L.x+L.w/2, L.y+L.d/2), i
    모두 45초 조용하면 동네 전체로. 직접 조작하면 30초 동안 멈춘다. */
 const follow = {on:true, pausedUntil:0, since:0, auto:false, lastEventMs:0};
 try { follow.on = localStorage.getItem("ao.follow") !== "0"; } catch {}
+if (OPT.follow === "0") follow.on = false;
 const followActive = () => follow.on && mode === "live" && scene === "campus" && Date.now() >= follow.pausedUntil;
 function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; }
 function followNote(s, pri){
@@ -3220,6 +3225,8 @@ function drawCat(a, now){
     ctx.beginPath(); ctx.ellipse(sx, sy + 1, 11*k*r, 4*k*r, 0, 0, 7); ctx.stroke(); ctx.restore();
   }
   if (baseLift === 0){ ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.beginPath(); ctx.ellipse(sx, sy + 1*k, 8*k, 2.4*k, 0, 0, 7); ctx.fill(); }
+  if (a.human) drawPersonBody(a, now, sx, sy - lift, k, f, pose, baseLift);
+  else {
   ctx.save(); ctx.translate(sx, sy - lift); ctx.scale(k*f, k);
   ctx.lineWidth = LW / k;
   const eyeC = C.base === "#2f2d33" ? "#ffd86b" : "#1f1d1b";
@@ -3278,6 +3285,7 @@ function drawCat(a, now){
   }
   if (a.carry){ shape([[9,-13],[14,-14.5],[15.2,-9.5],[10.2,-8]], "#ffffff"); }
   ctx.restore();
+  }
   if (pose === "think" && !a.bubble){            // 💭 생각 구름 (점 세 개가 차례로 깜빡임)
     const bx = sx + 11*k, by = sy - lift - 33*k;
     ctx.strokeStyle = TOD.ink; ctx.lineWidth = LW;
@@ -3378,6 +3386,105 @@ function drawAcc(a, hx, hy, ink){                // 사람(깃허브 기여자) 
   } else if (a.acc === "scarf"){
     ell(hx, hy + 5.3, 4.8, 1.6, col);
     shape([[hx + 1.8, hy + 5.6], [hx + 3.4, hy + 9.6], [hx + 5.1, hy + 9.1], [hx + 3.8, hy + 5.2]], col);
+  }
+  ctx.restore();
+}
+
+
+/* ───────── 사람 (깃허브 기여자) — 고양이와 같은 펜 선 그림체의 꼬마 사람 ───────── */
+const SKINS = ["#f8dcc4", "#f0c7a6", "#dda57f", "#bd8260", "#fbe6d4"];
+const HAIRS = ["#2b2522", "#4a3426", "#7a5232", "#a8743e", "#1f1d1b", "#c9a06a"];
+const HAIR_STYLES = ["short", "long", "ponytail", "bun", "curly", "beanie"];
+const PANTS = ["#4a5568", "#2f3e5c", "#5b4a3a", "#3d3b40"];
+function personLook(login){
+  const h = hashStr(login);
+  return {skin:SKINS[h % SKINS.length], hair:HAIRS[(h >>> 3) % HAIRS.length], style:HAIR_STYLES[(h >>> 6) % HAIR_STYLES.length],
+          shirt:ACC_COLORS[(h >>> 9) % ACC_COLORS.length], pants:PANTS[(h >>> 12) % PANTS.length],
+          glasses:(h >>> 15) % 3 === 0, hat:ACC_COLORS[(h >>> 17) % ACC_COLORS.length]};
+}
+function drawPersonHead(a, hx, hy, pose, now, ink){
+  const P = a.look;
+  ctx.strokeStyle = ink; ctx.lineWidth = LW;
+  // 뒷머리 (얼굴보다 먼저)
+  if (P.style === "long"){
+    ctx.beginPath(); ctx.moveTo(hx - 6.5, hy + 6.8); ctx.lineTo(hx - 6.9, hy - 0.8);
+    ctx.ellipse(hx, hy - 0.8, 6.9, 6.7, 0, Math.PI, Math.PI * 2); ctx.lineTo(hx + 6.5, hy + 6.8);
+    ctx.quadraticCurveTo(hx, hy + 8.2, hx - 6.5, hy + 6.8); ctx.closePath();
+    ctx.fillStyle = P.hair; ctx.fill(); ctx.stroke();
+  }
+  if (P.style === "ponytail") ell(hx - 7, hy - 0.2, 2.4, 3.8, P.hair);
+  if (P.style === "bun") ell(hx - 0.6, hy - 7, 2.8, 2.5, P.hair);
+  // 얼굴
+  ctx.beginPath(); ctx.ellipse(hx, hy, 6, 5.7, 0, 0, Math.PI * 2); ctx.fillStyle = P.skin; ctx.fill(); ctx.stroke();
+  // 앞머리
+  if (P.style === "curly"){
+    for (let i = 0; i <= 6; i++){ const t = Math.PI + i / 6 * Math.PI; ell(hx + Math.cos(t) * 5.4, hy - 0.9 + Math.sin(t) * 5, 2.3, 2.3, P.hair); }
+  } else if (P.style === "beanie"){
+    drawAcc({acc:"beanie", accColor:P.hat}, hx, hy, ink);
+  } else {
+    ctx.beginPath(); ctx.moveTo(hx - 6.1, hy + 1.4);
+    ctx.ellipse(hx, hy - 0.7, 6.4, 6.1, 0, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.lineTo(hx + 6.1, hy + 1.2);
+    ctx.quadraticCurveTo(hx + 4.2, hy - 3.4, hx + 0.6, hy - 2.7);
+    ctx.quadraticCurveTo(hx - 3.6, hy - 3.9, hx - 6.1, hy + 1.4); ctx.closePath();
+    ctx.fillStyle = P.hair; ctx.fill(); ctx.stroke();
+  }
+  // 눈·입·볼
+  const eye = "#2a2420";
+  if (pose === "sleep"){
+    ctx.save(); ctx.strokeStyle = eye;
+    line([[hx - 3.2, hy + 1], [hx - 1.4, hy + 1.4]]); line([[hx + 3.2, hy + 1], [hx + 1.4, hy + 1.4]]);
+    ctx.restore();
+  } else {
+    const blink = !reduceMotion && ((now + a.seat.x * 0.37) % 4.6) < 0.13;
+    if (blink){ ctx.save(); ctx.strokeStyle = eye; line([[hx - 3, hy + 1], [hx - 1.6, hy + 1]]); line([[hx + 1.6, hy + 1], [hx + 3, hy + 1]]); ctx.restore(); }
+    else { ell(hx - 2.3, hy + 0.9, 0.85, 1.05, eye, true); ell(hx + 2.3, hy + 0.9, 0.85, 1.05, eye, true); }
+  }
+  ctx.save(); ctx.strokeStyle = eye; ctx.beginPath(); ctx.arc(hx, hy + 2.7, 1.1, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = "rgba(240,120,120,.35)";
+  ctx.beginPath(); ctx.ellipse(hx - 3.9, hy + 2.5, 1.2, 0.75, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hx + 3.9, hy + 2.5, 1.2, 0.75, 0, 0, 7); ctx.fill();
+  if (P.glasses) drawAcc({acc:"glasses"}, hx, hy + 0.7, ink);
+}
+function drawPersonBody(a, now, sx, sy, k, f, pose, baseLift){
+  const P = a.look, ink = TOD.ink, shoe = "#3a3330";
+  const box = (x, y, w, hh, fill) => { ctx.beginPath(); ctx.roundRect(x, y, w, hh, 1.1); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
+  ctx.save(); ctx.translate(sx, sy); ctx.scale(k * f, k);
+  ctx.lineWidth = LW / k; ctx.strokeStyle = ink;
+  if (pose === "walk"){
+    const st = reduceMotion ? 0 : Math.sin(a.bob * 1.1) * 1.6;
+    box(-3 + st * 0.5, -7.6, 2.5, 7.4, P.pants); box(0.5 - st * 0.5, -7.6, 2.5, 7.4, P.pants);
+    ell(-1.6 + st * 0.5, -0.2, 1.9, 1, shoe); ell(1.9 - st * 0.5, -0.2, 1.9, 1, shoe);
+    ctx.beginPath(); ctx.moveTo(-4.3, -6.6); ctx.lineTo(4.3, -6.6); ctx.lineTo(3.7, -14.4);
+    ctx.quadraticCurveTo(0, -15.8, -3.7, -14.4); ctx.closePath(); ctx.fillStyle = P.shirt; ctx.fill(); ctx.stroke();
+    for (const [s, ph] of [[-1, 1], [1, -1]]){
+      const hx = s * 4.7 + st * ph * 0.8;
+      line([[s * 3.6, -13.4], [hx, -8.6]]); ell(hx, -8.1, 1.15, 1.15, P.skin);
+    }
+    drawPersonHead(a, 0.4, -20.8, pose, now, ink);
+  } else {
+    const breathe = reduceMotion ? 0 : Math.sin(now * 2) * 0.3;
+    if (baseLift < 3){                                       // 바닥에 양반다리
+      ctx.beginPath(); ctx.ellipse(0, -1.4, 6.6, 2.4, 0, 0, 7); ctx.fillStyle = P.pants; ctx.fill(); ctx.stroke();
+    } else {                                                 // 의자에 앉아 다리를 내림
+      box(-3.4, -1.4, 2.5, 7.2, P.pants); box(0.9, -1.4, 2.5, 7.2, P.pants);
+      ell(-2.3, 5.9, 1.9, 1, shoe); ell(2.0, 5.9, 1.9, 1, shoe);
+    }
+    ctx.beginPath(); ctx.moveTo(-4.5, 0); ctx.lineTo(4.5, 0); ctx.lineTo(3.8, -9.6 + breathe);
+    ctx.quadraticCurveTo(0, -11.1 + breathe, -3.8, -9.6 + breathe); ctx.closePath();
+    ctx.fillStyle = P.shirt; ctx.fill(); ctx.stroke();
+    if (pose === "work"){                                    // 키보드 톡톡
+      const tap = reduceMotion ? 0 : Math.floor(now * 8) % 2;
+      line([[-3.6, -8.4], [-5.2, -5.4], [-2.4, -5.6 - tap * 1.3]]); ell(-2.1, -5.7 - tap * 1.3, 1.15, 1.15, P.skin);
+      line([[3.6, -8.4], [5.2, -5.4], [2.4, -5.6 - (1 - tap) * 1.3]]); ell(2.1, -5.7 - (1 - tap) * 1.3, 1.15, 1.15, P.skin);
+    } else if (pose === "think"){                            // 턱 괴고 고민
+      line([[-3.6, -8.4], [-4.2, -3]]); ell(-4.2, -2.6, 1.15, 1.15, P.skin);
+      line([[3.4, -8.4], [2.4, -11.6]]); ell(2.2, -12, 1.15, 1.15, P.skin);
+    } else {
+      line([[-3.6, -8.4], [-4.3, -3]]); ell(-4.3, -2.6, 1.15, 1.15, P.skin);
+      line([[3.6, -8.4], [4.3, -3]]); ell(4.3, -2.6, 1.15, 1.15, P.skin);
+    }
+    drawPersonHead(a, pose === "sleep" ? 1.2 : 0, -15.4 + breathe * 0.5 + (pose === "sleep" ? 1 : 0), pose, now, ink);
   }
   ctx.restore();
 }
@@ -3890,7 +3997,7 @@ if (EMBED){
   addEventListener("resize", () => { if (talkSel.cat) talkCamera(); });
   let seen = false; try { seen = localStorage.getItem("ao.talkHint") === "1"; } catch {}
   if (!seen) setTimeout(() => {
-    toast("🐾 고양이를 눌러 보세요", "가까이 다가가서 자기소개를 해 줘요.");
+    toast("🐾 캐릭터를 눌러 보세요", "고양이는 AI, 사람은 깃허브 기여자예요. 누르면 자기소개를 해 줘요.");
     try { localStorage.setItem("ao.talkHint", "1"); } catch {}
   }, 2500);
 }

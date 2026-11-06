@@ -1411,10 +1411,10 @@ const lotRouter = L => (from, to) => {         // 책상과 휴게공간 사이�
 };
 const BOSS_LOOKS = [
   {name:"루미", coat:{base:"#f2a54e", stripe:"#cf7a2b", paw:"#fff4e6"}},
-  {name:"모카", coat:{base:"#f3dfc0", stripe:"#d9b98a", paw:"#fffaf0"}},
+  {name:"호떡", coat:{base:"#fffaf1", patch:"#f2a54e", patch2:"#f2a54e"}},
   {name:"턱시", coat:{base:"#2f2d33", tux:true, paw:"#ffffff"}},
   {name:"구름", coat:{base:"#9aa5b8"}},
-  {name:"호떡", coat:{base:"#ffffff", patch:"#f2a54e", patch2:"#f2a54e"}},
+  {name:"모카", coat:{base:"#f3dfc0", stripe:"#d9b98a", paw:"#fffaf0"}},
   {name:"보리", coat:{base:"#c99a6b", stripe:"#9c6c42"}},
 ];
 const KITTEN_COATS = [
@@ -1434,6 +1434,7 @@ function makeCat(o){
 const BOSSES = SLOTS.map((L, i) => makeCat({
   id:"boss"+i, name:BOSS_LOOKS[i].name, role:"메인 에이전트", coat:BOSS_LOOKS[i].coat, k:1.0, zBase:0,
   napAfter:45, lot:i, deskIdx:0, router:lotRouter(L), pos:lotSeat(L, 0), seat:lotSeat(L, 0)}));
+BOSSES[1].rig2 = true;                 // 새 그림체 미리보기: 두 번째 사무실 대장 고양이
 
 function visibleCats(){
   if (mode !== "live" || !live) return AGENTS;
@@ -2084,6 +2085,7 @@ function teamArrive(m){
                      napAfter:999, lot:team.slot, deskIdx:idx, router:lotRouter(L),
                      pos: instant ? lotSeat(L, idx) : lotDoor(L), seat:lotSeat(L, idx)});
   Object.assign(c, {human:m, look:m.look, busy:true, busyKind:"tool", stateText:"출근!"});
+  if (m.rank === 0) Object.assign(c, {rig2:true, rigLook:HUMAN_REF});   // 새 그림체 미리보기: 기여 1위
   Object.assign(m, {cat:c, present:true, leaving:false, first:false,
                     leaveAt: Date.now() + tierTime(m, "stay"), breakAt: Date.now() + rand(1.5*MIN, 4*MIN)});
   if (!instant) say(c, m.tier === "guest" ? "잠깐 들렀어요!" : pick(["출근했어요!", "좋은 아침~", "오늘도 커밋!"]), 2.4);
@@ -2346,7 +2348,11 @@ function drawPortrait(pcv, c, now){
     const s = pcv.width / 21;
     p.translate(pcv.width / 2, pcv.height * 0.56); p.scale(s, s);
     LW = 0.6; p.lineWidth = LW; p.lineJoin = p.lineCap = "round"; p.strokeStyle = TOD.ink;
-    if (c.human){
+    if (c.rig2){
+      RL = 0.6;
+      if (c.human){ rigBlob(0, 13, 8.5, 6, (c.rigLook || HUMAN_REF).shirt); rigHumanHead(c.rigLook || HUMAN_REF, 0, 0.5, "front", "open"); }
+      else { rigBlob(0, 11, 8, 6.5, rigCoat(c.coat).base); rigCatHead(rigCoat(c.coat), 0, 0, "front", "open"); }
+    } else if (c.human){
       p.beginPath(); p.ellipse(0, 12.5, 8.5, 6, 0, 0, 7); p.fillStyle = c.look.shirt; p.fill(); p.stroke();
       drawPersonHead(c, 0, 0.5, "sit", now, TOD.ink);
     } else {
@@ -2755,7 +2761,7 @@ function drawLot(i, now){
     for (let k=n; k<MAX_DESKS; k++) L.appear[k] = undefined;
     for (const c of cats) items.push({z: c.pos.x + c.pos.y, fn:() => drawCat(c, now)});
   }
-  items.push({z: L.x + 182 + L.y + 15, fn:() => loungeSofa(L)});
+  items.push({z: L.x + 164 + L.y + 6, fn:() => loungeSofa(L)});        // 소파에 앉은 캐릭터가 등받이에 가리지 않게 먼저 그림
   items.push({z: L.x + 209 + L.y + 58, fn:() => loungeTower(L)});
   items.push({z: L.x + 205 + L.y + 118, fn:() => loungeBowls(L)});
   items.push({z: L.x + 214 + L.y + 13, fn:() => loungeCoffee(L)});
@@ -3225,7 +3231,8 @@ function drawCat(a, now){
     ctx.beginPath(); ctx.ellipse(sx, sy + 1, 11*k*r, 4*k*r, 0, 0, 7); ctx.stroke(); ctx.restore();
   }
   if (baseLift === 0){ ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.beginPath(); ctx.ellipse(sx, sy + 1*k, 8*k, 2.4*k, 0, 0, 7); ctx.fill(); }
-  if (a.human) drawPersonBody(a, now, sx, sy - lift, k, f, pose, baseLift);
+  if (a.rig2) drawRig(a, now, sx, sy - lift, k, pose, baseLift);           // 새 리그 (시안 반영, 지금은 한 쌍만)
+  else if (a.human) drawPersonBody(a, now, sx, sy - lift, k, f, pose, baseLift);
   else {
   ctx.save(); ctx.translate(sx, sy - lift); ctx.scale(k*f, k);
   ctx.lineWidth = LW / k;
@@ -3486,6 +3493,262 @@ function drawPersonBody(a, now, sx, sy, k, f, pose, baseLift){
     }
     drawPersonHead(a, pose === "sleep" ? 1.2 : 0, -15.4 + breathe * 0.5 + (pose === "sleep" ? 1 : 0), pose, now, ink);
   }
+  ctx.restore();
+}
+
+/* ───────── 새 캐릭터 리그 (시안 반영) ─────────
+   짙은 갈색 윤곽선 + 단순한 색면. 팔·다리·꼬리는 관절 좌표로 따로 움직인다.
+   좌표: 발(또는 의자 윗면)이 원점, 오른쪽(+x)을 바라보는 기준으로 그리고 좌우는 f로 뒤집는다.
+   자세: stand(서서 쉼) · sit(앉아서 쉼) · work(책상을 보고 타자) · think · walk · sleep */
+const RIG_OUT = "#3b2a21";
+const HUMAN_REF = {skin:"#f7d5b8", hair:"#5b3a29", shirt:"#e8735f", pants:"#3d3431", shoe:"#fbf1e3", mug:"#86a96f"};
+let RL = 1;                                         // 윤곽선 두께 (로컬 단위)
+function rigBlob(x, y, rx, ry, fill, rot = 0){
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
+  ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL; ctx.stroke();
+}
+function rigFill(fill){ ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL; ctx.stroke(); }
+function rigLimb(pts, w, fill){                     // 윤곽 있는 둥근 막대 (팔·다리)
+  ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round";
+  path(pts);
+  ctx.strokeStyle = RIG_OUT; ctx.lineWidth = w + RL * 2; ctx.stroke();
+  ctx.strokeStyle = fill; ctx.lineWidth = w; ctx.stroke();
+  ctx.restore();
+}
+function rigTail(p0, c, p1, w, fill, stripe){       // 꼬리: 곡선 + 줄무늬
+  const draw = () => { ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.quadraticCurveTo(c[0], c[1], p1[0], p1[1]); };
+  ctx.save(); ctx.lineCap = "round";
+  draw(); ctx.strokeStyle = RIG_OUT; ctx.lineWidth = w + RL * 2; ctx.stroke();
+  draw(); ctx.strokeStyle = fill; ctx.lineWidth = w; ctx.stroke();
+  if (stripe && stripe !== fill){
+    ctx.lineCap = "butt"; ctx.setLineDash([1.5, 1.7]); ctx.lineDashOffset = -3.2;
+    draw(); ctx.strokeStyle = stripe; ctx.lineWidth = w; ctx.stroke();
+  }
+  ctx.restore();
+}
+const elbowOf = (s, h, bend) => {                   // 어깨→손 사이 팔꿈치 (bend만큼 아래로 굽힘)
+  const mx = (s[0] + h[0]) / 2, my = (s[1] + h[1]) / 2, dx = h[0] - s[0], dy = h[1] - s[1], L = Math.hypot(dx, dy) || 1;
+  return [mx - dy / L * bend, my + dx / L * bend];
+};
+const ease = t => t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
+
+/* ── 사람 ── */
+function rigHumanHead(P, hx, hy, view, eyes){
+  const side = view === "side", fx = hx + (side ? 1.1 : 0.5), fy = hy + 0.6;
+  // 뒷머리 (턱선까지 오는 단발)
+  ctx.beginPath();
+  ctx.moveTo(hx - 5.6, hy + 3.6);
+  ctx.quadraticCurveTo(hx - 6.6, hy - 1.6, hx - 4.0, hy - 5.0);
+  ctx.quadraticCurveTo(hx + 0.6, hy - 7.6, hx + 4.8, hy - 4.6);
+  ctx.quadraticCurveTo(hx + 6.6, hy - 1.8, hx + (side ? 3.4 : 5.6), hy + 3.4);
+  ctx.quadraticCurveTo(hx - 0.4, hy + 4.6, hx - 5.6, hy + 3.6);
+  rigFill(P.hair);
+  rigBlob(fx, fy, 5.2, 5.0, P.skin);                // 얼굴
+  // 앞머리: 이마만 덮는 비스듬한 가르마
+  ctx.beginPath();
+  ctx.moveTo(hx - 5.0, hy + 1.4);
+  ctx.quadraticCurveTo(hx - 5.4, hy - 5.6, hx + 0.8, hy - 5.9);
+  ctx.quadraticCurveTo(hx + 6.0, hy - 5.6, hx + 5.6, hy - 0.4);
+  ctx.quadraticCurveTo(hx + 3.6, hy - 3.0, hx + 0.4, hy - 2.0);
+  ctx.quadraticCurveTo(hx - 2.8, hy - 1.0, hx - 3.8, hy + 1.6);
+  ctx.closePath(); rigFill(P.hair);
+  const e1 = side ? [fx + 0.4, fy - 0.3] : [fx - 1.3, fy - 0.2], e2 = side ? [fx + 3.0, fy - 0.4] : [fx + 2.2, fy - 0.2];
+  ctx.fillStyle = RIG_OUT; ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL * 0.9; ctx.lineCap = "round";
+  for (const [x, y] of [e1, e2]){
+    if (eyes === "closed"){ ctx.beginPath(); ctx.arc(x, y - 0.3, 0.9, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.ellipse(x, y, 0.62, 0.85, 0, 0, 7); ctx.fill(); }
+  }
+  const mx = side ? fx + 2.4 : fx + 0.5, my = fy + 2.2;
+  ctx.beginPath();
+  if (eyes === "happy"){ ctx.moveTo(mx - 0.9, my - 0.2); ctx.quadraticCurveTo(mx, my + 1.5, mx + 0.9, my - 0.2); ctx.closePath(); ctx.fillStyle = "#d9675a"; ctx.fill(); ctx.stroke(); }
+  else { ctx.arc(mx, my - 0.4, 0.8, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke(); }
+  ctx.fillStyle = "rgba(240,120,110,.38)";
+  for (const bx of side ? [fx + 3.6] : [fx - 2.6, fx + 3.5]){ ctx.beginPath(); ctx.ellipse(bx, fy + 1.6, 1.1, 0.65, 0, 0, 7); ctx.fill(); }
+}
+function rigHuman(a, P, pose, now, k, dip){
+  const W_LEG = 3.0, W_ARM = 2.6;
+  const shoe = (x, y, sc = 1) => rigBlob(x, y, 2.1 * sc, 1.25 * sc, P.shoe);
+  const hand = (x, y) => rigBlob(x, y, 1.15, 1.15, P.skin);
+  const R = [8.6 / k, -7.0 / k];                    // 키보드(책상 앞쪽) 위치
+  if (pose === "walk"){
+    const ph = a.bob * 1.0, s = Math.sin(ph), c = Math.cos(ph);
+    const hipY = -9.3 - Math.abs(c) * 0.3;
+    const leg = sg => {
+      const th = sg * s * 0.5, hip = [sg * -0.4, hipY];
+      const knee = [hip[0] + Math.sin(th) * 4.3, hip[1] + Math.cos(th) * 4.3];
+      const sh = th - 0.55 * Math.max(0, sg * c);
+      const foot = [knee[0] + Math.sin(sh) * 4.0, knee[1] + Math.cos(sh) * 4.0];
+      rigLimb([hip, knee, foot], W_LEG, P.pants); shoe(foot[0] + 0.8, foot[1] - 0.2);
+    };
+    const arm = (sg, front) => {
+      const al = -sg * s * 0.6, sh = [0.5, -15.4];
+      const el = [sh[0] + Math.sin(al) * 3.0, sh[1] + Math.cos(al) * 3.0];
+      const hd = [el[0] + Math.sin(al + 0.6) * 2.7, el[1] + Math.cos(al + 0.6) * 2.7];
+      rigLimb([sh, el, hd], W_ARM, P.shirt); hand(hd[0], hd[1]);
+    };
+    leg(-1); arm(-1);
+    ctx.beginPath(); ctx.moveTo(-2.8, -8.8); ctx.lineTo(3.0, -8.8);
+    ctx.quadraticCurveTo(3.9, -14.4, 2.1, -16.5); ctx.quadraticCurveTo(-0.2, -17.6, -2.3, -16.4);
+    ctx.quadraticCurveTo(-3.8, -14.4, -2.8, -8.8); ctx.closePath(); rigFill(P.shirt);
+    leg(1); arm(1);
+    rigHumanHead(P, 1.0, -21.8 - Math.abs(c) * 0.3, "side", "happy");
+    return;
+  }
+  if (pose === "stand"){
+    rigLimb([[-1.0, -9.4], [-1.3, -4.6], [-1.5, -1.4]], W_LEG, P.pants); shoe(-0.9, -0.9);
+    rigLimb([[1.5, -9.4], [1.7, -4.6], [1.9, -1.4]], W_LEG, P.pants); shoe(2.6, -0.8);
+    rigLimb([[-3.0, -15.3], [-4.1, -12.4], [-3.3, -10.2]], W_ARM, P.shirt);          // 주머니에 넣은 손
+    ctx.beginPath(); ctx.moveTo(-3.5, -9.0); ctx.lineTo(3.7, -9.0);
+    ctx.quadraticCurveTo(4.6, -14.4, 3.0, -16.4); ctx.quadraticCurveTo(0.2, -17.6, -2.9, -16.4);
+    ctx.quadraticCurveTo(-4.5, -14.4, -3.5, -9.0); ctx.closePath(); rigFill(P.shirt);
+    rigLimb([[3.2, -15.4], [4.7, -12.6], [5.9, -13.5]], W_ARM, P.shirt);
+    ctx.beginPath(); ctx.roundRect(5.6, -16.6, 2.9, 3.3, 0.6); rigFill(P.mug);       // 머그컵
+    hand(6.2, -13.7);
+    rigHumanHead(P, 0.4, -21.8, "front", "open");
+    return;
+  }
+  // 앉은 자세 (sit · sleep · work · think)
+  const atDesk = pose === "work" || pose === "think";
+  const lean = atDesk ? Math.max(0, Math.min(2.5, R[0] - 7.6)) : 0;
+  const tx = atDesk ? 0.6 : 0;
+  rigLimb([[-1.1, -0.6], [2.8 + tx, -0.3], [3.0 + tx, 5.6]], W_LEG, P.pants); shoe(3.8 + tx, 6.0);
+  rigLimb([[1.0, -0.4], [4.9 + tx, 0], [5.1 + tx, 5.8]], W_LEG, P.pants); shoe(5.9 + tx, 6.3);
+  ctx.save(); ctx.translate(lean * 0.5, dip);
+  if (atDesk){
+    const tap = pose === "work" && !reduceMotion ? Math.floor(now * 7) % 2 : 0;
+    const hb = [R[0] - 1.8 - lean * 0.5, R[1] + 0.2 - tap * 0.7], hf = [R[0] - lean * 0.5, R[1] + 0.5 - (1 - tap) * 0.7];
+    const sb = [1.0, -6.8], sf = [2.6, -6.6];
+    rigLimb([sb, elbowOf(sb, hb, 1.3), hb], W_ARM, P.shirt); hand(hb[0], hb[1]);
+    ctx.beginPath(); ctx.moveTo(-3.0, 0.4); ctx.lineTo(3.2, 0.4);
+    ctx.quadraticCurveTo(4.6, -4.6, 3.8, -7.0); ctx.quadraticCurveTo(1.2, -8.6, -1.6, -7.4);
+    ctx.quadraticCurveTo(-3.6, -5.0, -3.0, 0.4); ctx.closePath(); rigFill(P.shirt);
+    const hfx = pose === "think" ? [4.6, -10.6] : hf;                                 // 고민할 땐 턱 괴기
+    rigLimb([sf, elbowOf(sf, hfx, pose === "think" ? -1.2 : 1.3), hfx], W_ARM, P.shirt); hand(hfx[0], hfx[1]);
+    rigHumanHead(P, 1.2, -12.9, "side", "open");
+  } else {
+    rigLimb([[-2.8, -6.4], [-3.6, -3.4], [-1.6, -1.3]], W_ARM, P.shirt); hand(-1.3, -1.2);
+    ctx.beginPath(); ctx.moveTo(-3.4, 0.4); ctx.lineTo(3.6, 0.4);
+    ctx.quadraticCurveTo(4.4, -5.2, 2.9, -7.2); ctx.quadraticCurveTo(0.2, -8.4, -2.8, -7.2);
+    ctx.quadraticCurveTo(-4.3, -5.2, -3.4, 0.4); ctx.closePath(); rigFill(P.shirt);
+    rigLimb([[3.0, -6.4], [4.0, -3.4], [4.6, -1.3]], W_ARM, P.shirt); hand(4.8, -1.1);
+    const sl = pose === "sleep";
+    rigHumanHead(P, sl ? 1.0 : 0.4, sl ? -11.8 : -12.6, "front", sl ? "closed" : "open");
+  }
+  ctx.restore();
+}
+
+/* ── 고양이 ── */
+function rigCoat(C){
+  const patch = C.patch || C.stripe || "#f2a54e";
+  return {base:C.base, patch, patch2:C.patch2 || patch, tail:C.stripe || C.patch || null};
+}
+function rigCatHead(K, hx, hy, view, eyes){
+  const side = view === "side", ox = side ? 0.8 : 0, fx = hx + (side ? 1.8 : 0.8);
+  ctx.save(); ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(hx - 5.5 + ox, hy - 2.2); ctx.lineTo(hx - 4.7 + ox, hy - 6.6); ctx.lineTo(hx - 1.6 + ox, hy - 4.6); ctx.closePath(); rigFill(K.patch);
+  ctx.beginPath(); ctx.moveTo(hx + 1.8 + ox, hy - 4.8); ctx.lineTo(hx + 4.9 + ox, hy - 6.6); ctx.lineTo(hx + 5.7 + ox, hy - 2.4); ctx.closePath(); rigFill(K.base);
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(hx, hy, 6.4, 5.4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = K.base; ctx.fill();
+  ctx.save(); ctx.clip(); ctx.fillStyle = K.patch;
+  ctx.beginPath(); ctx.ellipse(hx - 3.8, hy - 3.0, 3.9, 3.3, 0.3, 0, 7); ctx.fill(); ctx.restore();
+  ctx.beginPath(); ctx.ellipse(hx, hy, 6.4, 5.4, 0, 0, Math.PI * 2); ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL; ctx.stroke();
+  const e1 = side ? [fx - 0.1, hy + 0.3] : [fx - 1.7, hy + 0.4], e2 = side ? [fx + 2.8, hy + 0.2] : [fx + 1.9, hy + 0.4];
+  ctx.fillStyle = RIG_OUT; ctx.lineWidth = RL * 0.9; ctx.lineCap = "round";
+  for (const [x, y] of [e1, e2]){
+    if (eyes === "closed"){ ctx.beginPath(); ctx.arc(x, y - 0.3, 0.9, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.ellipse(x, y, 0.62, 0.85, 0, 0, 7); ctx.fill(); }
+  }
+  const mx = side ? fx + 1.6 : fx + 0.1, my = hy + 2.1;
+  ctx.beginPath(); ctx.arc(mx - 0.65, my, 0.65, 0, Math.PI); ctx.arc(mx + 0.65, my, 0.65, 0, Math.PI); ctx.stroke();
+  ctx.fillStyle = "rgba(240,120,110,.35)";
+  for (const bx of side ? [fx + 3.9] : [fx - 3.4, fx + 3.6]){ ctx.beginPath(); ctx.ellipse(bx, hy + 1.9, 1.1, 0.6, 0, 0, 7); ctx.fill(); }
+}
+function rigCatBody(K, dx){                          // 앉은 콩 모양 몸통
+  ctx.beginPath();
+  ctx.moveTo(dx - 1.4, -12.0);
+  ctx.quadraticCurveTo(dx - 6.8, -11.0, dx - 6.5, -4.6);
+  ctx.quadraticCurveTo(dx - 6.3, 0.2, dx - 1.0, 0.2);
+  ctx.lineTo(dx + 3.2, 0.2);
+  ctx.quadraticCurveTo(dx + 5.6, -0.2, dx + 4.9, -4.2);
+  ctx.quadraticCurveTo(dx + 4.1, -8.8, dx + 2.6, -11.6);
+  ctx.closePath();
+  ctx.fillStyle = K.base; ctx.fill();
+  ctx.save(); ctx.clip(); ctx.fillStyle = K.patch;
+  ctx.beginPath(); ctx.ellipse(dx - 5.6, -7.4, 3.8, 4.2, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = K.patch2; ctx.beginPath(); ctx.ellipse(dx + 4.2, -2.0, 2.1, 1.7, 0, 0, 7); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL; ctx.stroke();
+}
+function rigCat(a, K, pose, now, k, dip){
+  const W = 2.6, paw = (x, y) => rigBlob(x, y, 1.5, 1.0, K.base);
+  const R = [8.0 / k, -8.6 / k];
+  if (pose === "walk"){
+    const ph = a.bob * 1.05, s = Math.sin(ph), c = Math.cos(ph), by = -Math.abs(s) * 0.3;
+    const leg = (x, th) => {
+      const top = [x, -5.4 + by], lift = Math.max(0, Math.cos(ph + (th > 0 ? 0 : Math.PI))) * 0.7;
+      const end = [x + Math.sin(th) * 5.0, top[1] + Math.cos(th) * 5.0 - lift - by];
+      rigLimb([top, end], W, K.base); paw(end[0] + 0.5, end[1]);
+    };
+    leg(-4.8, -s * 0.45); leg(3.4, s * 0.45);                      // 먼 쪽 다리
+    rigTail([-7.0, -8.0 + by], [-11.6, -10.0 + by], [-10.4 + Math.sin(ph * 0.5) * 0.3, -15.2 + by], 2.3, K.base, K.tail);
+    ctx.beginPath(); ctx.ellipse(0, -7.4 + by, 8.0, 4.4, -0.04, 0, Math.PI * 2);
+    ctx.fillStyle = K.base; ctx.fill();
+    ctx.save(); ctx.clip(); ctx.fillStyle = K.patch;
+    ctx.beginPath(); ctx.ellipse(-3.4, -10.2 + by, 4.4, 3.0, 0.1, 0, 7); ctx.fill();
+    ctx.fillStyle = K.patch2; ctx.beginPath(); ctx.ellipse(4.2, -9.6 + by, 2.4, 1.8, 0, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.ellipse(0, -7.4 + by, 8.0, 4.4, -0.04, 0, Math.PI * 2); ctx.strokeStyle = RIG_OUT; ctx.lineWidth = RL; ctx.stroke();
+    leg(-3.0, s * 0.45); leg(5.2, -s * 0.45);                      // 가까운 쪽 다리
+    rigCatHead(K, 7.6, -12.6 + by, "side", "open");
+    return;
+  }
+  const atDesk = pose === "work" || pose === "think";
+  if (atDesk){
+    const lean = Math.max(0, Math.min(4, R[0] - 7.8)), dx = lean * 0.6;
+    const tap = pose === "work" && !reduceMotion ? Math.floor(now * 7) % 2 : 0;
+    rigTail([-4.0, -1.6], [-8.4, -1.4], [-8.8, 3.6], 2.3, K.base, K.tail);   // 의자 뒤로 늘어진 꼬리
+    ctx.save(); ctx.translate(0, dip);
+    const hb = [R[0] - 1.6, R[1] + (pose === "think" ? 1.4 : 0.2 - tap * 0.7)];
+    const sb = [dx + 2.4, -8.6];
+    rigLimb([sb, elbowOf(sb, hb, 0.8), hb], W, K.base); paw(hb[0], hb[1]);
+    rigCatBody(K, dx);
+    rigBlob(dx - 2.0, -2.6, 3.0, 2.6, K.base);                     // 뒷다리 허벅지
+    paw(dx + 1.2, -0.3);
+    const hf = [R[0], R[1] + (pose === "think" ? 1.6 : 0.5 - (1 - tap) * 0.7)];
+    const sf = [dx + 3.4, -8.2];
+    rigLimb([sf, elbowOf(sf, hf, 0.8), hf], W, K.base); paw(hf[0], hf[1]);
+    rigCatHead(K, dx + 3.4, -15.0 - (pose === "think" ? 0.6 : 0), "side", "open");
+    ctx.restore();
+    return;
+  }
+  const sl = pose === "sleep";
+  if (sl) rigTail([-4.4, -1.0], [-1.2, 1.8], [4.6, 0.4], 2.3, K.base, K.tail);   // 몸을 감싼 꼬리
+  else rigTail([-4.6, -1.4], [-10.4, -1.0], [-9.8, -6.6], 2.3, K.base, K.tail);
+  ctx.save(); ctx.translate(0, dip);
+  rigCatBody(K, 0);
+  rigBlob(-3.0, -2.8, 3.1, 2.7, K.base);                           // 뒷다리 허벅지
+  paw(-1.6, -0.3);
+  rigLimb([[1.3, -6.4], [1.1, -1.0]], W, K.base); paw(1.3, -0.4);
+  rigLimb([[3.4, -6.2], [3.6, -1.0]], W, K.base); paw(3.9, -0.4);
+  rigCatHead(K, 1.2, sl ? -13.0 : -14.8, "front", sl ? "closed" : "open");
+  ctx.restore();
+}
+
+/* 자세 고르기 + 상태가 바뀔 때 살짝 내려앉는 전환 */
+function drawRig(a, now, sx, sy, k, pose, baseLift){
+  const human = !!a.human;
+  let p = pose;
+  if (human && p !== "walk" && baseLift < 3) p = "stand";        // 사람이 바닥에 있으면 서서 쉼 (머그컵)
+  if (p !== a.rigPose){ a.rigPrev = a.rigPose; a.rigPose = p; a.rigAt = now; }
+  const t = (now - (a.rigAt || 0)) / 0.32;
+  const dip = a.rigPrev && t < 1 && !reduceMotion ? Math.sin(Math.PI * ease(t)) * 0.9 : 0;
+  const f = p === "work" || p === "think" ? 1 : (a.face || 1);     // 책상에선 늘 책상 쪽(오른쪽 위)을 본다
+  RL = LW * 0.78 / k;
+  ctx.save(); ctx.translate(sx, sy); ctx.scale(k * f, k);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (human) rigHuman(a, a.rigLook || HUMAN_REF, p, now, k, dip);
+  else rigCat(a, rigCoat(a.coat), p, now, k, dip);
   ctx.restore();
 }
 

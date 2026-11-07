@@ -440,7 +440,13 @@ function log(text, tone){
 }
 
 /* ───────── 말풍선/이동 ───────── */
-function say(a, text, dur=2.6){ a.bubble = {text, t:dur}; }
+function say(a, text, dur=2.6){
+  if (ONE && mode === "live" && live){            // one: 세션 고양이는 말하지 않고(누르면 자세히), 화면 전체에 말풍선은 하나만
+    if (!a.human) return;
+    if (visibleCats().some(o => o !== a && o.bubble)) return;
+  }
+  a.bubble = {text, t:dur};
+}
 function goTo(a, x, y){
   if (a.router){ a.path = a.router(a.pos, {x, y}); return; }
   a.path = Math.abs(x - a.pos.x) > 2 ? [{x, y:a.pos.y}, {x, y}] : [{x, y}];
@@ -1400,18 +1406,24 @@ const SLOTS = [
   {name:"냥냥마트",     x:274, y:180, trim:"#7fb2ea", theme:"shelf"},
   {name:"빨간 지붕 집", x:548, y:180, trim:"#e5534b", theme:"sofa"},
 ].map(s => ({...s, baseName:s.name, w:LOT_W, d:LOT_D, appear:[]}));
-const lotDesk  = (L, i) => ({x: L.x + 12 + (i % 3) * 46, y: L.y + 12 + Math.floor(i / 3) * 38});
+if (ONE){                                       // one: 본사를 넓게 (옆·아래 건물 자리까지, 그 건물들은 숨김)
+  Object.assign(SLOTS[0], {w:380, d:232, cols:4, gx:66, gy:50, ox:26, oy:24, maxDesks:16});
+  for (const i of [1, 3, 4]) SLOTS[i].hidden = true;
+}
+for (const L of SLOTS) L.lx = L.x + L.w - LOT_W;     // 휴게공간은 늘 오른쪽 끝 (기본 크기면 L.x 와 같음)
+const lotMax   = L => L.maxDesks || MAX_DESKS;
+const lotDesk  = (L, i) => ({x: L.x + (L.ox ?? 12) + (i % (L.cols || 3)) * (L.gx || 46), y: L.y + (L.oy ?? 12) + Math.floor(i / (L.cols || 3)) * (L.gy || 38)});
 const lotSeat  = (L, i) => { const d = lotDesk(L, i); return {x: d.x + DESK_W/2, y: d.y + DESK_D + 5}; };   // 책상 앞 5칸 (앉으면 손이 키보드에 닿음)
-const lotAisle = L => L.x + 148;
+const lotAisle = L => L.lx + 148;
 const lotDoor  = L => ({x: lotAisle(L), y: L.y + L.d + 8});
 const lotWait  = L => ({x: lotAisle(L), y: L.y + L.d - 5});
 const lotLounge = L => [
-  {x: L.x+172, y: L.y+12,  lift:6,  nap:20, say:"소파 최고"},
-  {x: L.x+192, y: L.y+12,  lift:6,  nap:20, say:"기지개~"},
-  {x: L.x+209, y: L.y+51,  lift:30, nap:15, say:"높은 데 좋아"},
-  {x: L.x+176, y: L.y+82,  lift:0,  nap:4,  say:"꾸벅…"},
-  {x: L.x+196, y: L.y+96,  lift:0,  nap:4,  say:"뒹굴뒹굴"},
-  {x: L.x+194, y: L.y+121, lift:0,  nap:30, say:"냠냠"},
+  {x: L.lx + 172, y: L.y+12,  lift:6,  nap:20, say:"소파 최고"},
+  {x: L.lx + 192, y: L.y+12,  lift:6,  nap:20, say:"기지개~"},
+  {x: L.lx + 209, y: L.y+51,  lift:30, nap:15, say:"높은 데 좋아"},
+  {x: L.lx + 176, y: L.y+82,  lift:0,  nap:4,  say:"꾸벅…"},
+  {x: L.lx + 196, y: L.y+96,  lift:0,  nap:4,  say:"뒹굴뒹굴"},
+  {x: L.lx + 194, y: L.y+121, lift:0,  nap:30, say:"냠냠"},
 ];
 const lotRouter = L => (from, to) => {         // 책상과 휴게공간 사이의 통로로만 다닌다
   const ax = lotAisle(L), pts = [];
@@ -1759,7 +1771,7 @@ function oneDesks(except){                       // one: 지금 쓰는 책상 (�
 function oneSeatBoss(boss){                       // one: 대장 고양이를 본사 빈 책상에 앉힘 (없으면 사람 한 명이 자리를 비켜 줌)
   const H = hqSlot(), L = SLOTS[H];
   let used = oneDesks(boss), idx = -1;
-  for (let i=0; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
+  for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0 && team){
     const m = team.members.filter(x => x.present && !x.leaving && x.cat && talkSel.cat !== x.cat).sort((a, b) => b.rank - a.rank)[0];
     if (m){ idx = m.cat.deskIdx; m.leaveAt = 0; }
@@ -2119,7 +2131,7 @@ function setTeam(data, source){
   team = {repo:data.repo || "", members, slot, source, fetched:data.fetched || Date.now()};
   for (const m of members) if (m.first && !m.nextAt){
     // 처음 열었을 때: 상주 멤버(와 자주 오는 멤버 일부)는 이미 자리에, 나머지는 시간차를 두고 출근
-    if (m.tier === "core" || (m.tier === "regular" && Math.random() < 0.4)) m.nextAt = 1;
+    if (ONE ? m.rank < 2 : (m.tier === "core" || (m.tier === "regular" && Math.random() < 0.4))) m.nextAt = 1;
     else m.nextAt = Date.now() + (m.tier === "regular" ? rand(15000, 2*MIN) : rand(30000, 5*MIN)) * (source === "demo" ? 0.3 : 1);
   }
   const L = SLOTS[slot];
@@ -2134,7 +2146,7 @@ function teamArrive(m){
   const used = new Set(team.members.filter(x => x.present && x !== m).map(x => x.cat.deskIdx));
   if (ONE && live) for (const v of live.sessions.values()) used.add(v.boss.deskIdx);
   let idx = -1;
-  for (let i=0; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
+  for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0) return false;                     // 책상이 꽉 차면 다음에
   const instant = m.first && m.nextAt === 1;
   const c = makeCat({id:"gh-"+m.login, name:m.info.name || m.login, role:TIER_LABEL[m.tier], coat:m.coat, k:0.9, zBase:0,
@@ -2144,7 +2156,7 @@ function teamArrive(m){
   if (m.rank === 0) Object.assign(c, {rig2:true, rigLook:HUMAN_REF});   // 새 그림체 미리보기: 기여 1위
   Object.assign(m, {cat:c, present:true, leaving:false, first:false,
                     leaveAt: Date.now() + tierTime(m, "stay"), breakAt: Date.now() + rand(1.5*MIN, 4*MIN)});
-  if (!instant) say(c, m.tier === "guest" ? "잠깐 들렀어요!" : pick(["출근했어요!", "좋은 아침~", "오늘도 커밋!"]), 2.4);
+  if (!instant && !ONE) say(c, m.tier === "guest" ? "잠깐 들렀어요!" : pick(["출근했어요!", "좋은 아침~", "오늘도 커밋!"]), 2.4);
   live.ver++;
   return true;
 }
@@ -2158,7 +2170,13 @@ function teamTick(){
   const nowMs = Date.now(), L = SLOTS[team.slot];
   for (const m of team.members){
     if (!m.present){
-      if (nowMs >= m.nextAt && !teamArrive(m)) m.nextAt = nowMs + 20000;
+      if (nowMs < m.nextAt) continue;
+      if (ONE){                                   // one: 한 번에 최대 4명, 출근은 한 명씩 간격을 두고
+        const here = team.members.filter(x => x.present).length;
+        if (here >= 4 || nowMs < (team.nextArriveAt || 0)){ m.nextAt = nowMs + rand(8000, 20000); continue; }
+      }
+      if (!teamArrive(m)) m.nextAt = nowMs + 20000;
+      else if (ONE) team.nextArriveAt = nowMs + rand(25000, 60000) * (team.source === "demo" ? 0.4 : 1);
       continue;
     }
     const c = m.cat, talking = talkSel.cat === c;
@@ -2167,6 +2185,12 @@ function teamTick(){
         Object.assign(m, {present:false, leaving:false, cat:null, nextAt: nowMs + tierTime(m, "away")});
         live.ver++;
       }
+      continue;
+    }
+    if (ONE && nowMs >= m.leaveAt && !talking){   // one: 퇴근하면 반짝 하고 바로 사라짐
+      sparkle(c.pos.x, c.pos.y);
+      Object.assign(m, {present:false, leaving:false, cat:null, nextAt: nowMs + tierTime(m, "away")});
+      live.ver++;
       continue;
     }
     if (nowMs >= m.leaveAt && !talking){          // 이야기하는 중엔 퇴근을 미룬다
@@ -2185,7 +2209,7 @@ function teamTick(){
         Object.assign(c, {busy:false, inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,
                           napAfter:spots[i].nap, stateText:"휴게실에서 쉬는 중"});
         if (c.state === "busy"){ c.state = "idle"; c.idleSince = null; }
-        say(c, pick(["커피 한 잔", "잠깐 쉬자", "스트레칭~", "고양이들 귀엽다"]), 2);
+        if (!ONE) say(c, pick(["커피 한 잔", "잠깐 쉬자", "스트레칭~", "고양이들 귀엽다"]), 2);
         m.backAt = nowMs + rand(30000, 90000);
       }
       m.breakAt = nowMs + rand(3*MIN, 6*MIN);
@@ -2197,7 +2221,7 @@ function teamTick(){
       c.stateText = "작업 중";
       if (!c.bubble && !talking && nowMs > m.murmurAt){
         if (m.murmurAt) say(c, teamMurmur(m), 2.6);
-        m.murmurAt = nowMs + rand(18000, 45000);
+        m.murmurAt = nowMs + (ONE ? rand(70000, 160000) : rand(18000, 45000));
       }
     }
   }
@@ -2596,7 +2620,7 @@ function lotAt(e){
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
   const x = (px - VW/2) / cam.z + cam.cx, y = (py - VH/2) / cam.z + cam.cy;
-  for (let i=0; i<SLOTS.length; i++) if (inPoly(x, y, lotHull(i))) return i;
+  for (let i=0; i<SLOTS.length; i++) if (!SLOTS[i].hidden && inPoly(x, y, lotHull(i))) return i;
   return -1;
 }
 
@@ -2638,7 +2662,7 @@ function campusDecor(now){
                               [-62,40,60,16],[-64,190,56,15],[836,80,60,16],[842,220,58,15],
                               [70,380,58,16],[250,374,62,17],[370,382,56,15],[560,374,60,16],[700,380,58,15]])
     out.push({z: x + y, fn:() => tree(x, y, h, r)});
-  for (const [x, y] of CAMPUS_LAMPS) out.push({z: x + y, fn:() => streetLamp(x, y)});
+  for (const [x, y] of CAMPUS_LAMPS) if (!(ONE && x < 505 && y < 318)) out.push({z: x + y, fn:() => streetLamp(x, y)});
   out.push({z: 150+365, fn:() => bench(140, 358)});
   out.push({z: 440+365, fn:() => bench(430, 358)});
   out.push({z: 490+362, fn:() => mailbox(488, 358)});
@@ -2691,7 +2715,7 @@ function lotTheme(L){
 }
 /* 휴게공간 가구 */
 function loungeSofa(L){
-  const P = TOD, x = L.x + 160, y = L.y + 3;
+  const P = TOD, x = L.lx + 160, y = L.y + 3;
   isoBox(x, y, 44, 12, 0, 6, P.paper, P.paper, P.side);
   isoBox(x, y, 44, 4, 6, 8, P.paper, P.paper, P.side);
   isoBox(x, y, 4, 12, 6, 4, P.paper, P.paper, P.side);
@@ -2699,7 +2723,7 @@ function loungeSofa(L){
   for (const cx of [x + 7, x + 25]) isoBox(cx, y + 4, 12, 7, 6, 1.5, L.trim, L.trim, L.trim);
 }
 function loungeTower(L){
-  const P = TOD, x = L.x + 202, y = L.y + 44;
+  const P = TOD, x = L.lx + 202, y = L.y + 44;
   for (const [px, py] of [[x+2, y+12], [x+12, y+12], [x+12, y+2]]) line([gpt(px, py, 0), gpt(px, py, 28)]);
   isoBox(x, y, 14, 14, 0, 3, P.side, P.side, P.side);
   isoBox(x - 4, y + 4, 10, 10, 14, 2, P.paper, P.paper, P.side);
@@ -2710,19 +2734,19 @@ function loungeTower(L){
 }
 function loungeRug(L){
   const P = TOD;
-  ctx.save(); ctx.globalAlpha = .25; floorPoly(L.x + 160, L.y + 66, 50, 42, L.trim, 0, true); ctx.restore();
-  floorPoly(L.x + 160, L.y + 66, 50, 42, null);
-  ctx.setLineDash([2, 2.5]); floorPoly(L.x + 164, L.y + 70, 42, 34, null); ctx.setLineDash([]);
+  ctx.save(); ctx.globalAlpha = .25; floorPoly(L.lx + 160, L.y + 66, 50, 42, L.trim, 0, true); ctx.restore();
+  floorPoly(L.lx + 160, L.y + 66, 50, 42, null);
+  ctx.setLineDash([2, 2.5]); floorPoly(L.lx + 164, L.y + 70, 42, 34, null); ctx.setLineDash([]);
 }
 function loungeBowls(L){
   const P = TOD;
-  for (const [bx, c] of [[L.x + 200, "#f2a54e"], [L.x + 210, "#bfe6ff"]]){
+  for (const [bx, c] of [[L.lx + 200, "#f2a54e"], [L.lx + 210, "#bfe6ff"]]){
     const cx = isoX(bx, L.y + 120), cy = isoY(bx, L.y + 120);
     ell(cx, cy, 4.5, 2, P.paper); ell(cx, cy - 1.2, 3.2, 1.3, c, true);
   }
 }
 function loungeCoffee(L){
-  const P = TOD, x = L.x + 208, y = L.y + 3;
+  const P = TOD, x = L.lx + 208, y = L.y + 3;
   isoBox(x, y, 12, 10, 0, 18, P.paper, P.paper, P.side);
   wallQuad(x + 2, y + 10, x + 10, y + 10, 8, 14, P.side);
 }
@@ -2769,13 +2793,14 @@ function drawLot(i, now){
   wallQuad(L.x+L.w, L.y+L.d, L.x+L.w, L.y, GZ, 0, P.side);
   floorPoly(L.x, L.y, L.w, L.d, P.floor);
   // 휴게공간 바닥: 나무 마루 느낌
-  ctx.save(); ctx.globalAlpha = .5; floorPoly(L.x + 156, L.y, L.w - 156, L.d, P.side, 0, true); ctx.restore();
+  ctx.save(); ctx.globalAlpha = .5; floorPoly(L.lx + 156, L.y, L.x + L.w - L.lx - 156, L.d, P.side, 0, true); ctx.restore();
   ctx.save(); ctx.globalAlpha = .25;
-  for (let yy = L.y + 10; yy < L.y + L.d; yy += 10) line([gpt(L.x + 156, yy, 0), gpt(L.x + L.w, yy, 0)]);
+  for (let yy = L.y + 10; yy < L.y + L.d; yy += 10) line([gpt(L.lx + 156, yy, 0), gpt(L.x + L.w, yy, 0)]);
   ctx.restore();
   if (act > 0){
     ctx.fillStyle = `rgba(255,214,140,${((.08 + .14*P.lamp) * act).toFixed(3)})`;
-    ctx.beginPath(); ctx.ellipse(isoX(L.x+78, L.y+L.d/2), isoY(L.x+78, L.y+L.d/2), 100, 42, 0, 0, 7); ctx.fill();
+    const lcx = (L.x + L.lx + 148) / 2, lsc = (L.lx - L.x + LOT_W) / LOT_W;
+    ctx.beginPath(); ctx.ellipse(isoX(lcx, L.y+L.d/2), isoY(lcx, L.y+L.d/2), 100*lsc, 42*lsc, 0, 0, 7); ctx.fill();
   }
   // 명령 대기 중이면 문 앞에 따뜻한 빛
   if (s && s.phase === "waiting"){
@@ -2799,9 +2824,9 @@ function drawLot(i, now){
   }
   lotTheme(L);
   // 휴게공간 팻말 (북쪽 벽)
-  wallQuad(L.x + 176, L.y, L.x + 200, L.y, 16, 22, P.paper);
+  wallQuad(L.lx + 176, L.y, L.lx + 200, L.y, 16, 22, P.paper);
   ctx.fillStyle = P.ink; ctx.font = "5px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  wallText("휴게실", L.x + 188, L.y, 19);
+  wallText("휴게실", L.lx + 188, L.y, 19);
   // 간판 (북쪽 벽 위)
   ctx.font = "8px 'Jua', sans-serif";
   const half = Math.max(30, ctx.measureText(L.name).width / (2 * ISX) + 7);   // 간판 폭을 이름 길이에 맞춤
@@ -2828,13 +2853,13 @@ function drawLot(i, now){
       if (!(sitter && sitter.human && charArt.ready && !usesWorkArt(sitter)))   // 서서 일하는 사람 자리엔 의자 없음
         items.push({z: seat.x + seat.y - 0.5, fn:() => { ctx.globalAlpha = alpha; drawStool(seat, 0); ctx.globalAlpha = 1; }});
     }
-    for (let k=n; k<MAX_DESKS; k++) L.appear[k] = undefined;
+    for (let k=n; k<lotMax(L); k++) L.appear[k] = undefined;
     for (const c of cats) items.push({z: c.pos.x + c.pos.y, fn:() => drawCat(c, now)});
   }
-  items.push({z: L.x + 164 + L.y + 6, fn:() => loungeSofa(L)});        // 소파에 앉은 캐릭터가 등받이에 가리지 않게 먼저 그림
-  items.push({z: L.x + 209 + L.y + 58, fn:() => loungeTower(L)});
-  items.push({z: L.x + 205 + L.y + 118, fn:() => loungeBowls(L)});
-  items.push({z: L.x + 214 + L.y + 13, fn:() => loungeCoffee(L)});
+  items.push({z: L.lx + 164 + L.y + 6, fn:() => loungeSofa(L)});        // 소파에 앉은 캐릭터가 등받이에 가리지 않게 먼저 그림
+  items.push({z: L.lx + 209 + L.y + 58, fn:() => loungeTower(L)});
+  items.push({z: L.lx + 205 + L.y + 118, fn:() => loungeBowls(L)});
+  items.push({z: L.lx + 214 + L.y + 13, fn:() => loungeCoffee(L)});
   items.push({z: L.x + 8 + L.y + L.d - 8, fn:() => drawPlant(L.x + 2, L.y + L.d - 15, 18)});
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
@@ -2848,7 +2873,7 @@ function drawLot(i, now){
 }
 function drawCampus(now){
   drawCampusGround();
-  const items = SLOTS.map((L, i) => ({z: L.x + L.w/2 + L.y + L.d/2, fn:() => drawLot(i, now)}));
+  const items = SLOTS.map((L, i) => L.hidden ? null : {z: L.x + L.w/2 + L.y + L.d/2, fn:() => drawLot(i, now)}).filter(Boolean);
   items.push(...campusDecor(now));
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
@@ -2884,7 +2909,7 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
     ctx.save();
     ctx.font = `${Math.max(9, 10*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = 1*dpr;
     for (const a of visibleCats()){
-      if (a.lot !== cam.focus || a === talkSel.cat || (ONE && !a.human)) continue;   // one: 고양이는 세션 표가 이름표 역할
+      if (ONE || a.lot !== cam.focus || a === talkSel.cat) continue;   // one: 이름표 없음 (누르면 대화창)   // one: 고양이는 세션 표가 이름표 역할
       const x = SX(isoX(a.pos.x, a.pos.y)), y = SY(isoY(a.pos.x, a.pos.y, a.zBase || 0)) + 5*dpr;
       const t = a.human ? (a.human.info.name || "@" + a.human.login) : a.name;
       const w = ctx.measureText(t).width + 10*dpr, hh = 15*dpr;
@@ -2908,7 +2933,7 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   for (const s of live.sessions.values()){
     if (cam.focus !== null && cam.focus !== s.slot) continue;
     const L = SLOTS[s.slot], look = phaseLook(s);
-    if (ONE){ drawSessionTag(s, look, now); continue; }
+    if (ONE){ if (s.stampUntil > now) drawSessionTag(s, look, now, true); continue; }   // one: 표 없이 완료 도장만
     const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
     const n = s.kittens.size;
     const txt = `${look.icon} ${sessName(s)} · ${look.text}${n ? "  🐾" + n : ""}`;
@@ -2937,7 +2962,7 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   }
 }
 
-function drawSessionTag(s, look, now){            // one: 고양이 머리 위 세션 표 (+ 완료 도장)
+function drawSessionTag(s, look, now, stampOnly){            // one: 고양이 머리 위 세션 표 (+ 완료 도장)
   const b = s.boss;                              // 발밑에 (머리 위 말풍선과 겹치지 않게)
   const x = SX(isoX(b.pos.x, b.pos.y)), y0 = SY(isoY(b.pos.x, b.pos.y, b.zBase || 0)) + 5*dpr;
   const n = [...s.kittens.values()].filter(k => !k.leaving).length;
@@ -2946,7 +2971,7 @@ function drawSessionTag(s, look, now){            // one: 고양이 머리 위 �
   ctx.font = `${Math.max(9, (big ? 11 : 9.5)*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.1*dpr;
   const txt = big ? `${look.icon} ${clip(sessName(s), 14)} · ${b.name}${n ? "  🐾" + n : ""}` : `${look.icon} ${clip(sessName(s), 10)}${n ? " 🐾" + n : ""}`;
   const w = ctx.measureText(txt).width + 14*dpr, hh = (big ? 18 : 15)*dpr, y = y0 + hh;
-  if (y > hh){
+  if (y > hh && !stampOnly){
     ctx.strokeStyle = TOD.ink; ctx.fillStyle = look.bg || TOD.paper;
     ctx.beginPath(); ctx.roundRect(x - w/2, y - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = look.bg ? "#1f1d1b" : TOD.ink; ctx.textAlign = "center"; ctx.fillText(txt, x, y - hh/2 + 0.5);
@@ -3347,7 +3372,7 @@ function drawCat(a, now){
     const mot = artWalk(a, pose, k);
     drawArt(kind, sx, sy - lift - (mot ? mot.bob : 0), CHAR_ART[kind].units * k, ff < 0, artWork ? ("turn" in CHAR_ART[kind] ? CHAR_ART[kind].turn : WORK_TURN) : null, mot, artLevelsFor(kind, a));   // 사람은 그림 자체가 모니터 쪽을 봄
     if (artWork) deskFrontOver(a);                                       // 책상 밑 다리는 책상 앞판 뒤로
-    if (pose === "work") drawWorkBadge(a, sx, sy - lift, k, now, kind);
+    if (pose === "work" && !(ONE && a.human)) drawWorkBadge(a, sx, sy - lift, k, now, kind);
   }
   else if (a.rig2) drawRig(a, now, sx, sy - lift, k, pose, baseLift);           // 새 리그 (시안 반영, 지금은 한 쌍만)
   else if (a.human) drawPersonBody(a, now, sx, sy - lift, k, f, pose, baseLift);
@@ -3411,7 +3436,7 @@ function drawCat(a, now){
   if (a.carry){ shape([[9,-13],[14,-14.5],[15.2,-9.5],[10.2,-8]], "#ffffff"); }
   ctx.restore();
   }
-  if (pose === "think" && !a.bubble){            // 💭 생각 구름 (점 세 개가 차례로 깜빡임)
+  if (pose === "think" && !a.bubble && !ONE){            // 💭 생각 구름 (점 세 개가 차례로 깜빡임)
     const bx = sx + 11*k, by = sy - lift - 33*k;
     ctx.strokeStyle = TOD.ink; ctx.lineWidth = LW;
     ell(sx + 4*k, sy - lift - 22*k, 1.2*k, 1.2*k, TOD.paper);
@@ -3443,7 +3468,7 @@ function drawCat(a, now){
     ctx.globalAlpha = 1;
   }
   // 진행 막대
-  if (a.state === "working" && a.workDur > 0){
+  if (a.state === "working" && a.workDur > 0 && !ONE){
     const p = Math.min(1, a.workT / a.workDur), bw = 20*k, bx = sx - bw/2, by = sy - 27*k - lift;
     ctx.fillStyle = TOD.paper; ctx.beginPath(); ctx.roundRect(bx, by, bw, 4, 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = (a.task && a.task.stage === "review") ? "#d9822b" : "#f09a3e";

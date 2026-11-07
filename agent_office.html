@@ -3248,7 +3248,8 @@ function drawCat(a, now){
   if (charArt.ready){
     const kind = artWork ? (a.human ? "humanWork" : "catWork") : (a.human ? "human" : "cat");
     const ff = artWork ? 1 : f;                                          // 책상에서 일할 땐 책상 쪽(오른쪽)을 봄
-    drawArt(kind, sx, sy - lift, CHAR_ART[kind].units * k, ff < 0, artWork ? ("turn" in CHAR_ART[kind] ? CHAR_ART[kind].turn : WORK_TURN) : null);   // 사람은 그림 자체가 모니터 쪽을 봄
+    const mot = artWalk(a, pose, k);
+    drawArt(kind, sx, sy - lift - (mot ? mot.bob : 0), CHAR_ART[kind].units * k, ff < 0, artWork ? ("turn" in CHAR_ART[kind] ? CHAR_ART[kind].turn : WORK_TURN) : null, mot);   // 사람은 그림 자체가 모니터 쪽을 봄
     if (artWork) deskFrontOver(a);                                       // 책상 밑 다리는 책상 앞판 뒤로
     if (pose === "work") drawWorkBadge(a, sx, sy - lift, k, now, kind);
   }
@@ -3972,7 +3973,17 @@ function loadCharArt(){
     console.warn("[냥오피스] 캐릭터 그림 로드 실패:", e && e.message);
   });
 }
-function drawArt(kind, x, y, h, flip, turn){
+// 서 있는 그림 한 장으로 걷기 표현: 실제로 움직인 거리만큼 걸음이 진행됨 (제자리 걸음·미끄러짐 없음)
+const WALK = {human: {bob: 1.1, rot: 0.065, step: 0.15}, cat: {bob: 0.9, rot: 0.05, step: 0.19}};   // step: 이동 1단위당 위상 (걷기 속도 46 → 사람 초당 약 2.2걸음)
+function artWalk(a, pose, k){
+  const lp = a._lp; a._lp = {x: a.pos.x, y: a.pos.y};
+  if (pose !== "walk" || reduceMotion){ a.stepPh = 0; return null; }
+  const W = WALK[a.human ? "human" : "cat"];
+  if (lp) a.stepPh = (a.stepPh || 0) + Math.hypot(a.pos.x - lp.x, a.pos.y - lp.y) * W.step;
+  const s = Math.sin(a.stepPh || 0), up = Math.abs(s);
+  return {bob: up * W.bob * k, rot: s * W.rot, sq: 1 - 0.035 * (1 - up) ** 3};
+}
+function drawArt(kind, x, y, h, flip, turn, mot){
   const lv = charArt.levels[kind];
   const t = ctx.getTransform(), px = h * Math.hypot(t.c, t.d);   // 실제로 그려질 픽셀 높이
   let img = lv[0];
@@ -3981,6 +3992,7 @@ function drawArt(kind, x, y, h, flip, turn){
   ctx.save();
   ctx.translate(x, y); if (flip) ctx.scale(-1, 1);
   if (turn) ctx.transform(turn.sx, turn.shy, 0, 1, 0, 0);       // 기준점(엉덩이)을 축으로 책상 쪽으로 기울임
+  if (mot){ ctx.rotate(mot.rot); ctx.scale(2 - mot.sq, mot.sq); }  // 걷기: 발을 축으로 좌우로 살짝 뒤뚱 + 착지할 때 살짝 눌림
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, -w * A.ax, -h * A.ay, w, h);
   ctx.restore();

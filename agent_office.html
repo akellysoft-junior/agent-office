@@ -3248,7 +3248,7 @@ function drawCat(a, now){
   if (charArt.ready){
     const kind = artWork ? (a.human ? "humanWork" : "catWork") : (a.human ? "human" : "cat");
     const ff = artWork ? 1 : f;                                          // 책상에서 일할 땐 책상 쪽(오른쪽)을 봄
-    drawArt(kind, sx, sy - lift, CHAR_ART[kind].units * k, ff < 0);
+    drawArt(kind, sx, sy - lift, CHAR_ART[kind].units * k, ff < 0, artWork ? WORK_TURN : null);
     if (artWork) deskFrontOver(a);                                       // 책상 밑 다리는 책상 앞판 뒤로
     if (pose === "work") drawWorkBadge(a, sx, sy - lift, k, now, kind);
   }
@@ -3926,6 +3926,10 @@ const CHAR_ART = {
 };
 const charArt = {ready:false, failed:false, levels:{human:[], cat:[], humanWork:[], catWork:[]}};
 const DESK_CROSS = 4.2;
+/* 책상 방향으로 몸 돌리기: 그림은 화면 오른쪽(수평)을 보는데 책상·모니터는 아이소 축(오른쪽 위 26.6°)에 놓여 있음.
+   작업 자세에만 기울이기(shy: 앞으로 갈수록 위로)와 약간의 원근 축소(sx)를 줘서 모니터 쪽을 보게 함.
+   완전 정렬은 shy −0.5·sx 0.78 (아이소 축과 같음) — 얼굴이 많이 찌그러져서 중간값을 씀. */
+let WORK_TURN = {sx: 0.92, shy: -0.3};
 const WORK_ART_PREVIEW = true;     // 검토 단계: 미리보기 한 쌍(호떡·기여 1위)만 작업 자세. 확정되면 false → 모두 적용
 const usesWorkArt = a => charArt.ready && (!WORK_ART_PREVIEW || !!a.rig2);            // 의자 중심에서 이만큼 오른쪽부터는 책상 밑 (허벅지·무릎을 책상 앞판이 덮음)
 function artLevels(img){
@@ -3968,7 +3972,7 @@ function loadCharArt(){
     console.warn("[냥오피스] 캐릭터 그림 로드 실패:", e && e.message);
   });
 }
-function drawArt(kind, x, y, h, flip){
+function drawArt(kind, x, y, h, flip, turn){
   const lv = charArt.levels[kind];
   const t = ctx.getTransform(), px = h * Math.hypot(t.c, t.d);   // 실제로 그려질 픽셀 높이
   let img = lv[0];
@@ -3976,6 +3980,7 @@ function drawArt(kind, x, y, h, flip){
   const w = h * img.width / img.height, A = CHAR_ART[kind];
   ctx.save();
   ctx.translate(x, y); if (flip) ctx.scale(-1, 1);
+  if (turn) ctx.transform(turn.sx, turn.shy, 0, 1, 0, 0);       // 기준점(엉덩이)을 축으로 책상 쪽으로 기울임
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, -w * A.ax, -h * A.ay, w, h);
   ctx.restore();

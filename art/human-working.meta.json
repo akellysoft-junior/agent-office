@@ -1,32 +1,35 @@
 {
+ "source": "Drive worker_character_only.svg (2026-11-07) + \uae30\uc874 \uc549\uc740 \ub2e4\ub9ac",
  "viewBox": [
   0,
   0,
-  1312,
-  1199
+  900,
+  1100
  ],
- "ppu": 40.065,
+ "ppu": 36.379,
  "kRef": 0.9,
+ "turn": null,
  "anchors": {
   "seat": [
-   515,
-   822
+   330,
+   690
   ],
   "nearHand": [
-   835.5,
-   586.1
+   556.4,
+   419.2
   ],
   "farHand": [
-   906.7,
-   603.9
+   633.2,
+   439.4
   ]
  },
  "drawOrder": [
-  "arm-far",
   "legs",
+  "hair-back",
+  "arm-far",
   "torso",
-  "head(\ubaa9\u00b7\uc637\uae43 \ud3ec\ud568)",
-  "arm-near"
+  "arm-near",
+  "head"
  ],
  "paletteKeys": [
   "outline",
@@ -37,25 +40,41 @@
   "shoe"
  ],
  "params": {
-  "near_shoulder": [
-   616,
+  "anchor": [
+   330,
+   690
+  ],
+  "near_t": [
+   5.6,
+   -6.7
+  ],
+  "far_t": [
+   7.5,
+   -6.2
+  ],
+  "hem_up": 40,
+  "leg_dx": 0,
+  "leg_dy": 0,
+  "leg_rot": -14,
+  "near_sh": [
+   300,
+   455
+  ],
+  "near_el": [
+   392,
+   528
+  ],
+  "far_sh": [
+   455,
+   450
+  ],
+  "far_el": [
+   515,
    520
   ],
-  "near_elbow": [
-   690,
-   632
-  ],
-  "near_rot": -4,
-  "far_shoulder": [
-   672,
-   508
-  ],
-  "far_elbow": [
-   768,
-   628
-  ],
-  "far_rot": -2,
-  "sleeve_w": 64,
-  "wrist_back": 40
+  "hand_mix": 0.35,
+  "sleeve_ol": 26,
+  "sleeve_w": 54,
+  "wrist_back": 30
  }
 }

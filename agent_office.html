@@ -3931,7 +3931,7 @@ const DESK_CROSS = 4.2;
    작업 자세에만 기울이기(shy: 앞으로 갈수록 위로)와 약간의 원근 축소(sx)를 줘서 모니터 쪽을 보게 함.
    완전 정렬은 shy −0.5·sx 0.78 (아이소 축과 같음) — 얼굴이 많이 찌그러져서 중간값을 씀. */
 let WORK_TURN = {sx: 0.92, shy: -0.3};
-const WORK_ART_PREVIEW = true;     // 검토 단계: 미리보기 한 쌍(호떡·기여 1위)만 작업 자세. 확정되면 false → 모두 적용
+const WORK_ART_PREVIEW = false;   // 작업 자세 그림을 모든 캐릭터에 적용     // 검토 단계: 미리보기 한 쌍(호떡·기여 1위)만 작업 자세. 확정되면 false → 모두 적용
 const usesWorkArt = a => charArt.ready && (!WORK_ART_PREVIEW || !!a.rig2);            // 의자 중심에서 이만큼 오른쪽부터는 책상 밑 (허벅지·무릎을 책상 앞판이 덮음)
 function artLevels(img){
   const out = [img];

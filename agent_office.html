@@ -255,6 +255,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
     <button id="btnTod">시간: 자동</button>
     <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
     <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
+    <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
     <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
     <button id="btnAdd" class="primary">+ 작업 추가</button>
   </div>
@@ -338,6 +339,9 @@ const $ = s => document.querySelector(s);
 /* 주소 옵션: ?embed=1(위젯) &repo=owner/name &theme=dark &tod=night &team=0 &follow=0 &demo=1 */
 const QS = new URLSearchParams(location.search);
 const EMBED = document.documentElement.classList.contains("embed");
+/* 사무실 구성: rooms = 세션마다 건물 하나 / one = 한 사무실에 세션 고양이와 기여자 사람이 함께 (URL ?layout=one, 아니면 저장된 값) */
+const LAYOUT = (() => { let v = QS.get("layout"); if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
+const ONE = LAYOUT === "one";
 const OPT = {repo:(QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1"};
 const cv = $("#office");
@@ -961,7 +965,16 @@ btnFollow.addEventListener("click", () => {
   try { localStorage.setItem("ao.follow", follow.on ? "1" : "0"); } catch {}
   followText();
 });
-setTimeout(followText, 0);   // follow 설정은 아래쪽 라이브 모드 코드에서 만들어지므로 스크립트가 다 읽힌 뒤에 표시
+setTimeout(followText, 0);
+const btnLayout = $("#btnLayout");
+btnLayout.textContent = "🏢 사무실: " + (ONE ? "한 곳에 모두" : "세션별");
+btnLayout.title = ONE ? "세션마다 건물 하나로 바꾸기" : "모든 세션과 기여자를 한 사무실에 모으기";
+btnLayout.addEventListener("click", () => {          // 바꾸면 새로 불러옴 (라이브 상태는 서버에서 다시 받음)
+  const next = ONE ? "rooms" : "one";
+  try { localStorage.setItem("ao.layout", next); } catch {}
+  const u = new URL(location.href);
+  if (u.searchParams.has("layout")){ u.searchParams.set("layout", next); location.replace(u.toString()); } else location.reload();
+});   // follow 설정은 아래쪽 라이브 모드 코드에서 만들어지므로 스크립트가 다 읽힌 뒤에 표시
 $("#btnDemo").addEventListener("click", () => { enterLive("demo"); log("멀티 세션 데모 시작", "good"); });
 
 /* ───────── 파티클 ───────── */
@@ -1439,13 +1452,13 @@ BOSSES[1].rig2 = true;                 // 새 그림체 미리보기: 두 번째
 function visibleCats(){
   if (mode !== "live" || !live) return AGENTS;
   const out = [];
-  for (const s of live.sessions.values()){ out.push(s.boss); for (const kt of s.kittens.values()) out.push(kt); }
+  for (const s of live.sessions.values()){ out.push(s.boss); if (!ONE) for (const kt of s.kittens.values()) out.push(kt); }
   if (team) for (const m of team.members) if (m.present) out.push(m.cat);
   return out;
 }
 const deskBusy = key => visibleCats().some(a => a.desk === key && a.state === "working");
 function slotSession(i){
-  if (mode !== "live" || !live) return null;
+  if (mode !== "live" || !live || ONE) return null;
   for (const s of live.sessions.values()) if (s.slot === i) return s;
   return null;
 }
@@ -1736,9 +1749,28 @@ function startPoll(){
     setTimeout(tick, 1500);
   })();
 }
+const hqSlot = () => team ? team.slot : 0;
+function oneDesks(except){                       // one: 지금 쓰는 책상 (세션 고양이 + 출근한 사람)
+  const used = new Set();
+  for (const v of live.sessions.values()) if (v.boss !== except && v.boss.deskIdx != null && v.boss.deskIdx >= 0) used.add(v.boss.deskIdx);
+  if (team) for (const m of team.members) if (m.present && m.cat && !m.leaving) used.add(m.cat.deskIdx);
+  return used;
+}
+function oneSeatBoss(boss){                       // one: 대장 고양이를 본사 빈 책상에 앉힘 (없으면 사람 한 명이 자리를 비켜 줌)
+  const H = hqSlot(), L = SLOTS[H];
+  let used = oneDesks(boss), idx = -1;
+  for (let i=0; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
+  if (idx < 0 && team){
+    const m = team.members.filter(x => x.present && !x.leaving && x.cat && talkSel.cat !== x.cat).sort((a, b) => b.rank - a.rank)[0];
+    if (m){ idx = m.cat.deskIdx; m.leaveAt = 0; }
+  }
+  const seat = idx >= 0 ? lotSeat(L, idx) : lotLounge(L)[3];
+  Object.assign(boss, {lot:H, router:lotRouter(L), deskIdx:idx, home:{...seat}, seat:{...seat}});
+}
 function liveSession(rec){
   let s = live.sessions.get(rec.s);
   if (s) return s;
+  if (ONE) return liveSessionOne(rec);
   const used = new Set([...live.sessions.values()].map(v => v.slot));
   if (teamSlot() >= 0) used.add(teamSlot());           // 깃허브 팀 본사는 비워 둔다
   let slot = SLOTS.findIndex((_, i) => !used.has(i));
@@ -1752,17 +1784,38 @@ function liveSession(rec){
   }
   SLOTS[slot].appear = [];
   const boss = BOSSES[slot];
+  return newSession(rec, slot, boss, `${SLOTS[slot].name}에 입주 — ${rec.p} · ${rec.s}`);
+}
+function liveSessionOne(rec){
+  const used = new Set([...live.sessions.values()].map(v => v.bossIdx));
+  let bi = BOSSES.findIndex((_, i) => !used.has(i));
+  if (bi < 0){                                   // 고양이가 다 일하는 중이면 가장 오래 조용한 세션이 퇴근
+    let old = null;
+    for (const v of live.sessions.values()) if (!old || v.lastMs < old.lastMs) old = v;
+    live.sessions.delete(old.sid);
+    if (old.card) old.card.el.remove();
+    bi = old.bossIdx;
+    log(`${sessName(old)} 퇴근 (자리 비움)`, null);
+  }
+  const boss = BOSSES[bi];
+  oneSeatBoss(boss);
+  const s = newSession(rec, hqSlot(), boss, `${SLOTS[hqSlot()].name}에 출근 — ${rec.p} · ${rec.s}`, true);
+  s.bossIdx = bi;
+  boss.pos = lotDoor(SLOTS[hqSlot()]);            // 문으로 들어와서 자리로
+  return s;
+}
+function newSession(rec, slot, boss, msg, oneMode){
   Object.assign(boss, {q:[], cur:null, path:[], pos:{...boss.home}, seat:{...boss.home}, seatLift:7,
     state:"idle", stateText:"입주 완료", idleSince:null, bubble:null, inLounge:false, waiting:false,
     napAfter:boss.napBase, activity:"", lastMs:Date.now()});
-  s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
+  const s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
        phase:"idle", goal:"", topic:"", todos:[], activity:"", files:new Set(), cmds:0, errs:0, subTotal:0,
        bg:new Map(), bgShell:new Map(), bgAlias:new Map(), bgPending:new Map(), bgCheck:new Map(), bgSeq:0, seen:new Set(), tools:{}, mcp:{}, skills:{},
        startMs:0, result:"", lastText:"", cwd:"", branch:"", fullId:"", pendingEndAt:0, pendingTool:null,
        waitReason:"", waitSince:0, doneAt:0, stampUntil:0, didWork:false, card:null};
   live.sessions.set(rec.s, s); live.ver++;
-  log(`${SLOTS[slot].name}에 입주 — ${rec.p} · ${rec.s}`, "good");
-  say(boss, "입주했어요!", 2.4);
+  log(msg, "good");
+  say(boss, oneMode ? "출근했어요!" : "입주했어요!", 2.4);
   return s;
 }
 function liveKitten(sess, key){
@@ -1785,8 +1838,9 @@ function liveKitten(sess, key){
                 coat: KITTEN_COATS[h % KITTEN_COATS.length], k:0.8, zBase:0, napAfter:999,
                 lot:sess.slot, deskIdx:idx, router:lotRouter(L), pos:lotDoor(L), seat:lotSeat(L, idx)});
   kt.roleSet = !!role; kt.busy = true;
+  if (ONE){ kt.hidden = true; kt.pos = {...kt.seat}; }
   sess.kittens.set(key, kt); live.ver++;
-  log(`${L.name}에 새끼냥 ${name} 출근 — ${kt.role}`, "good");
+  log(ONE ? `${sessName(sess)}: 서브에이전트 ${name} 합류 — ${kt.role}` : `${L.name}에 새끼냥 ${name} 출근 — ${kt.role}`, "good");
   return kt;
 }
 
@@ -1801,6 +1855,7 @@ function setWaiting(s, reason, fresh){
   for (const k of s.kittens.values()){ k.busy = false; k.pendingTool = null; }
   const b = s.boss;
   b.waiting = true; b.inLounge = false; b.seat = lotWait(SLOTS[s.slot]); b.seatLift = 0; b.napAfter = 90;
+  if (ONE){ const i = s.bossIdx || 0; b.seat = {x: b.seat.x - 26 + (i % 3) * 13, y: b.seat.y - 8 - Math.floor(i / 3) * 12}; }
   b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
               : reason === "중단" ? "중단됨 · 명령 대기" : "명령 기다리는 중";
   if (fresh && (reason === "질문" || reason === "계획")){
@@ -2045,7 +2100,7 @@ function setTeam(data, source){
   let slot = team ? team.slot : -1;
   if (slot < 0){                                 // 본사(0번)가 비어 있으면 거기, 아니면 빈 건물
     const used = new Set([...live.sessions.values()].map(s => s.slot));
-    slot = !used.has(0) ? 0 : SLOTS.findIndex((_, i) => !used.has(i));
+    slot = ONE || !used.has(0) ? 0 : SLOTS.findIndex((_, i) => !used.has(i));
     if (slot < 0) return false;
   }
   const maxC = Math.max(1, ...list.map(m => m.contributions || 0));
@@ -2077,6 +2132,7 @@ function setTeam(data, source){
 function teamArrive(m){
   const L = SLOTS[team.slot];
   const used = new Set(team.members.filter(x => x.present && x !== m).map(x => x.cat.deskIdx));
+  if (ONE && live) for (const v of live.sessions.values()) used.add(v.boss.deskIdx);
   let idx = -1;
   for (let i=0; i<MAX_DESKS; i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0) return false;                     // 책상이 꽉 차면 다음에
@@ -2705,8 +2761,10 @@ function drawMonitorWall(L, list, now){
 }
 function drawLot(i, now){
   const L = SLOTS[i], P = TOD, s = slotSession(i), hq = !!team && team.slot === i;
-  const cats = hq ? team.members.filter(m => m.present).map(m => m.cat) : s ? [s.boss, ...s.kittens.values()] : null;
-  const act = s ? (s.phase === "working" ? 1 : 0.4) : hq ? (cats.length ? 0.8 : 0.15) : 0;
+  const oneCats = ONE && live && i === hqSlot() ? [...live.sessions.values()].map(v => v.boss) : [];   // one: 세션 고양이도 본사에
+  const cats = hq ? [...oneCats, ...team.members.filter(m => m.present).map(m => m.cat)] : s ? [s.boss, ...s.kittens.values()] : oneCats.length ? oneCats : null;
+  const act = s ? (s.phase === "working" ? 1 : 0.4) : hq ? (cats.length || (ONE && live.sessions.size) ? 0.8 : 0.15)
+            : ONE && i === hqSlot() && live && live.sessions.size ? 0.8 : 0;
   wallQuad(L.x, L.y+L.d, L.x+L.w, L.y+L.d, GZ, 0, P.side);
   wallQuad(L.x+L.w, L.y+L.d, L.x+L.w, L.y, GZ, 0, P.side);
   floorPoly(L.x, L.y, L.w, L.d, P.floor);
@@ -2826,7 +2884,7 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
     ctx.save();
     ctx.font = `${Math.max(9, 10*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = 1*dpr;
     for (const a of visibleCats()){
-      if (a.lot !== cam.focus || a === talkSel.cat) continue;
+      if (a.lot !== cam.focus || a === talkSel.cat || (ONE && !a.human)) continue;   // one: 고양이는 세션 표가 이름표 역할
       const x = SX(isoX(a.pos.x, a.pos.y)), y = SY(isoY(a.pos.x, a.pos.y, a.zBase || 0)) + 5*dpr;
       const t = a.human ? (a.human.info.name || "@" + a.human.login) : a.name;
       const w = ctx.measureText(t).width + 10*dpr, hh = 15*dpr;
@@ -2837,9 +2895,20 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
     ctx.restore();
     ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr;
   }
+  if (ONE && !team && (cam.focus === null || cam.focus === 0) && live.sessions.size){
+    const L = SLOTS[0], txt = `🐾 세션 ${live.sessions.size}개`;
+    const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
+    const w = ctx.measureText(txt).width + 18*dpr, hh = 20*dpr, bx = Math.max(4, Math.min(cv.width - w - 4, tx - w/2));
+    if (ty >= hh){
+      ctx.strokeStyle = TOD.ink; ctx.fillStyle = TOD.paper;
+      ctx.beginPath(); ctx.roundRect(bx, ty - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = TOD.ink; ctx.fillText(txt, bx + 9*dpr, ty - hh/2 + 0.5);
+    }
+  }
   for (const s of live.sessions.values()){
     if (cam.focus !== null && cam.focus !== s.slot) continue;
     const L = SLOTS[s.slot], look = phaseLook(s);
+    if (ONE){ drawSessionTag(s, look, now); continue; }
     const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
     const n = s.kittens.size;
     const txt = `${look.icon} ${sessName(s)} · ${look.text}${n ? "  🐾" + n : ""}`;
@@ -2866,6 +2935,33 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
       ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.lineWidth = 1.3*dpr;
     }
   }
+}
+
+function drawSessionTag(s, look, now){            // one: 고양이 머리 위 세션 표 (+ 완료 도장)
+  const b = s.boss;                              // 발밑에 (머리 위 말풍선과 겹치지 않게)
+  const x = SX(isoX(b.pos.x, b.pos.y)), y0 = SY(isoY(b.pos.x, b.pos.y, b.zBase || 0)) + 5*dpr;
+  const n = [...s.kittens.values()].filter(k => !k.leaving).length;
+  ctx.save();
+  const big = cam.z > 1.6;
+  ctx.font = `${Math.max(9, (big ? 11 : 9.5)*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.1*dpr;
+  const txt = big ? `${look.icon} ${clip(sessName(s), 14)} · ${b.name}${n ? "  🐾" + n : ""}` : `${look.icon} ${clip(sessName(s), 10)}${n ? " 🐾" + n : ""}`;
+  const w = ctx.measureText(txt).width + 14*dpr, hh = (big ? 18 : 15)*dpr, y = y0 + hh;
+  if (y > hh){
+    ctx.strokeStyle = TOD.ink; ctx.fillStyle = look.bg || TOD.paper;
+    ctx.beginPath(); ctx.roundRect(x - w/2, y - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = look.bg ? "#1f1d1b" : TOD.ink; ctx.textAlign = "center"; ctx.fillText(txt, x, y - hh/2 + 0.5);
+  }
+  if (s.stampUntil > now){
+    const age = 3 - (s.stampUntil - now), sc = Math.min(1, age / 0.25) * (1 + Math.max(0, 0.25 - age) * 2) * 0.7;
+    ctx.globalAlpha = Math.min(1, (s.stampUntil - now) / 0.6);
+    ctx.translate(x, SY(isoY(b.pos.x, b.pos.y, 40))); ctx.rotate(-0.18); ctx.scale(sc, sc);
+    ctx.strokeStyle = "#d6463f"; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 3*dpr;
+    ctx.beginPath(); ctx.roundRect(-46*dpr, -20*dpr, 92*dpr, 40*dpr, 10*dpr); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#d6463f"; ctx.font = `${24*dpr}px 'Jua', sans-serif`; ctx.textAlign = "center";
+    ctx.fillText("완료!", 0, 1*dpr);
+  }
+  ctx.restore();
+  ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr; ctx.textAlign = "left";
 }
 
 /* 멀티 세션 데모: 서버 없이 가짜 세션 4개를 Claude Code 로그 형식으로 흘려보냄 */
@@ -4271,8 +4367,19 @@ function updateLiveList(){
     liveListVer = key;
     agentList.innerHTML = "";
     const s = slotSession(cam.focus), L = SLOTS[cam.focus], hq = team && team.slot === cam.focus;
-    $("#agentsTitle").textContent = hq ? `${L.name} · 출근한 사람들` : `${L.name} · 고양이들`;
-    if (hq){                                                    // 깃허브 기여자 본사
+    $("#agentsTitle").textContent = ONE && cam.focus === hqSlot() ? `${L.name} · 세션 고양이와 사람들`
+                                  : hq ? `${L.name} · 출근한 사람들` : `${L.name} · 고양이들`;
+    if (ONE && cam.focus === hqSlot()){
+      liveRows = [...live.sessions.values()].map(v => ({c:v.boss, ...hudRow(v.boss.coat.base, `${v.boss.name} · ${sessName(v)}`,
+                   `${phaseLook(v).text}${v.kittens.size ? " · 서브에이전트 " + v.kittens.size : ""}`)}));
+      if (team) for (const m of team.members.filter(m => m.present))
+        liveRows.push({c:m.cat, ...hudRow("#e8735f", m.info.name || "@" + m.login, TIER_LABEL[m.tier])});
+      if (!liveRows.length){
+        const p = document.createElement("p"); p.className = "hint"; p.style.margin = "0";
+        p.textContent = "아직 아무도 없어요. 세션이 시작되면 고양이가, 기여자는 기여 정도에 따라 사람이 출근해요.";
+        agentList.appendChild(p);
+      }
+    } else if (hq){                                                    // 깃허브 기여자 본사
       const here = team.members.filter(m => m.present);
       liveRows = here.map(m => ({c:m.cat, ...hudRow("#e8735f", m.info.name || "@" + m.login, TIER_LABEL[m.tier])}));
       if (!here.length){
@@ -4386,7 +4493,8 @@ function updateSummaries(){
                .filter(s => cam.focus === null || s.slot === cam.focus);
   for (const el of [...list.children]) if (!ss.some(s => s.card && s.card.el === el)) el.remove();
   $("#summaryEmpty").hidden = ss.length > 0;
-  $("#summaryEmpty").textContent = cam.focus !== null && team && team.slot === cam.focus ? `${team.repo} 기여자들의 사무실이에요. AI 세션은 다른 건물에서 일해요.`
+  $("#summaryEmpty").textContent = ONE && cam.focus !== null && cam.focus !== hqSlot() ? "빈 건물이에요. 모두 한 사무실에서 일해요."
+    : cam.focus !== null && team && team.slot === cam.focus && !ONE ? `${team.repo} 기여자들의 사무실이에요. AI 세션은 다른 건물에서 일해요.`
     : cam.focus !== null ? "빈 사무실이에요." : "아직 활동 중인 세션이 없어요. Claude Code에서 작업을 시작하면 고양이가 입주해요.";
   ss.forEach((s, i) => {
     if (!s.card) s.card = buildSumCard(s);
@@ -4408,6 +4516,7 @@ function updateHUD(){
   const hideSim = mode !== "sim";
   const showFollow = mode === "live";
   if (btnFollow.hidden === showFollow) btnFollow.hidden = !showFollow;
+  if (btnLayout.hidden === showFollow) btnLayout.hidden = !showFollow;
   const chip = $("#followChip");
   if (!showFollow || !follow.on){ chip.hidden = true; }
   else {

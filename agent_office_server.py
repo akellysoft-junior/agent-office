@@ -1641,7 +1641,7 @@ def get_team(repo):
 WIDGET_JS = r"""(function(){
   "use strict";
   var me = document.currentScript, base = new URL(".", me ? me.src : location.href), ORIGIN = base.origin;
-  var KEYS = ["repo", "theme", "tod", "team", "follow", "demo"];
+  var KEYS = ["repo", "theme", "tod", "team", "follow", "demo", "layout"];
   function mount(el, opts){
     if (!el || el.__agentOffice) return el && el.__agentOffice;
     opts = opts || {};

@@ -95,7 +95,7 @@ for num, (who, var) in FILES.items():
         img = Image.fromarray(arr); img = img.resize((round(img.width * s), round(img.height * s)), Image.LANCZOS)
         im = np.array(img); a = im[..., 3] > 40; H, W = a.shape
         kind = who if pose == "stand" else who + "Work"
-        ppu = PPU[who] * (1.2 if (who == "cat" and pose == "work") else 1.0)
+        ppu = PPU[who]   # 서기·작업 같은 배율 (작업 고양이를 줄이면 서 있는 고양이보다 작아 보임)
         m, ids = region_map(im, H_O if who == "human" else C_O, H_FILL if who == "human" else C_FILL,
                             H_KEEP if who == "human" else C_KEEP, who == "human")
         ys, xs = np.where(a); top, bot = ys.min(), ys.max(); x0, x1 = xs.min(), xs.max(); bw = x1 - x0

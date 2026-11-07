@@ -28,7 +28,7 @@ PPU = {
   "human": head_w(alpha(os.path.join(SP, "human_bob_stand.png")), 0.15, 0.30) / HW_UNITS,
   "humanWork": head_w(alpha(os.path.join(SP, "human_bob_work.png")), 0.12, 0.27) / HW_UNITS,
   "cat": head_w(alpha(os.path.join(SP, "cat_patch_stand.png")), 0.18, 0.36) / CW_UNITS,
-  "catWork": head_w(alpha(os.path.join(SP, "cat_patch_work.png")), 0.14, 0.32) / CW_UNITS * 1.2,
+  "catWork": head_w(alpha(os.path.join(SP, "cat_patch_stand.png")), 0.18, 0.36) / CW_UNITS,   # 서기와 같은 배율
 }
 print("ppu", {k: round(v, 2) for k, v in PPU.items()})
 

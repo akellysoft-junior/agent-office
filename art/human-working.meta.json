@@ -1,0 +1,61 @@
+{
+ "viewBox": [
+  0,
+  0,
+  1312,
+  1199
+ ],
+ "ppu": 40.065,
+ "kRef": 0.9,
+ "anchors": {
+  "seat": [
+   515,
+   822
+  ],
+  "nearHand": [
+   835.5,
+   586.1
+  ],
+  "farHand": [
+   906.7,
+   603.9
+  ]
+ },
+ "drawOrder": [
+  "arm-far",
+  "legs",
+  "torso",
+  "head(\ubaa9\u00b7\uc637\uae43 \ud3ec\ud568)",
+  "arm-near"
+ ],
+ "paletteKeys": [
+  "outline",
+  "hair",
+  "skin",
+  "shirt",
+  "pants",
+  "shoe"
+ ],
+ "params": {
+  "near_shoulder": [
+   616,
+   520
+  ],
+  "near_elbow": [
+   690,
+   632
+  ],
+  "near_rot": -4,
+  "far_shoulder": [
+   672,
+   508
+  ],
+  "far_elbow": [
+   768,
+   628
+  ],
+  "far_rot": -2,
+  "sleeve_w": 64,
+  "wrist_back": 40
+ }
+}

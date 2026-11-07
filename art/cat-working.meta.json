@@ -1,0 +1,31 @@
+{
+ "viewBox": [
+  0,
+  0,
+  1312,
+  1199
+ ],
+ "ppu": 44.625,
+ "kRef": 1.0,
+ "anchors": {
+  "seat": [
+   570,
+   1014
+  ],
+  "nearPaw": [
+   845,
+   736
+  ],
+  "farPaw": [
+   943,
+   729
+  ]
+ },
+ "paletteKeys": [
+  "outline",
+  "fur",
+  "patch",
+  "inner"
+ ],
+ "note": "\ubaa8\uc591\uc740 \uc6d0\ubcf8 \uadf8\ub300\ub85c. \ubd80\ud488(\uaf2c\ub9ac\u00b7\uc55e\ubc1c) \ubd84\ub9ac\ub294 \ub2e4\uc74c \ub2e8\uacc4"
+}

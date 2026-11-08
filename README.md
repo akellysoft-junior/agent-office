@@ -150,6 +150,16 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 - 저장소는 `data-repo` → 서버의 `--repo` → 가장 최근에 움직인 세션 폴더의 git origin 순서로 정해요.
 - 깃허브 정보는 30분마다 새로 받고 `~/.cache/agent-office`에 저장해 둬요. `GITHUB_TOKEN`이나 `gh` 로그인이 있으면 그걸 써서 비공개 저장소도 볼 수 있고 API 한도도 넉넉해져요. 토큰은 서버 안에서만 쓰고 페이지로 보내지 않아요.
 
+### 내 캐릭터 꾸미기 (본인 것만)
+
+기본 모습은 아이디로 정해지는데, 본인이 직접 고를 수도 있어요. 성별을 추측하지 않고 각자 고르게 하려는 기능이에요.
+
+- 화면에서 **내 캐릭터**를 누르면 대화창에 `내 캐릭터 꾸미기`가 나와요. 모양(머리·옷 10종)과 머리색·피부·상의·안에 입은 옷·바지·모자 색을 고르면 바로 미리 보여요.
+- **나**는 이 PC의 `gh` 로그인(또는 `GITHUB_TOKEN`) 계정이에요. 다른 사람 캐릭터에는 버튼이 나오지 않아요.
+- 저장하면 **내 GitHub 계정의 공개 gist** `nyang-office.json`에 남아요. 내 계정이라 나만 고칠 수 있고, 같은 저장소를 보는 다른 사람 화면에도 다음 갱신 때(최대 30분) 반영돼요.
+- 저장이 안 되면 `gh auth refresh -s gist`로 gist 권한을 추가해 주세요.
+- 직접 만들어도 돼요. 공개 gist 에 이 파일 하나면 돼요: `{"art":"short","hair":"#2b2522","shirt":"#7fb2ea"}` (모양: `wavy` `longglasses` `ponytail` `ponyglasses` `bunhood` `bob` `short` `fringe` `curly` `beanie`)
+
 ## 터미널 열기 지원 범위
 
 | 환경 | 터미널로 이동 | 이어하기 |

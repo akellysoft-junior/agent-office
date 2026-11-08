@@ -2316,6 +2316,7 @@ async function loadMe(){
     try { const r = await fetch("api/me", {cache:"no-store"}); const d = await r.json(); me = d.login ? {login:d.login} : null; } catch { me = null; }
   } else if (live.source === "demo") me = team && team.members[0] ? {login:team.members[0].login, demo:true} : null;
 }
+const ART_GENDER = {f:["wavy", "longglasses", "ponytail", "ponyglasses", "bunhood", "bob"], m:["short", "fringe", "curly", "beanie"]};
 const ART_LABEL = {wavy:"웨이브·가디건", longglasses:"긴머리·안경·후드", ponytail:"포니테일", ponyglasses:"포니테일·안경·니트",
   bunhood:"똥머리·후드", bob:"단발", short:"짧은 머리·니트", fringe:"앞머리·후드", curly:"곱슬·가디건", beanie:"비니"};
 const picker = {box:$("#picker"), cv:$("#pkCv"), opts:$("#pkOpts"), note:$("#pkNote"), who:$("#pkWho"), m:null, before:null};
@@ -2326,8 +2327,8 @@ function openPicker(m){
   picker.note.textContent = me && me.demo ? "데모에서는 첫 번째 사람을 '나'로 가정해요. 저장은 되지 않아요."
     : "저장하면 내 GitHub 계정에 공개 gist(nyang-office.json)로 남아요. 내 계정이라 나만 고칠 수 있어요.";
   const O = picker.opts; O.textContent = "";
-  const row = (label, items, key, swatch) => {
-    const r = document.createElement("div"); r.className = "pk-row";
+  const row = (label, items, key, swatch, after) => {
+    const r = document.createElement("div"); r.className = "pk-row"; r.dataset.key = key;
     const t = document.createElement("span"); t.textContent = label; r.appendChild(t);
     const c = document.createElement("div"); c.className = "pk-chips"; r.appendChild(c);
     for (const [val, text] of items){
@@ -2337,13 +2338,24 @@ function openPicker(m){
       b.setAttribute("aria-pressed", String(m.look[key] === val));
       b.addEventListener("click", () => {
         m.look[key] = val; [...c.children].forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+        if (after) after();
         drawPickerPreview();
       });
       c.appendChild(b);
     }
     O.appendChild(r);
+    return r;
   };
-  row("모양", Object.keys(ART_LABEL).filter(k => CHAR_ART["human." + k]).map(k => [k, ART_LABEL[k]]), "art");
+  const artItems = () => (m.look.gender ? ART_GENDER[m.look.gender] : Object.keys(ART_LABEL))
+    .filter(k => CHAR_ART["human." + k]).map(k => [k, ART_LABEL[k]]);
+  if (m.look.gender === undefined) m.look.gender = "";
+  row("성별", [["f", "여성"], ["m", "남성"], ["", "고르지 않음"]], "gender", false, () => {
+    const ok = artItems().map(x => x[0]);
+    if (!ok.includes(m.look.art)) m.look.art = ok[hashStr(m.login) % ok.length];
+    const old = O.querySelector("[data-key=art]"), fresh = row("모양", artItems(), "art");
+    old.replaceWith(fresh);
+  });
+  row("모양", artItems(), "art");
   row("머리색", HAIRS.map(c => [c]), "hair", true);
   row("피부", SKINS.map(c => [c]), "skin", true);
   row("상의", ACC_COLORS.map(c => [c]), "shirt", true);
@@ -2372,7 +2384,7 @@ $("#pkCancel").addEventListener("click", () => closePicker(true));
 $("#pkSave").addEventListener("click", async () => {
   const m = picker.m; if (!m) return;
   if (!me || me.demo){ picker.note.textContent = "데모라서 저장하지 않았어요. 이 화면에서만 바뀐 모습이 보여요."; return; }
-  const look = {art:m.look.art, hair:m.look.hair, skin:m.look.skin, shirt:m.look.shirt, pants:m.look.pants, inner:m.look.inner, hat:m.look.hat};
+  const look = {gender:m.look.gender || "", art:m.look.art, hair:m.look.hair, skin:m.look.skin, shirt:m.look.shirt, pants:m.look.pants, inner:m.look.inner, hat:m.look.hat};
   picker.note.textContent = "저장하는 중…";
   try {
     const r = await fetch("api/me/look", {method:"POST", headers:{"Content-Type":"application/json", "X-Agent-Office":"1"}, body:JSON.stringify({look})});
@@ -4379,6 +4391,10 @@ const artVariants = new Map();
 function humanArt(a){
   const L = a.look || {}, h = hashStr(String(a.id || a.name || ""));
   if (L.art && CHAR_ART["human." + L.art]) return L.art;          // 본인이 고른 종류
+  if (L.gender && ART_GENDER[L.gender]){                           // 성별만 고른 경우: 그 안에서 아이디로
+    const g = ART_GENDER[L.gender].filter(k => CHAR_ART["human." + k]);
+    if (g.length) return g[h % g.length];
+  }
   switch (L.style){
     case "short": return ["bob", "short", "fringe"][h % 3];
     case "long": return L.glasses ? "longglasses" : "wavy";

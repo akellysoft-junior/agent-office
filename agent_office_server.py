@@ -1594,6 +1594,8 @@ def clean_look(d):
     out = {}
     if d.get("art") in LOOK_ARTS:
         out["art"] = d["art"]
+    if d.get("gender") in ("f", "m"):          # 본인이 고른 성별 (고르지 않으면 빈 값)
+        out["gender"] = d["gender"]
     for k in LOOK_COLORS:
         v = d.get(k)
         if isinstance(v, str) and HEX_RE.match(v):

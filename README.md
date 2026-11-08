@@ -158,7 +158,8 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 - **나**는 이 PC의 `gh` 로그인(또는 `GITHUB_TOKEN`) 계정이에요. 다른 사람 캐릭터에는 버튼이 나오지 않아요.
 - 저장하면 **내 GitHub 계정의 공개 gist** `nyang-office.json`에 남아요. 내 계정이라 나만 고칠 수 있고, 같은 저장소를 보는 다른 사람 화면에도 다음 갱신 때(최대 30분) 반영돼요.
 - 저장이 안 되면 `gh auth refresh -s gist`로 gist 권한을 추가해 주세요.
-- 직접 만들어도 돼요. 공개 gist 에 이 파일 하나면 돼요: `{"art":"short","hair":"#2b2522","shirt":"#7fb2ea"}` (모양: `wavy` `longglasses` `ponytail` `ponyglasses` `bunhood` `bob` `short` `fringe` `curly` `beanie`)
+- 성별(여성·남성·고르지 않음)을 고르면 모양 목록이 그에 맞게 바뀌어요. 성별만 고르고 모양을 안 고르면 그 안에서 아이디로 정해져요.
+- 직접 만들어도 돼요. 공개 gist 에 이 파일 하나면 돼요: `{"gender":"m","art":"short","hair":"#2b2522","shirt":"#7fb2ea"}` (성별: `f` `m`, 생략 가능) (모양: `wavy` `longglasses` `ponytail` `ponyglasses` `bunhood` `bob` `short` `fringe` `curly` `beanie`)
 
 ## 터미널 열기 지원 범위
 

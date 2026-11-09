@@ -1,0 +1,38 @@
+<title>캐릭터 조합실</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
+<style>
+/* 종이 위 스케치북: 왼쪽 미리보기 판, 오른쪽 옷장 서랍 */
+:root{
+  --paper:#fbf6ec; --paper-2:#f3ead9; --ink:#2b1d14; --muted:#7a6a5c; --accent:#e8735f; --line:#d9cbb6;
+  --font-display:'Jua', 'Gowun Dodum', system-ui, sans-serif; --font-body:'Gowun Dodum', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#25211d; --paper-2:#2f2a24; --ink:#f3e9da; --muted:#b8a994; --accent:#f08a72; --line:#4a4035; color-scheme:dark } }
+:root[data-theme="dark"]{ --paper:#25211d; --paper-2:#2f2a24; --ink:#f3e9da; --muted:#b8a994; --accent:#f08a72; --line:#4a4035; color-scheme:dark }
+body{background:var(--paper); color:var(--ink); font-family:var(--font-body); font-size:15px; line-height:1.55;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-block:20px 32px}
+.wrap{max-width:1040px; margin:0 auto; display:flex; flex-direction:column; gap:16px}
+h1{font-family:var(--font-display); font-weight:400; font-size:28px; margin:0; text-wrap:balance}
+.lede{margin:0; color:var(--muted); max-width:62ch}
+.main{display:grid; grid-template-columns:minmax(0, 1.25fr) minmax(0, 1fr); gap:16px; align-items:start}
+@media (max-width:760px){ .main{grid-template-columns:minmax(0, 1fr)} }
+.stage{background:var(--paper-2); border:2px solid var(--ink); border-radius:16px; box-shadow:4px 4px 0 var(--ink); padding:12px;
+  display:flex; gap:8px; justify-content:center; align-items:flex-end; min-width:0}
+.stage figure{margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; flex:1 1 0}
+.stage canvas{width:100%; max-width:260px; height:auto; display:block}
+.stage figcaption{font-size:12px; color:var(--muted)}
+.panel{display:flex; flex-direction:column; gap:12px; min-width:0}
+.group{display:flex; flex-direction:column; gap:6px}
+.group > span{font-family:var(--font-display); font-size:14px}
+.chips{display:flex; flex-wrap:wrap; gap:6px}
+button{font:inherit; color:var(--ink); background:var(--paper); border:1.5px solid var(--ink); border-radius:999px; padding:4px 12px; cursor:pointer}
+button[aria-pressed="true"]{background:var(--ink); color:var(--paper)}
+button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+.sw{width:28px; height:28px; padding:0; border-radius:50%}
+.sw[aria-pressed="true"]{outline:3px solid var(--accent); outline-offset:2px; background-clip:padding-box}
+.row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.primary{background:var(--accent); color:#1f140d; border-color:var(--ink); font-family:var(--font-display)}
+.count{font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: no-preference){ .stage canvas{transition:opacity .15s} }
+</style>

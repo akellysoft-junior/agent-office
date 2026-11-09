@@ -1,0 +1,103 @@
+<div class="wrap">
+  <h1>캐릭터 조합실</h1>
+  <p class="lede">마네킹 위에 머리·상의·하의 레이어를 겹치고 부위마다 색을 바꿔요. 서 있는 자세와 작업 자세가 함께 바뀌어요.</p>
+  <div class="main">
+    <div class="stage" aria-live="polite">
+      <figure><canvas id="cvStand" width="10" height="10" aria-label="서 있는 자세"></canvas><figcaption>서 있는 자세</figcaption></figure>
+      <figure><canvas id="cvWork" width="10" height="10" aria-label="작업 자세"></canvas><figcaption>작업 자세</figcaption></figure>
+    </div>
+    <div class="panel" id="panel"></div>
+  </div>
+  <div class="row"><button type="button" class="primary" id="btnRandom">무작위로 하나</button><span class="count" id="count"></span></div>
+</div>
+<script>
+const DATA = __DATA__;
+const PARTS = {
+  hair: [["hair_short", "짧은 머리"], ["hair_long", "긴 생머리"], ["hair_ponytail", "포니테일"], ["", "없음"]],
+  top: [["top_sweater", "니트"], ["top_hoodie", "후드티"], ["top_cardigan", "가디건"], ["", "기본 티"]],
+  bottom: [["bottom_pants", "바지"], ["bottom_skirt", "치마"]],
+};
+const COLORS = {
+  hair: ["#2b2522", "#4a3426", "#7a5232", "#a8743e", "#c9a06a", "#8a8a8a"],
+  skin: ["#fbe6d4", "#f8dcc4", "#f0c7a6", "#dda57f", "#bd8260", "#8d5b3e"],
+  shirt: ["#7fb2ea", "#e5534b", "#8fbf9a", "#f0c96b", "#c79bff", "#f08a8a", "#3d4a5c"],
+  inner: ["#ffffff", "#f4ecdc", "#d8dde6", "#3a3f4b", "#f3dfa0"],
+  tee: ["#ffffff", "#d8d4cc", "#f4ecdc", "#2f3542", "#cfe3d2"],
+  pants: ["#4a5568", "#2f3e5c", "#5b4a3a", "#3d3b40", "#7d6b58"],
+};
+const LABEL = {hair:"머리", top:"상의", bottom:"하의", hairC:"머리색", skin:"피부", shirt:"겉옷 색", inner:"안에 입은 옷", tee:"기본 티", pants:"바지·치마"};
+const REGION_KEY = {1:"hair", 2:"skin", 3:"shirt", 4:"inner", 5:"pants", 6:"tee"};
+const state = {hair:"hair_long", top:"top_cardigan", bottom:"bottom_pants",
+  hairC:"#4a3426", skin:"#f8dcc4", shirt:"#8fbf9a", inner:"#ffffff", tee:"#d8d4cc", pants:"#2f3e5c"};
+const OUT = [59, 29, 11];
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+
+/* 그림·지도 불러오기 */
+const loadImg = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+const pixels = img => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+  const x = c.getContext("2d"); x.drawImage(img, 0, 0); return x.getImageData(0, 0, c.width, c.height); };
+const assets = {};
+async function load(){
+  for (const pose of ["stand", "work"]){
+    const P = DATA[pose], A = assets[pose] = {w:P.w, h:P.h};
+    for (const [k, v] of Object.entries(P)){
+      if (k === "w" || k === "h") continue;
+      if (k.startsWith("zone_")){ A[k] = pixels(await loadImg(v)); continue; }
+      A[k] = {img: pixels(await loadImg(v.src)), map: pixels(await loadImg(v.map))};
+    }
+  }
+}
+/* 색 바꾸기: 새 픽셀 = 외곽선 + t·(새 색 − 외곽선) */
+function recolor(layer, colors, erase){
+  const src = layer.img.data, mp = layer.map.data, out = new ImageData(layer.img.width, layer.img.height), d = out.data;
+  const T = {}; for (const id in REGION_KEY) T[id] = hexRGB(colors[REGION_KEY[id]]);
+  for (let i = 0; i < src.length; i += 4){
+    d[i] = src[i]; d[i + 1] = src[i + 1]; d[i + 2] = src[i + 2]; d[i + 3] = src[i + 3];
+    if (erase && erase.some(z => z.data[i] > 0)){ d[i + 3] = 0; continue; }
+    const t = T[mp[i]]; if (!t) continue;
+    const f = mp[i + 1] / 200;
+    d[i] = OUT[0] + (t[0] - OUT[0]) * f; d[i + 1] = OUT[1] + (t[1] - OUT[1]) * f; d[i + 2] = OUT[2] + (t[2] - OUT[2]) * f;
+  }
+  return out;
+}
+function draw(pose, cv){
+  const A = assets[pose]; cv.width = A.w; cv.height = A.h;
+  const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, A.w, A.h);
+  const colors = {hair:state.hairC, skin:state.skin, shirt:state.shirt, inner:state.inner, tee:state.tee, pants:state.pants};
+  const erase = [state.bottom && A.zone_bottom, state.top && A.zone_top].filter(Boolean);
+  const tmp = document.createElement("canvas"); tmp.width = A.w; tmp.height = A.h; const tx = tmp.getContext("2d");
+  const put = layer => { tx.putImageData(layer, 0, 0); ctx.drawImage(tmp, 0, 0); };   // 겹쳐 그리기 (투명 부분은 아래가 보이게)
+  put(recolor(A.mannequin, colors, erase));
+  for (const k of [state.bottom, state.top, state.hair]) if (k) put(recolor(A[k], colors));
+}
+function render(){ draw("stand", document.getElementById("cvStand")); draw("work", document.getElementById("cvWork")); syncPressed(); }
+
+/* 고르는 판 */
+const panel = document.getElementById("panel"), groups = [];
+function group(key, items, swatch){
+  const g = document.createElement("div"); g.className = "group";
+  const t = document.createElement("span"); t.textContent = LABEL[key]; g.appendChild(t);
+  const c = document.createElement("div"); c.className = "chips"; g.appendChild(c);
+  for (const [val, text] of items){
+    const b = document.createElement("button"); b.type = "button"; b.dataset.key = key; b.dataset.val = val;
+    if (swatch){ b.className = "sw"; b.style.background = val; b.setAttribute("aria-label", `${LABEL[key]} ${val}`); } else b.textContent = text;
+    b.addEventListener("click", () => { state[key] = val; render(); });
+    c.appendChild(b);
+  }
+  panel.appendChild(g); groups.push(c);
+}
+function syncPressed(){ for (const b of panel.querySelectorAll("button")) b.setAttribute("aria-pressed", String(state[b.dataset.key] === b.dataset.val)); }
+group("hair", PARTS.hair); group("top", PARTS.top); group("bottom", PARTS.bottom);
+group("hairC", COLORS.hair.map(c => [c]), true); group("skin", COLORS.skin.map(c => [c]), true);
+group("shirt", COLORS.shirt.map(c => [c]), true); group("inner", COLORS.inner.map(c => [c]), true);
+group("tee", COLORS.tee.map(c => [c]), true); group("pants", COLORS.pants.map(c => [c]), true);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+document.getElementById("btnRandom").addEventListener("click", () => {
+  Object.assign(state, {hair:pick(PARTS.hair)[0], top:pick(PARTS.top)[0], bottom:pick(PARTS.bottom)[0], hairC:pick(COLORS.hair),
+    skin:pick(COLORS.skin), shirt:pick(COLORS.shirt), inner:pick(COLORS.inner), tee:pick(COLORS.tee), pants:pick(COLORS.pants)});
+  render();
+});
+const shapes = PARTS.hair.length * PARTS.top.length * PARTS.bottom.length;
+document.getElementById("count").textContent = `모양 조합 ${shapes}가지 × 색 조합 ${Object.values(COLORS).reduce((a, c) => a * c.length, 1).toLocaleString()}가지`;
+load().then(render);
+</script>

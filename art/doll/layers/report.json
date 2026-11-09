@@ -1,0 +1,130 @@
+{
+ "hair_short_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.995,
+  "px": 32117
+ },
+ "hair_short_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.986,
+  "px": 33218
+ },
+ "hair_long_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.911,
+  "px": 82528
+ },
+ "hair_long_work": {
+  "shift": [
+   -1,
+   0
+  ],
+  "fit": 0.905,
+  "px": 85702
+ },
+ "hair_ponytail_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.915,
+  "px": 74355
+ },
+ "hair_ponytail_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.7,
+  "px": 79849
+ },
+ "top_sweater_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.777,
+  "px": 64364
+ },
+ "top_sweater_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.826,
+  "px": 61348
+ },
+ "top_hoodie_stand": {
+  "shift": [
+   0,
+   -1
+  ],
+  "fit": 0.826,
+  "px": 83902
+ },
+ "top_hoodie_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.839,
+  "px": 74818
+ },
+ "top_cardigan_stand": {
+  "shift": [
+   0,
+   1
+  ],
+  "fit": 0.831,
+  "px": 64314
+ },
+ "top_cardigan_work": {
+  "shift": [
+   0,
+   1
+  ],
+  "fit": 0.851,
+  "px": 63358
+ },
+ "bottom_pants_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.819,
+  "px": 104562
+ },
+ "bottom_pants_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.834,
+  "px": 92589
+ },
+ "bottom_skirt_stand": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.987,
+  "px": 103801
+ },
+ "bottom_skirt_work": {
+  "shift": [
+   0,
+   0
+  ],
+  "fit": 0.98,
+  "px": 91441
+ }
+}

@@ -21,6 +21,11 @@ def load(n):
         bg = ndimage.binary_dilation(bg, iterations=1) & (rgb.min(-1) > 200)
         a[..., 3] = np.where(bg, 0, 255)
     a[..., 3] = np.where(a[..., 3] < 60, 0, a[..., 3])          # 빛 번짐 제거
+    # 외곽선 바깥 테두리(빛 번짐·흰 배경이 섞인 밝은 픽셀) 제거: 외곽선이 감싼 안쪽만 남김
+    o = (np.abs(a[..., :3] - np.array([59, 29, 11])).sum(-1) < 150) & (a[..., 3] > 0)
+    hull = ndimage.binary_fill_holes(ndimage.binary_closing(o, iterations=2))
+    keep = hull | (o & (a[..., 3] > 0))
+    a[..., 3] = np.where(keep, 255, 0)                           # 테두리는 또렷하게 (안쪽은 원래 불투명)
     return a
 
 OUTLINE = np.array([59, 29, 11])

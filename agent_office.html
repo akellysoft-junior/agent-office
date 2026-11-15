@@ -1937,7 +1937,7 @@ function celebrate(s){
   if (!reduceMotion) for (let i=0; i<4; i++) setTimeout(() => burst(L.x + 30 + Math.random()*120, L.y + 25 + Math.random()*80), i*170);
   const sum = [s.files.size ? `파일 ${s.files.size}개 수정` : "", s.cmds ? `명령 ${s.cmds}회` : "",
                s.subTotal ? `새끼냥 ${s.subTotal}마리 출동` : ""].filter(Boolean).join(" · ");
-  toast(`✓ ${sessName(s)} 작업 완료`, sum || s.result);
+  if (!EMBED) toast(`✓ ${sessName(s)} 작업 완료`, sum || s.result);   // 위젯에선 상단 완료 팝업 생략 (장면 속 완료 도장만)
   chime();
   notifyUser(`✓ ${sessName(s)} 작업 완료`, s.result || sum);
   log(`✓ ${L.name} · ${sessName(s)} 작업 완료${sum ? " (" + sum + ")" : ""}`, "good");

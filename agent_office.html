@@ -1419,7 +1419,7 @@ const cam = {z:1, cx:CENTER[0], cy:CENTER[1], tz:1, tcx:CENTER[0], tcy:CENTER[1]
 let narrow = false;
 let embedZ = 1;
 /* 위젯 카메라: 좁은 위젯에선 사무실 전체 대신 캐릭터 하나를 크게 비추며 몇 초마다 다음 캐릭터로 넘어감 */
-const wcam = {overview:false, i:0, at:0, target:null};
+const wcam = {overview: QS.get("cam") === "all", i:0, at:0, target:null};
 const WCAM_SPAN = 125, WCAM_HOLD = 9000;                  // 화면 가로에 보이는 세계 폭, 한 캐릭터에 머무는 시간
 const wcamZ = () => VW / WCAM_SPAN;
 const wcamOn = () => EMBED && ONE && !ROOM && !wcam.overview;
@@ -2787,16 +2787,11 @@ const CAMPUS_PLATES = [
   ...SLOTS.map(L => [L.x-10, L.y-10, L.w+20, L.d+20]),
 ];
 const CAMPUS_LAMPS = [[234,140],[508,140],[264,170],[538,170],[300,356],[620,356],[820,280]];
-const ONE_YARD = [-40, -40, 380, 270];          // one: 본사 마당 (x -40~340, y -40~230)
-const ONE_PLATES = [[-900, -900, 1240, 860], [-900, -40, 860, 270], [400, -900, 1500, 1130], [-900, 300, 2800, 900], ONE_YARD];
-const ONE_LAMPS = [[30, 244], [176, 244], [318, 244], [354, 40], [354, 170]];
+const ONE_YARD = [-26, -26, 352, 258];          // one: 본사를 감싸는 마당 한 판 (도로·이웃 건물 없이 작은 디오라마처럼)
+const ONE_PLATES = [ONE_YARD];
+const ONE_LAMPS = [[24, 222], [312, 222]];
 function drawOneGround(){
   const P = TOD;
-  ctx.save(); ctx.setLineDash([7, 7]); ctx.globalAlpha = .45;
-  line([gpt(-900, 265, -12), gpt(1600, 265, -12)]);           // 남쪽 도로 중앙선
-  line([gpt(370, -900, -12), gpt(370, 230, -12)]);             // 동쪽 도로 중앙선
-  ctx.restore();
-  for (let i = 0; i < 4; i++) floorPoly(208, 238 + i * 15, 32, 6, P.plate, -12, true);   // 문 앞 횡단보도
   for (const [x, y, w, d] of ONE_PLATES){
     wallQuad(x, y+d, x+w, y+d, -12, GZ, P.side);
     wallQuad(x+w, y+d, x+w, y, -12, GZ, P.side);
@@ -2815,21 +2810,12 @@ function drawOneGround(){
 }
 function oneDecor(){
   if (ROOM) return [];                                 // 위젯 B안: 방 밖 풍경은 비움
-  const out = [
-    {z:-260, fn:() => apartment(60, -250, 100, 56, 90, 1)},
-    {z:-250, fn:() => apartment(300, -260, 100, 60, 100, 3)},
-  ];
-  for (const [x, y, h, r] of [[10,-26,58,15],[95,-30,64,17],[180,-24,56,15],[265,-30,62,16],[330,-20,54,14],
-                              [-26,30,60,16],[-30,110,56,15],[-24,190,62,16],
-                              [-120,90,58,16],[460,60,60,16],[470,190,56,15],[60,330,58,16],[300,336,62,17]])
+  const out = [];
+  for (const [x, y, h, r] of [[-10, -12, 56, 15], [314, -12, 52, 14], [-12, 214, 50, 13]])   // 나무는 모서리에 셋만
     out.push({z: x + y, fn:() => tree(x, y, h, r)});
   for (const [x, y] of ONE_LAMPS) out.push({z: x + y, fn:() => streetLamp(x, y)});
   out.push({z: 270 + 212, fn:() => bench(262, 206)});
-  out.push({z: 140 + 212, fn:() => bench(130, 206)});
-  out.push({z: 196 + 214, fn:() => mailbox(194, 210)});
-  out.push({z: 300 + 214, fn:() => bike(292, 212)});
   out.push({z: 205 + 190, fn:() => planter(196, 186, ["#e9897a","#ffd36b","#e9897a"])});
-  out.push({z: 250 + 190, fn:() => planter(244, 186, ["#7cc59a","#f08a8a","#7cc59a"])});
   return out;
 }
 function drawCampusGround(){
@@ -4549,7 +4535,7 @@ addEventListener("resize", resize);
 
 function render(now){
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.fillStyle = TOD.bg;
+  ctx.fillStyle = ONE && scene === "campus" ? TOD.plate : TOD.bg;   // one: 바깥은 마당과 같은 색으로 비워 둠 (여백이 덜 눈에 띄게)
   ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(scale,0,0,scale,0,0);
   ctx.translate(VW/2, VH/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.cx, -cam.cy);
@@ -5043,6 +5029,7 @@ pingServer().then(ok => {
 });
 if (EMBED){
   addEventListener("resize", () => { if (talkSel.cat) talkCamera(); });
+  if (ONE && wcam.overview){ $("#zFit").textContent = "🐾"; $("#zFit").setAttribute("aria-label", "캐릭터 따라가기"); }
   let seen = false; try { seen = localStorage.getItem("ao.talkHint") === "1"; } catch {}
   if (!seen) setTimeout(() => {                     // 위젯은 좁아서 큰 안내 카드 대신 작은 칩
     const chip = document.createElement("div"); chip.className = "tapchip"; chip.textContent = "🐾 눌러서 말 걸기";

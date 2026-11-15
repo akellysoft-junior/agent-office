@@ -363,6 +363,7 @@ const EMBED = document.documentElement.classList.contains("embed");
 /* 사무실 구성: rooms = 세션마다 건물 하나 / one = 한 사무실에 세션 고양이와 기여자 사람이 함께 (URL ?layout=one, 아니면 저장된 값) */
 const LAYOUT = (() => { let v = QS.get("layout"); if (!v && EMBED) v = "one"; if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
 const ONE = LAYOUT === "one";
+const ROOM = EMBED && ONE && QS.get("view") === "room";   // 위젯 B안: 작은 방 하나를 상자에 꽉 차게
 const OPT = {repo:(QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1"};
 const cv = $("#office");
@@ -1421,8 +1422,8 @@ let embedZ = 1;
 const wcam = {overview:false, i:0, at:0, target:null};
 const WCAM_SPAN = 125, WCAM_HOLD = 9000;                  // 화면 가로에 보이는 세계 폭, 한 캐릭터에 머무는 시간
 const wcamZ = () => VW / WCAM_SPAN;
-const wcamOn = () => EMBED && ONE && !wcam.overview;
-const overviewZ = () => scene !== "campus" ? 1 : (EMBED ? embedZ : narrow ? 1.5 : 1) * (ONE ? 1.55 : 1);
+const wcamOn = () => EMBED && ONE && !ROOM && !wcam.overview;
+const overviewZ = () => scene !== "campus" ? 1 : ROOM ? VW / ((176 + 130) * ISX * 1.04) : (EMBED ? embedZ : narrow ? 1.5 : 1) * (ONE ? 1.55 : 1);
 let LW = 1.05;
 const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
 const perfNow = () => performance.now() / 1000;
@@ -1442,7 +1443,11 @@ const SLOTS = [
   {name:"냥냥마트",     x:274, y:180, trim:"#7fb2ea", theme:"shelf"},
   {name:"빨간 지붕 집", x:548, y:180, trim:"#e5534b", theme:"sofa"},
 ].map(s => ({...s, baseName:s.name, w:LOT_W, d:LOT_D, appear:[]}));
-if (ONE){                                       // one: 본사를 넓게 (옆·아래 건물 자리까지, 그 건물들은 숨김)
+if (ROOM){                                      // 위젯 B안: 책상 2×2 + 오른쪽 휴게 코너만 있는 작은 방
+  Object.assign(SLOTS[0], {w:176, d:130, cols:2, gx:46, gy:46, ox:12, oy:14, maxDesks:4});
+  CENTER[0] = 250 + (88 - 75) * 0.78; CENTER[1] = 75 + (88 + 75) * 0.39 - 4;
+  for (let i = 1; i < SLOTS.length; i++) SLOTS[i].hidden = true;
+} else if (ONE){                                // one: 본사를 넓게 (옆·아래 건물 자리까지, 그 건물들은 숨김)
   Object.assign(SLOTS[0], {w:300, d:172, cols:4, gx:50, gy:44, ox:18, oy:16, maxDesks:12, big:true});
   for (let i = 1; i < SLOTS.length; i++) SLOTS[i].hidden = true;   // 본사 한 채만
 }
@@ -2210,7 +2215,7 @@ function teamTick(){
       if (nowMs < m.nextAt) continue;
       if (ONE){                                   // one: 한 번에 최대 4명, 출근은 한 명씩 간격을 두고
         const here = team.members.filter(x => x.present).length;
-        if (here >= 4 || nowMs < (team.nextArriveAt || 0)){ m.nextAt = nowMs + rand(8000, 20000); continue; }
+        if (here >= (ROOM ? 2 : 4) || nowMs < (team.nextArriveAt || 0)){ m.nextAt = nowMs + rand(8000, 20000); continue; }
       }
       if (!teamArrive(m)) m.nextAt = nowMs + 20000;
       else if (ONE) team.nextArriveAt = nowMs + rand(25000, 60000) * (team.source === "demo" ? 0.4 : 1);
@@ -2809,6 +2814,7 @@ function drawOneGround(){
   }
 }
 function oneDecor(){
+  if (ROOM) return [];                                 // 위젯 B안: 방 밖 풍경은 비움
   const out = [
     {z:-260, fn:() => apartment(60, -250, 100, 56, 90, 1)},
     {z:-250, fn:() => apartment(300, -260, 100, 60, 100, 3)},

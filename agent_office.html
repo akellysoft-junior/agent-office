@@ -1565,9 +1565,12 @@ function saveWarm(){
   for (const s of live.sessions.values()) sess[s.sid] = [s.bossIdx, s.boss.deskIdx];
   const v = {at:Date.now(), z:cam.z, cx:cam.cx, cy:cam.cy, target:charKey(wcam.target), overview:wcam.overview, sess,
              present: team ? team.members.filter(m => m.present && !m.leaving).map(m => m.login) : null,
-             desks: team ? Object.fromEntries(team.members.filter(m => m.present && m.cat).map(m => [m.login, m.cat.deskIdx])) : null};
+             desks: team ? Object.fromEntries(team.members.filter(m => m.present && m.cat).map(m => [m.login, m.cat.deskIdx])) : null,
+             poses: Object.fromEntries(visibleCats().map(c => [charKey(c), c.poseShown]).filter(([k, p]) => k && p))};
   try { sessionStorage.setItem(RESUME_KEY, JSON.stringify(v)); } catch {}
 }
+// 다시 불러온 캐릭터는 첫 프레임부터 저장된 자세로 (서버 상태가 들어오며 '앉음 → 일함'으로 바뀌는 게 보이지 않게). 걷던 중이면 제자리라 무시
+const resumePose = key => { const p = RESUME && RESUME.poses && RESUME.poses[key]; return p && p !== "walk" ? p : undefined; };
 if (EMBED){ addEventListener("pagehide", saveWarm); setInterval(saveWarm, 2000); }
 const wcam = {overview: RESUME ? !!RESUME.overview : QS.get("cam") === "all", at:0, target:null, manual:false, resume:!!RESUME};
 const WCAM_SPAN = 125;                                    // 화면 가로에 보이는 세계 폭
@@ -2013,7 +2016,7 @@ function liveSessionOne(rec){
   s.bossIdx = bi;
   boss.pos = lotDoor(SLOTS[hqSlot()]);            // 문으로 들어와서 자리로
   const now = Date.now();
-  if (RESUME && now - LOAD_AT < 4000){ boss.pos = {...boss.seat}; boss.enterAt = 0; return s; }   // 위젯 다시 불러옴: 걸어 들어오지 않고 제자리에
+  if (RESUME && now - LOAD_AT < 4000){ boss.pos = {...boss.seat}; boss.enterAt = 0; boss.poseShown = resumePose("s:" + rec.s); return s; }   // 위젯 다시 불러옴: 걸어 들어오지 않고 제자리에
   // 여러 세션이 한꺼번에 생기면 겹치지 않게 1.2초 간격으로 한 마리씩
   oneEnterAt = Math.max(now, oneEnterAt + 1200);
   boss.enterAt = oneEnterAt > now ? oneEnterAt : 0;
@@ -2360,6 +2363,7 @@ function teamArrive(m){
                      napAfter:999, lot:team.slot, deskIdx:idx, router:lotRouter(L),
                      pos: instant ? lotSeat(L, idx) : lotDoor(L), seat:lotSeat(L, idx)});
   Object.assign(c, {human:m, look:m.look, busy:true, busyKind:"tool", stateText:"출근!"});
+  if (instant) c.poseShown = resumePose("h:" + m.login);
   if (m.rank === 0) Object.assign(c, {rig2:true, rigLook:HUMAN_REF});   // 새 그림체 미리보기: 기여 1위
   Object.assign(m, {cat:c, present:true, leaving:false, first:false,
                     leaveAt: Date.now() + tierTime(m, "stay"), breakAt: Date.now() + (ONE ? rand(30000, 90000) : rand(1.5*MIN, 4*MIN))});
@@ -3825,7 +3829,8 @@ function catPose(a, now){
   const p = catPoseNow(a, now);
   if (!a.poseShown || p === a.poseShown || p === "walk"){ a.poseShown = p; a.posePend = null; return p; }   // 걷기 시작은 바로
   if (a.posePend !== p){ a.posePend = p; a.poseAt = now; }
-  if (now - a.poseAt >= 0.15 || reduceMotion){ a.poseShown = p; a.posePend = null; }
+  const hold = RESUME && Date.now() - LOAD_AT < 3000 ? 1.5 : 0.15;   // 다시 불러온 직후엔 서버가 로그로 상태를 다시 맞추는 동안(짧게 working 이 끼기도 함) 저장된 자세를 유지
+  if (now - a.poseAt >= hold || reduceMotion){ a.poseShown = p; a.posePend = null; }
   return a.poseShown;
 }
 function catPoseNow(a, now){
@@ -4782,6 +4787,7 @@ function render(now){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle = ONE && scene === "campus" ? TOD.plate : TOD.bg;   // one: 바깥은 마당과 같은 색으로 비워 둠 (여백이 덜 눈에 띄게)
   ctx.fillRect(0,0,cv.width,cv.height);
+  if (EMBED && mode !== "live") return;              // 위젯: 서버(또는 데모)에 붙기 전엔 시뮬레이션 사무실을 잠깐 그리지 않음
   ctx.setTransform(scale,0,0,scale,0,0);
   ctx.translate(VW/2, VH/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.cx, -cam.cy);
   LW = 1.05 / Math.sqrt(cam.z);

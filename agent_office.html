@@ -228,6 +228,8 @@ html.embed .main{height:100%}
 html.embed .stage{flex:none; width:100%; height:100%; border:0; border-radius:0; box-shadow:none; padding:0}
 html.embed canvas#office{border-radius:0}
 html.embed .followchip{display:none}
+.tapchip{position:absolute; left:10px; bottom:10px; z-index:2; font-size:12px; padding:4px 10px; border-radius:999px; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink); box-shadow:2px 2px 0 var(--ink); transition:opacity .8s}
+.tapchip.bye{opacity:0}
 html.embed .toasts{top:10px; bottom:auto}
 html.embed .back{top:10px; left:10px; font-size:13px; padding:4px 11px}
 html.embed .zoomctl{right:10px; top:10px; bottom:auto; flex-direction:row}
@@ -359,7 +361,7 @@ const $ = s => document.querySelector(s);
 const QS = new URLSearchParams(location.search);
 const EMBED = document.documentElement.classList.contains("embed");
 /* 사무실 구성: rooms = 세션마다 건물 하나 / one = 한 사무실에 세션 고양이와 기여자 사람이 함께 (URL ?layout=one, 아니면 저장된 값) */
-const LAYOUT = (() => { let v = QS.get("layout"); if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
+const LAYOUT = (() => { let v = QS.get("layout"); if (!v && EMBED) v = "one"; if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
 const ONE = LAYOUT === "one";
 const OPT = {repo:(QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1"};
@@ -909,7 +911,7 @@ function clampCam(){
 }
 function zoomBy(f, px = VW/2, py = VH/2){          // (px,py) 지점을 기준으로 확대
   const wx = (px - VW/2) / cam.z + cam.cx, wy = (py - VH/2) / cam.z + cam.cy;
-  cam.tz = Math.min(3, Math.max(overviewZ() * 0.8, cam.tz * f));
+  cam.tz = Math.min(EMBED ? wcamZ() * 1.8 : 3, Math.max(overviewZ() * 0.8, cam.tz * f));
   cam.tcx = wx - (px - VW/2) / cam.tz; cam.tcy = wy - (py - VH/2) / cam.tz;
   clampCam();
 }
@@ -960,7 +962,17 @@ cv.addEventListener("wheel", e => {                     // Ctrl+휠, 트랙패�
 }, {passive:false});
 $("#zIn").addEventListener("click", () => { followPause(); closeTalk(false); zoomBy(1.3); });
 $("#zOut").addEventListener("click", () => { followPause(); closeTalk(false); zoomBy(1 / 1.3); });
-$("#zFit").addEventListener("click", () => { followPause(); unfocus(); });
+$("#zFit").addEventListener("click", () => {
+  closeTalk(false);
+  if (EMBED && ONE){                                   // 위젯: 전체 보기 ↔ 캐릭터 따라가기
+    wcam.overview = !wcam.overview; follow.pausedUntil = 0; wcam.at = 0;
+    $("#zFit").textContent = wcam.overview ? "🐾" : "⤢";
+    $("#zFit").setAttribute("aria-label", wcam.overview ? "캐릭터 따라가기" : "사무실 전체 보기");
+    if (wcam.overview) unfocus();
+    return;
+  }
+  followPause(); unfocus();
+});
 addEventListener("keydown", e => {
   if (e.key === "Escape" && talkSel.cat){ closeTalk(); return; }
   if (e.key === "Escape" && cam.focus !== null){ followPause(); unfocus(); return; }
@@ -1405,6 +1417,11 @@ let scene = "office";                // "office"(시뮬레이션·재생) | "cam
 const cam = {z:1, cx:CENTER[0], cy:CENTER[1], tz:1, tcx:CENTER[0], tcy:CENTER[1], focus:null};
 let narrow = false;
 let embedZ = 1;
+/* 위젯 카메라: 좁은 위젯에선 사무실 전체 대신 캐릭터 하나를 크게 비추며 몇 초마다 다음 캐릭터로 넘어감 */
+const wcam = {overview:false, i:0, at:0, target:null};
+const WCAM_SPAN = 125, WCAM_HOLD = 9000;                  // 화면 가로에 보이는 세계 폭, 한 캐릭터에 머무는 시간
+const wcamZ = () => VW / WCAM_SPAN;
+const wcamOn = () => EMBED && ONE && !wcam.overview;
 const overviewZ = () => scene !== "campus" ? 1 : (EMBED ? embedZ : narrow ? 1.5 : 1) * (ONE ? 1.55 : 1);
 let LW = 1.05;
 const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
@@ -2308,6 +2325,7 @@ async function loadTeam(refresh = false){
 }
 setInterval(() => { if (team && live && live.source === "server") loadTeam(true); }, 30*MIN);
 
+const SHOW_PICKER = false;   // 내 캐릭터 꾸미기 버튼 숨김 (기능·저장된 모습 적용은 그대로)
 /* ── 내 캐릭터 꾸미기: 본인 캐릭터에만. 저장은 내 GitHub 계정의 gist (그 계정 주인만 고칠 수 있음) ── */
 let me = null;                                  // {login, demo}
 async function loadMe(){
@@ -2496,7 +2514,7 @@ function openTalk(c){
   }
   if (info.session && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));
   if (info.session) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
-  if (c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만
+  if (SHOW_PICKER && c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만 (지금은 숨김)
   talkSel.next = talkButton("다음 ▶", advanceTalk, "mini primary");
   talk.box.hidden = false;
   showTalkLine();
@@ -2580,7 +2598,7 @@ function talkCamera(){                              // 고르는 고양이를 �
   if (!c || scene !== "campus") return;
   const r = cv.getBoundingClientRect();
   const boxH = r.height ? (talk.box.offsetHeight + 14) / r.height * VH : 0;
-  cam.tz = SEL_Z;
+  cam.tz = EMBED ? Math.max(SEL_Z, wcamZ() * 1.15) : SEL_Z;
   cam.tcx = isoX(c.pos.x, c.pos.y);
   cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 10 * (c.k ?? 1) + (boxH / 2) / cam.tz;
 }
@@ -2680,7 +2698,7 @@ function lotCenter(i){ const L = SLOTS[i]; return [isoX(L.x+L.w/2, L.y+L.d/2), i
 const follow = {on:true, pausedUntil:0, since:0, auto:false, lastEventMs:0};
 try { follow.on = localStorage.getItem("ao.follow") !== "0"; } catch {}
 if (OPT.follow === "0") follow.on = false;
-const followActive = () => follow.on && mode === "live" && scene === "campus" && Date.now() >= follow.pausedUntil;
+const followActive = () => follow.on && !(EMBED && ONE) && mode === "live" && scene === "campus" && Date.now() >= follow.pausedUntil;
 function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; }
 function followNote(s, pri){
   follow.lastEventMs = Date.now();
@@ -2710,9 +2728,31 @@ function unfocus(auto = false){
   cam.focus = null; cam.tz = overviewZ(); cam.tcx = CENTER[0]; cam.tcy = CENTER[1];
   $("#btnBack").hidden = true; liveListVer = "";
 }
+function wcamTick(){
+  if (!wcamOn() || scene !== "campus" || mode !== "live" || talkSel.cat || drag || Date.now() < follow.pausedUntil) return false;
+  const all = visibleCats();
+  const cats = all.filter(a => !a.human), people = all.filter(a => a.human);
+  // 일하는 고양이 위주로, 세 번에 한 번은 사람
+  const list = [...cats.filter(a => a.state === "working"), ...cats.filter(a => a.state !== "working")];
+  const now = Date.now();
+  if (!wcam.target || !all.includes(wcam.target) || now - wcam.at > WCAM_HOLD){
+    wcam.i++;
+    const pickHuman = people.length && (wcam.i % 3 === 0 || !list.length);
+    const pool = pickHuman ? people : list;
+    wcam.target = pool.length ? pool[wcam.i % pool.length] : null;
+    wcam.at = now;
+  }
+  const c = wcam.target;
+  cam.tz = wcamZ();
+  if (!c){ cam.tcx = CENTER[0]; cam.tcy = CENTER[1]; return true; }
+  cam.tcx = isoX(c.pos.x, c.pos.y);
+  cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 14 * (c.k ?? 1) + VH * 0.06 / cam.z;   // 캐릭터를 살짝 아래쪽에 (위쪽은 말풍선 자리)
+  return true;
+}
 function updateCam(rdt){
   talkCamera();
-  const k = reduceMotion ? 1 : Math.min(1, rdt * 5);
+  const slow = wcamTick();                              // 위젯 카메라는 천천히 미끄러지듯
+  const k = reduceMotion ? 1 : Math.min(1, rdt * (slow ? 1.6 : 5));
   cam.z += (cam.tz - cam.z) * k; cam.cx += (cam.tcx - cam.cx) * k; cam.cy += (cam.tcy - cam.cy) * k;
 }
 const SX = px => ((px - cam.cx) * cam.z + VW/2) * scale;
@@ -4475,7 +4515,7 @@ function resize(){
     narrow = w < 600;
     VH = VW * hh / w;
     embedZ = Math.max(0.3, Math.min(1.6, VH / 540));
-    if (cam.focus === null && !talkSel.cat){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
+    if (cam.focus === null && !talkSel.cat && !wcamOn()){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     cv.style.width = w + "px"; cv.style.height = hh + "px";
     cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr);
@@ -4998,8 +5038,10 @@ pingServer().then(ok => {
 if (EMBED){
   addEventListener("resize", () => { if (talkSel.cat) talkCamera(); });
   let seen = false; try { seen = localStorage.getItem("ao.talkHint") === "1"; } catch {}
-  if (!seen) setTimeout(() => {
-    toast("🐾 캐릭터를 눌러 보세요", "고양이는 AI, 사람은 깃허브 기여자예요. 누르면 자기소개를 해 줘요.");
+  if (!seen) setTimeout(() => {                     // 위젯은 좁아서 큰 안내 카드 대신 작은 칩
+    const chip = document.createElement("div"); chip.className = "tapchip"; chip.textContent = "🐾 눌러서 말 걸기";
+    cv.parentElement.appendChild(chip);
+    setTimeout(() => chip.classList.add("bye"), 6000); setTimeout(() => chip.remove(), 7000);
     try { localStorage.setItem("ao.talkHint", "1"); } catch {}
   }, 2500);
 }

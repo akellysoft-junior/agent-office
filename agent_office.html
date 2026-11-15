@@ -168,7 +168,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 @media (prefers-reduced-motion: reduce){ .pbar i{transition:none} }
 
 /* ── 캐릭터 대화창 (게임 대사 상자) ── */
-.talk{position:absolute; left:50%; transform:translateX(-50%); bottom:14px; z-index:3; width:min(600px, calc(100% - 28px));
+.talk{position:absolute; left:0; right:0; margin-inline:auto; bottom:14px;   /* 가운데 정렬을 transform 없이 (pop 애니메이션이 덮어써 잠깐 밀려 보이던 문제) */ z-index:3; width:min(600px, calc(100% - 28px));
   display:flex; gap:12px; align-items:flex-start; background:var(--paper); color:var(--ink);
   border:2px solid var(--ink); border-radius:14px; box-shadow:4px 4px 0 var(--ink); padding:12px 14px 10px;
   animation:pop .25s ease-out}
@@ -231,7 +231,34 @@ html.embed .followchip{display:none}
 .tapchip{position:absolute; left:10px; bottom:10px; z-index:2; font-size:12px; padding:4px 10px; border-radius:999px; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink); box-shadow:2px 2px 0 var(--ink); transition:opacity .8s}
 .tapchip.bye{opacity:0}
 html.embed .toasts{top:10px; bottom:auto}
-html.embed .back{top:10px; left:10px; font-size:13px; padding:4px 11px}
+html.embed .back{display:none !important}           /* 위젯: "← 동네로" 생략 (⤢·Esc로 돌아감) */
+html.embed .talk{box-sizing:border-box; width:calc(100% - 16px); animation-name:talkin; cursor:pointer}   /* 위젯: 크기 변화 없이 살짝 떠오르기만 */
+@keyframes talkin{from{transform:translateY(6px); opacity:0} to{transform:none; opacity:1}}
+@media (max-width:520px), (max-height:420px){        /* 좁거나 낮은 위젯: 대화창을 작게 */
+  html.embed .talk{bottom:6px; width:calc(100% - 12px); gap:8px; padding:7px 9px 6px; border-width:1.5px; border-radius:10px; box-shadow:2px 2px 0 var(--ink)}
+  html.embed .talk-face{width:36px; height:36px}
+  html.embed .talk-badge{left:24px; top:24px; width:16px; height:16px}
+  html.embed .talk-body{gap:2px}
+  html.embed .talk-name{gap:6px; padding-right:18px}
+  html.embed .talk-name b{font-size:14px}
+  html.embed .talk-tag{font-size:11px}
+  html.embed .talk-text{font-size:12.5px; line-height:1.5; min-height:0}
+  html.embed .talk-actions{gap:4px}
+  html.embed .talk-actions .mini{font-size:11px; padding:2px 8px; box-shadow:1px 1px 0 var(--ink)}
+  html.embed .talk-close{top:3px; right:4px; font-size:14px}
+  /* 이름과 버튼을 한 줄에: [이름 · 1/5 · GitHub · 다음 ✕] 아래에 대사 */
+  html.embed .talk-body{display:grid; grid-template-columns:auto 1fr; align-items:center; column-gap:6px; row-gap:3px}
+  html.embed .talk-name{grid-area:1 / 1; padding-right:0; flex-wrap:nowrap; min-width:0}
+  html.embed .talk-actions{grid-area:1 / 2; justify-content:flex-end; flex-wrap:nowrap; padding-right:20px; min-width:0}
+  html.embed .talk-actions .pg{margin-right:2px}
+  html.embed .talk-actions .mini{white-space:nowrap; flex:none}
+  html.embed .talk-text, html.embed .talk-msg{grid-column:1 / -1}
+  html.embed .talk-close{top:5px}
+}
+@media (max-width:420px){ html.embed .talk-tag{display:none} }
+@media (max-width:360px), (max-height:300px){
+  html.embed .talk-face, html.embed .talk-badge{display:none}
+}
 html.embed .zoomctl{right:10px; top:10px; bottom:auto; flex-direction:row}
 html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
 @media (max-width:700px){
@@ -239,6 +266,30 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   .toast{padding:8px 12px}
   .toast b{font-size:15px}
   .toast span{font-size:12px}
+}
+/* ── 위젯 미리보기: 실제 위젯(?embed=1)을 크기 조절되는 상자에 ── */
+.wprev{position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; gap:8px;
+  padding:14px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px));
+  background:var(--paper-2)}
+.wprev-bar{display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap}
+.wprev-bar b{font-family:var(--font-display); font-size:17px; font-weight:normal}
+.wprev-bar label{display:inline-flex; align-items:center; gap:6px; font-size:13px}
+.wprev-bar input[type=range]{width:130px; accent-color:var(--accent)}
+.wprev-bar output{font-family:var(--font-mono); font-size:12px; min-width:4.5em; font-variant-numeric:tabular-nums}
+#wRepo{width:250px; font:inherit; font-size:12px; color:var(--ink); background:var(--paper); border:1.5px solid var(--ink); border-radius:8px; padding:3px 7px}
+#wRepo[aria-invalid="true"]{border-color:var(--bad)}
+.wprev-bar select{font:inherit; color:var(--ink); background:var(--paper); border:1.5px solid var(--ink); border-radius:8px; padding:3px 6px}
+.wprev-presets{display:inline-flex; gap:4px}
+.wprev-presets button{font-size:12px; padding:3px 9px; box-shadow:1px 1px 0 var(--ink)}
+#wClose{margin-left:auto}
+.wprev-hint{margin:0; font-size:12px; color:var(--muted)}
+.wprev-area{flex:1; min-height:0; overflow:auto; padding:4px 12px 12px 4px}
+.wprev-box{box-sizing:border-box; resize:both; overflow:hidden; min-width:240px; min-height:180px; background:var(--paper);
+  border:1.5px dashed var(--ink); border-radius:12px}
+.wprev-box iframe{display:block; width:100%; height:100%; border:0; border-radius:inherit}
+@media (max-width:600px){
+  .wprev-bar input[type=range]{width:96px}
+  #wClose{margin-left:0}
 }
 @media (max-width:600px){
   body{padding-block:12px}
@@ -262,6 +313,27 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
 </style>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="wprev" id="wPrev" role="dialog" aria-modal="true" aria-label="위젯 미리보기" hidden>
+  <div class="wprev-bar">
+    <b>🧩 위젯 미리보기</b>
+    <label>너비 <input type="range" id="wW" min="240" max="1600" step="10"><output id="wWo"></output></label>
+    <label>높이 <input type="range" id="wH" min="180" max="1000" step="10"><output id="wHo"></output></label>
+    <span class="wprev-presets" id="wPresets">
+      <button type="button" data-w="320">320</button><button type="button" data-w="480">480</button><button type="button" data-w="768">768</button><button type="button" data-w="1024">1024</button>
+    </span>
+    <label>보기 <select id="wView">
+      <option value="">한 사무실 (기본)</option>
+      <option value="room">작은 방 (B안)</option>
+      <option value="rooms">세션별 건물</option>
+    </select></label>
+    <label>저장소 <input type="text" id="wRepo" placeholder="자동 (owner/name 또는 GitHub 주소)" spellcheck="false" autocomplete="off"></label>
+    <label><input type="checkbox" id="wDemo"> 데모 데이터</label>
+    <button type="button" id="wReload" title="위젯 다시 불러오기">↻</button>
+    <button type="button" id="wClose" class="primary">닫기 ✕</button>
+  </div>
+  <p class="wprev-hint">상자 오른쪽 아래 모서리를 끌어도 크기가 바뀌어요.</p>
+  <div class="wprev-area"><div class="wprev-box" id="wBox"><iframe id="wFrame" title="냥오피스 위젯"></iframe></div></div>
+</div>
 <div class="app">
   <header class="bar">
     <div class="sign">Agent Office<small>멀티에이전트 워크플로우 · 실시간 뷰</small></div>
@@ -277,6 +349,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
     <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
     <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
     <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
+    <button id="btnWidget" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
     <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
     <button id="btnAdd" class="primary">+ 작업 추가</button>
   </div>
@@ -966,7 +1039,7 @@ $("#zOut").addEventListener("click", () => { followPause(); closeTalk(false); zo
 $("#zFit").addEventListener("click", () => {
   closeTalk(false);
   if (EMBED && ONE){                                   // 위젯: 전체 보기 ↔ 캐릭터 따라가기
-    wcam.overview = !wcam.overview; follow.pausedUntil = 0; wcam.at = 0;
+    wcam.overview = !wcam.overview; follow.pausedUntil = 0; wcam.manual = false;
     $("#zFit").textContent = wcam.overview ? "🐾" : "⤢";
     $("#zFit").setAttribute("aria-label", wcam.overview ? "캐릭터 따라가기" : "사무실 전체 보기");
     if (wcam.overview) unfocus();
@@ -1013,6 +1086,60 @@ btnLayout.addEventListener("click", () => {          // 바꾸면 새로 불러�
   const u = new URL(location.href);
   if (u.searchParams.has("layout")){ u.searchParams.set("layout", next); location.replace(u.toString()); } else location.reload();
 });   // follow 설정은 아래쪽 라이브 모드 코드에서 만들어지므로 스크립트가 다 읽힌 뒤에 표시
+/* 위젯 미리보기: 이 페이지를 ?embed=1 로 iframe에 띄워 위젯 크기별 모습 확인 */
+{
+  const box = $("#wBox"), frame = $("#wFrame"), wW = $("#wW"), wH = $("#wH"), wView = $("#wView"), wDemo = $("#wDemo"), wRepo = $("#wRepo");
+  // "owner/name" 또는 "https://github.com/owner/name(.git)/…" → "owner/name", 비었으면 "", 이상하면 null
+  const repoOf = v => {
+    v = v.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "").replace(/\.git$/i, "");
+    if (!v) return "";
+    const m = v.match(/^([\w.-]+)\/([\w.-]+?)(\.git)?(?:[\/?#].*)?$/);
+    return m ? m[1] + "/" + m[2] : null;
+  };
+  try { wRepo.value = localStorage.getItem("ao.wprevRepo") || ""; } catch {}
+  wRepo.addEventListener("change", () => { try { localStorage.setItem("ao.wprevRepo", wRepo.value.trim()); } catch {} load(); });
+  let size = {w:480, h:420};
+  try { Object.assign(size, JSON.parse(localStorage.getItem("ao.wprev") || "{}")); } catch {}
+  const setSize = (w, h, fromBox) => {
+    size = {w:Math.round(w), h:Math.round(h)};
+    if (!fromBox){ box.style.width = size.w + "px"; box.style.height = size.h + "px"; }
+    wW.value = size.w; wH.value = size.h;
+    $("#wWo").textContent = size.w + "px"; $("#wHo").textContent = size.h + "px";
+    try { localStorage.setItem("ao.wprev", JSON.stringify(size)); } catch {}
+  };
+  const load = () => {
+    const p = new URLSearchParams({embed:"1"});
+    if (wView.value === "room") p.set("view", "room");
+    else if (wView.value === "rooms") p.set("layout", "rooms");
+    if (wDemo.checked) p.set("demo", "1");
+    if (theme !== "auto") p.set("theme", theme);
+    const repo = repoOf(wRepo.value);
+    wRepo.setAttribute("aria-invalid", repo === null);
+    if (repo || OPT.repo) p.set("repo", repo || OPT.repo);
+    frame.src = location.pathname + "?" + p.toString();
+  };
+  new ResizeObserver(() => {                          // 모서리를 끌어 바꾼 크기를 슬라이더에 반영
+    if (!$("#wPrev").hidden) setSize(box.offsetWidth, box.offsetHeight, true);
+  }).observe(box);
+  wW.addEventListener("input", () => setSize(+wW.value, size.h));
+  wH.addEventListener("input", () => setSize(size.w, +wH.value));
+  $("#wPresets").addEventListener("click", e => { const w = e.target.dataset && e.target.dataset.w; if (w) setSize(+w, size.h); });
+  wView.addEventListener("change", load);
+  wDemo.addEventListener("change", load);
+  $("#wReload").addEventListener("click", load);
+  const close = () => { $("#wPrev").hidden = true; frame.src = "about:blank"; $("#btnWidget").focus(); };
+  $("#wClose").addEventListener("click", close);
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !$("#wPrev").hidden){ e.stopImmediatePropagation(); close(); }
+  }, true);
+  $("#btnWidget").addEventListener("click", () => {
+    wDemo.checked = mode !== "live" || OPT.demo || (live && live.source === "demo");
+    $("#wPrev").hidden = false;
+    setSize(size.w, size.h);
+    load();
+    $("#wClose").focus();
+  });
+}
 $("#btnDemo").addEventListener("click", () => { enterLive("demo"); log("멀티 세션 데모 시작", "good"); });
 
 /* ───────── 파티클 ───────── */
@@ -1419,8 +1546,31 @@ const cam = {z:1, cx:CENTER[0], cy:CENTER[1], tz:1, tcx:CENTER[0], tcy:CENTER[1]
 let narrow = false;
 let embedZ = 1;
 /* 위젯 카메라: 좁은 위젯에선 사무실 전체 대신 캐릭터 하나를 크게 비추며 몇 초마다 다음 캐릭터로 넘어감 */
-const wcam = {overview: QS.get("cam") === "all", i:0, at:0, target:null};
-const WCAM_SPAN = 125, WCAM_HOLD = 9000;                  // 화면 가로에 보이는 세계 폭, 한 캐릭터에 머무는 시간
+/* 위젯을 다시 불러와도(사이드바를 접었다 펴서 iframe이 새로 생기는 등) 끊기지 않게:
+   카메라·비추던 캐릭터·있던 사람을 sessionStorage에 2초마다 적어 두고, 10분 안에 다시 열리면 그대로 이어서 */
+const LOAD_AT = Date.now(), RESUME_KEY = "ao.wstate" + location.search;   // 위젯 설정(주소)마다 따로
+const RESUME = (() => {
+  if (!EMBED) return null;
+  try { const v = JSON.parse(sessionStorage.getItem(RESUME_KEY) || "null"); return v && Date.now() - v.at < 10*60000 ? v : null; } catch { return null; }
+})();
+const charKey = c => {                        // 캐릭터 이름표: 사람은 아이디, 고양이는 세션 id (고양이 배정은 다시 불러오면 바뀔 수 있어서)
+  if (!c) return null;
+  if (c.human) return "h:" + c.human.login;
+  for (const s of live ? live.sessions.values() : []) if (s.boss === c) return "s:" + s.sid;
+  return null;
+};
+function saveWarm(){
+  if (!EMBED || mode !== "live") return;
+  const sess = {};
+  for (const s of live.sessions.values()) sess[s.sid] = [s.bossIdx, s.boss.deskIdx];
+  const v = {at:Date.now(), z:cam.z, cx:cam.cx, cy:cam.cy, target:charKey(wcam.target), overview:wcam.overview, sess,
+             present: team ? team.members.filter(m => m.present && !m.leaving).map(m => m.login) : null,
+             desks: team ? Object.fromEntries(team.members.filter(m => m.present && m.cat).map(m => [m.login, m.cat.deskIdx])) : null};
+  try { sessionStorage.setItem(RESUME_KEY, JSON.stringify(v)); } catch {}
+}
+if (EMBED){ addEventListener("pagehide", saveWarm); setInterval(saveWarm, 2000); }
+const wcam = {overview: RESUME ? !!RESUME.overview : QS.get("cam") === "all", at:0, target:null, manual:false, resume:!!RESUME};
+const WCAM_SPAN = 125;                                    // 화면 가로에 보이는 세계 폭
 const wcamZ = () => VW / WCAM_SPAN;
 const wcamOn = () => EMBED && ONE && !ROOM && !wcam.overview;
 const overviewZ = () => scene !== "campus" ? 1 : ROOM ? VW / ((176 + 130) * ISX * 1.04) : (EMBED ? embedZ : narrow ? 1.5 : 1) * (ONE ? 1.55 : 1);
@@ -1505,7 +1655,11 @@ BOSSES[1].rig2 = true;                 // 새 그림체 미리보기: 두 번째
 function visibleCats(){
   if (mode !== "live" || !live) return AGENTS;
   const out = [];
-  for (const s of live.sessions.values()){ out.push(s.boss); if (!ONE) for (const kt of s.kittens.values()) out.push(kt); }
+  const now = Date.now();
+  for (const s of live.sessions.values()){
+    if (!(s.boss.enterAt > now)) out.push(s.boss);     // 아직 차례가 안 온 고양이는 문밖에서 대기 (안 보임)
+    if (!ONE) for (const kt of s.kittens.values()) out.push(kt);
+  }
   if (team) for (const m of team.members) if (m.present) out.push(m.cat);
   return out;
 }
@@ -1809,10 +1963,11 @@ function oneDesks(except){                       // one: 지금 쓰는 책상 (�
   if (team) for (const m of team.members) if (m.present && m.cat && !m.leaving) used.add(m.cat.deskIdx);
   return used;
 }
-function oneSeatBoss(boss){                       // one: 대장 고양이를 본사 빈 책상에 앉힘 (없으면 사람 한 명이 자리를 비켜 줌)
+function oneSeatBoss(boss, want){                 // one: 대장 고양이를 본사 빈 책상에 앉힘 (없으면 사람 한 명이 자리를 비켜 줌), want: 바라는 책상
   const H = hqSlot(), L = SLOTS[H];
   let used = oneDesks(boss), idx = -1;
-  for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
+  if (want != null && want >= 0 && want < lotMax(L) && !used.has(want)) idx = want;
+  else for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0 && team){
     const m = team.members.filter(x => x.present && !x.leaving && x.cat && talkSel.cat !== x.cat).sort((a, b) => b.rank - a.rank)[0];
     if (m){ idx = m.cat.deskIdx; m.leaveAt = 0; }
@@ -1839,9 +1994,11 @@ function liveSession(rec){
   const boss = BOSSES[slot];
   return newSession(rec, slot, boss, `${SLOTS[slot].name}에 입주 — ${rec.p} · ${rec.s}`);
 }
+let oneEnterAt = 0;
 function liveSessionOne(rec){
   const used = new Set([...live.sessions.values()].map(v => v.bossIdx));
-  let bi = BOSSES.findIndex((_, i) => !used.has(i));
+  const prev = RESUME && RESUME.sess && RESUME.sess[rec.s];      // 다시 불러옴: 그 세션이 쓰던 고양이·책상 그대로
+  let bi = prev && BOSSES[prev[0]] && !used.has(prev[0]) ? prev[0] : BOSSES.findIndex((_, i) => !used.has(i));
   if (bi < 0){                                   // 고양이가 다 일하는 중이면 가장 오래 조용한 세션이 퇴근
     let old = null;
     for (const v of live.sessions.values()) if (!old || v.lastMs < old.lastMs) old = v;
@@ -1851,10 +2008,15 @@ function liveSessionOne(rec){
     log(`${sessName(old)} 퇴근 (자리 비움)`, null);
   }
   const boss = BOSSES[bi];
-  oneSeatBoss(boss);
+  oneSeatBoss(boss, prev && prev[1]);
   const s = newSession(rec, hqSlot(), boss, `${SLOTS[hqSlot()].name}에 출근 — ${rec.p} · ${rec.s}`, true);
   s.bossIdx = bi;
   boss.pos = lotDoor(SLOTS[hqSlot()]);            // 문으로 들어와서 자리로
+  const now = Date.now();
+  if (RESUME && now - LOAD_AT < 4000){ boss.pos = {...boss.seat}; boss.enterAt = 0; return s; }   // 위젯 다시 불러옴: 걸어 들어오지 않고 제자리에
+  // 여러 세션이 한꺼번에 생기면 겹치지 않게 1.2초 간격으로 한 마리씩
+  oneEnterAt = Math.max(now, oneEnterAt + 1200);
+  boss.enterAt = oneEnterAt > now ? oneEnterAt : 0;
   return s;
 }
 function newSession(rec, slot, boss, msg, oneMode){
@@ -1931,7 +2093,7 @@ function celebrate(s){
   s.attention = true;
   followNote(s, 3);
   live.done++;
-  s.stampUntil = t + 3;
+  s.stampUntil = t + (ONE ? 5 : 3);           // one: 완료 말풍선은 카메라가 도착한 뒤에도 보이게 조금 더 길게
   for (const c of [s.boss, ...s.kittens.values()]) c.cheerUntil = t + 1.8;
   say(s.boss, "다 했어요!", 3);
   if (!reduceMotion) for (let i=0; i<4; i++) setTimeout(() => burst(L.x + 30 + Math.random()*120, L.y + 25 + Math.random()*80), i*170);
@@ -2173,7 +2335,8 @@ function setTeam(data, source){
   team = {repo:data.repo || "", members, slot, source, fetched:data.fetched || Date.now()};
   for (const m of members) if (m.first && !m.nextAt){
     // 처음 열었을 때: 상주 멤버(와 자주 오는 멤버 일부)는 이미 자리에, 나머지는 시간차를 두고 출근
-    if (ONE ? m.rank < 2 : (m.tier === "core" || (m.tier === "regular" && Math.random() < 0.4))) m.nextAt = 1;
+    if (RESUME && RESUME.present) m.nextAt = RESUME.present.includes(m.login) ? 1 : Date.now() + rand(20000, 2*MIN);   // 위젯 다시 불러옴: 있던 사람만 그대로
+    else if (ONE ? m.rank < 2 : (m.tier === "core" || (m.tier === "regular" && Math.random() < 0.4))) m.nextAt = 1;
     else m.nextAt = Date.now() + (m.tier === "regular" ? rand(15000, 2*MIN) : rand(30000, 5*MIN)) * (source === "demo" ? 0.3 : 1);
   }
   const L = SLOTS[slot];
@@ -2188,7 +2351,9 @@ function teamArrive(m){
   const used = new Set(team.members.filter(x => x.present && x !== m).map(x => x.cat.deskIdx));
   if (ONE && live) for (const v of live.sessions.values()) used.add(v.boss.deskIdx);
   let idx = -1;
-  for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
+  const want = RESUME && RESUME.desks ? RESUME.desks[m.login] : null;   // 다시 불러옴: 앉아 있던 책상 그대로
+  if (m.first && want != null && want < lotMax(L) && !used.has(want)) idx = want;
+  else for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0) return false;                     // 책상이 꽉 차면 다음에
   const instant = m.first && m.nextAt === 1;
   const c = makeCat({id:"gh-"+m.login, name:m.info.name || m.login, role:TIER_LABEL[m.tier], coat:m.coat, k:0.9, zBase:0,
@@ -2213,7 +2378,7 @@ function teamTick(){
   for (const m of team.members){
     if (!m.present){
       if (nowMs < m.nextAt) continue;
-      if (ONE){                                   // one: 한 번에 최대 4명, 출근은 한 명씩 간격을 두고
+      if (ONE && !(m.first && m.nextAt === 1)){   // one: 한 번에 최대 4명, 출근은 한 명씩 간격을 두고 (처음부터 자리에 있을 사람은 예외)
         const here = team.members.filter(x => x.present).length;
         if (here >= (ROOM ? 2 : 4) || nowMs < (team.nextArriveAt || 0)){ m.nextAt = nowMs + rand(8000, 20000); continue; }
       }
@@ -2501,7 +2666,7 @@ function talkButton(text, fn, cls = "mini"){
 function openTalk(c){
   const info = talkInfo(c);
   if (!info) return;
-  Object.assign(talkSel, {cat:c, lines:info.lines, idx:0, shown:0});
+  Object.assign(talkSel, {cat:c, lines:info.lines, idx:0, shown:0, boxH:null});
   c.idleSince = null;
   cam.focus = c.lot; cam.tz = SEL_Z;
   $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${SLOTS[c.lot].name}`;
@@ -2515,16 +2680,39 @@ function openTalk(c){
   [...talk.actions.querySelectorAll("button, a")].forEach(el => el.remove());
   if (info.link){
     const a = document.createElement("a"); a.className = "mini"; a.href = info.link; a.target = "_blank"; a.rel = "noopener noreferrer";
-    a.textContent = "GitHub 프로필 ↗"; talk.actions.appendChild(a);
+    a.textContent = EMBED && innerWidth < 300 ? "GitHub ↗" : "GitHub 프로필 ↗"; talk.actions.appendChild(a);
   }
-  if (info.session && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));
-  if (info.session) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
+  if (!EMBED && info.session && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));   // 위젯에선 터미널 조작 버튼 숨김
+  if (!EMBED && info.session) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
   if (SHOW_PICKER && c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만 (지금은 숨김)
-  talkSel.next = talkButton("다음 ▶", advanceTalk, "mini primary");
+  talkSel.next = EMBED ? null : talkButton("다음 ▶", advanceTalk, "mini primary");   // 위젯: 대화창을 누르면 넘어가니 버튼 없음
   talk.box.hidden = false;
+  talkSel.lines = fitTalkLines(talkSel.lines);
   showTalkLine();
   say(c, c.human ? pick(["안녕하세요!", "저요?", "반가워요!"]) : pick(["냥!", "냥냥?", "부르셨냥?"]), 1.6);
   emitHost("select", info.ref);
+}
+/* 대사가 TALK_LINES 줄을 넘으면 잘라서 다음 장으로 (지금 대화창 너비로 재서, 가능하면 띄어쓰기에서 자름) */
+// 위젯은 높이에 따라 대사 줄 수를 줄임 (대화창이 화면을 너무 가리지 않게): 340px 미만 2줄, 440px 미만 3줄, 그 이상 4줄
+const talkLines = () => { if (!EMBED) return 4; const h = cv.getBoundingClientRect().height; return h < 340 ? 2 : h < 440 ? 3 : 4; };
+function fitTalkLines(lines){
+  const t = talk.text, keep = t.textContent;
+  const lh = parseFloat(getComputedStyle(t).lineHeight) || 20, max = lh * talkLines() + 2;
+  const fits = s => { t.textContent = s; return t.scrollHeight <= max; };
+  const out = [];
+  for (let line of lines){
+    while (line && !fits(line)){
+      let lo = 1, hi = line.length - 1;
+      while (lo < hi){ const mid = (lo + hi + 1) >> 1; if (fits(line.slice(0, mid))) lo = mid; else hi = mid - 1; }
+      let cut = line.lastIndexOf(" ", lo);
+      if (cut < lo * 0.6) cut = lo;
+      out.push(line.slice(0, cut).trimEnd());
+      line = line.slice(cut).trimStart();
+    }
+    if (line) out.push(line);
+  }
+  t.textContent = keep;
+  return out;
 }
 function showTalkLine(){
   const n = talkSel.lines.length;
@@ -2540,18 +2728,23 @@ function advanceTalk(){
   if (talkSel.shown < line.length){ talkSel.shown = line.length; return; }      // 글자가 다 나오기 전이면 한 번에 보여주기
   if (talkSel.idx >= talkSel.lines.length - 1){ closeTalk(); return; }
   const info = talkInfo(talkSel.cat);                                              // 그 사이 바뀐 내용 반영
-  if (info) talkSel.lines = info.lines;
+  if (info) talkSel.lines = fitTalkLines(info.lines);
   talkSel.idx = Math.min(talkSel.idx + 1, talkSel.lines.length - 1);
   showTalkLine();
 }
 function closeTalk(keepZoom = true){
   if (!talkSel.cat) return;
   const lot = talkSel.cat.lot;
+  if (wcamOn()){ wcam.target = talkSel.cat; wcam.at = Date.now(); wcam.manual = false; keepZoom = false; }   // 위젯: 말 건 캐릭터를 계속 비춤
   talkSel.cat = null; talk.box.hidden = true;
   if (keepZoom && scene === "campus") focusLot(lot);
   emitHost("close", {});
 }
 talk.text.addEventListener("click", advanceTalk);
+if (EMBED) talk.box.addEventListener("click", e => {   // 위젯: 대화창 어디를 눌러도 다음 (링크·버튼·대사 자체는 각자 처리)
+  if (e.target.closest("a, button") || e.target === talk.text) return;
+  advanceTalk();
+});
 $("#talkClose").addEventListener("click", () => closeTalk());
 talk.box.addEventListener("pointerdown", e => e.stopPropagation());
 const ART_FACE = {human:[0.02, 0.0, 0.96], cat:[0.17, 0.0, 0.80]};   // 초상화로 자를 정사각형 [x, y, 크기] (그림 너비 비율)
@@ -2601,11 +2794,24 @@ function talkTick(rdt, now){
 function talkCamera(){                              // 고르는 고양이를 따라가며 대화창 위 빈 곳 가운데에
   const c = talkSel.cat;
   if (!c || scene !== "campus") return;
+  // 대화창 높이는 처음 연 순간(대사 최대 줄 수 기준)으로 고정: 글자가 찍히며 높이가 바뀌어도 카메라가 흔들리지 않게
+  if (talkSel.boxH == null && !talk.box.hidden){
+    const lh = parseFloat(getComputedStyle(talk.text).lineHeight) || 20;
+    talkSel.boxH = talk.box.offsetHeight - talk.text.offsetHeight + lh * talkLines() + 14;
+  }
+  cam.tz = EMBED ? Math.max(SEL_Z, wcamZ() * 1.6) : SEL_Z * 1.3;   // 말 거는 캐릭터를 크게
+  centerOn(c, cam.tz, talkSel.boxH || 0);
+}
+/* 캐릭터 몸 가운데를 빈 곳 가운데에: 위쪽 확대 버튼(위젯) 아래 ~ 아래쪽에 비워 둘 높이(대화창, 화면 px) 위 */
+function centerOn(c, z, bottomPx){
   const r = cv.getBoundingClientRect();
-  const boxH = r.height ? (talk.box.offsetHeight + 14) / r.height * VH : 0;
-  cam.tz = EMBED ? Math.max(SEL_Z, wcamZ() * 1.15) : SEL_Z;
+  if (!r.height) return;
+  const zc = $("#zoomCtl");
+  const topPx = EMBED && !zc.hidden ? Math.max(0, zc.getBoundingClientRect().bottom - r.top) + 4 : 0;
+  const mid = (topPx + r.height - bottomPx) / 2 / r.height * VH;   // 빈 곳 가운데 (화면 위에서부터, VH 단위)
+  const k = c.k ?? catK(c);
   cam.tcx = isoX(c.pos.x, c.pos.y);
-  cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 10 * (c.k ?? 1) + (boxH / 2) / cam.tz;
+  cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 14 * k - (mid - VH / 2) / z;
 }
 
 /* ── 위젯 ↔ 끼워 넣은 페이지 메시지 ── */
@@ -2704,9 +2910,10 @@ const follow = {on:true, pausedUntil:0, since:0, auto:false, lastEventMs:0};
 try { follow.on = localStorage.getItem("ao.follow") !== "0"; } catch {}
 if (OPT.follow === "0") follow.on = false;
 const followActive = () => follow.on && !(EMBED && ONE) && mode === "live" && scene === "campus" && Date.now() >= follow.pausedUntil;
-function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; }
+function followPause(){ follow.pausedUntil = Date.now() + 30000; follow.auto = false; if (wcamOn()) wcam.manual = true; }
 function followNote(s, pri){
   follow.lastEventMs = Date.now();
+  wcamNote(s, pri);
   if (!followActive() || cam.focus === s.slot || talkSel.cat) return;
   const nowMs = Date.now(), dwell = nowMs - follow.since;
   const cur = cam.focus !== null ? slotSession(cam.focus) : null;
@@ -2733,25 +2940,47 @@ function unfocus(auto = false){
   cam.focus = null; cam.tz = overviewZ(); cam.tcx = CENTER[0]; cam.tcy = CENTER[1];
   $("#btnBack").hidden = true; liveListVer = "";
 }
+/* 위젯 카메라: 정해 둔 캐릭터를 계속 비춘다. 다른 캐릭터로는 세션에 실제 활동·완료·질문이 생겼을 때만 넘어가고,
+   사용자가 끌거나 확대하면 그 자리에 머문다 (다음 이벤트가 오고 30초 지나야 다시 따라감). */
+function wcamNote(s, pri){
+  if (!wcamOn() || !follow.on || talkSel.cat || s.boss.enterAt > Date.now()) return;
+  const now = Date.now(), cur = wcam.target;
+  if (cur === s.boss){                                  // 보던 고양이에게 완료·새 요청이 생기면 거기서부터 다시 머문 시간을 셈
+    if (pri >= 2 && !wcam.manual) wcam.at = now;
+    if (!wcam.manual) return;
+  }
+  if (wcam.manual && now < follow.pausedUntil) return;
+  const curS = cur && !cur.human ? [...live.sessions.values()].find(v => v.boss === cur) : null;
+  const curQuiet = !curS || now - curS.lastMs > 6000, dwell = now - wcam.at;
+  if (!cur || wcam.manual || (pri >= 3 && dwell > 3000) || (pri >= 2 && dwell > 8000) || (curQuiet && dwell > 8000)){
+    wcam.target = s.boss; wcam.at = now; wcam.manual = false;
+  }
+}
 function wcamTick(){
-  if (!wcamOn() || scene !== "campus" || mode !== "live" || talkSel.cat || drag || Date.now() < follow.pausedUntil) return false;
+  if (!wcamOn() || scene !== "campus" || mode !== "live" || talkSel.cat || drag || wcam.manual) return false;
   const all = visibleCats();
-  const cats = all.filter(a => !a.human), people = all.filter(a => a.human);
-  // 일하는 고양이 위주로, 세 번에 한 번은 사람
-  const list = [...cats.filter(a => a.state === "working"), ...cats.filter(a => a.state !== "working")];
-  const now = Date.now();
-  if (!wcam.target || !all.includes(wcam.target) || now - wcam.at > WCAM_HOLD){
-    wcam.i++;
-    const pickHuman = people.length && (wcam.i % 3 === 0 || !list.length);
-    const pool = pickHuman ? people : list;
-    wcam.target = pool.length ? pool[wcam.i % pool.length] : null;
-    wcam.at = now;
+  if (wcam.resume){                                       // 다시 불러옴: 마지막 카메라로 바로 (미끄러지지 않게), 보던 캐릭터가 나타나면 이어서
+    if (!wcam.snapped){ wcam.snapped = true; cam.z = cam.tz = RESUME.z; cam.cx = cam.tcx = RESUME.cx; cam.cy = cam.tcy = RESUME.cy; }
+    const c = all.find(a => charKey(a) === RESUME.target);
+    if (c){ wcam.target = c; wcam.at = Date.now(); wcam.resume = false; }
+    else if (Date.now() - LOAD_AT < 4000) return true;  // 사람은 팀 정보가 늦게 올 수 있어 잠깐 기다림
+    else wcam.resume = false;
+  }
+  if (!wcam.target || !all.includes(wcam.target)){     // 처음엔 가장 최근에 움직인 세션 고양이, 없으면 사람
+    let best = null;
+    for (const s of live.sessions.values()) if (all.includes(s.boss) && (!best || s.lastMs > best.lastMs)) best = s;
+    wcam.target = best ? best.boss : all.find(a => a.human) || null;
+    wcam.at = Date.now();
+  }
+  const now = Date.now();                               // 세션이 모두 20초 넘게 조용하면 걷기 시작한 사람(출근·휴게실)을 따라감
+  if (now - wcam.at > 10000 && [...live.sessions.values()].every(v => now - v.lastMs > 20000)){
+    const mover = all.find(a => a.human && a !== wcam.target && a.path.length && !a.leaving);
+    if (mover){ wcam.target = mover; wcam.at = now; }
   }
   const c = wcam.target;
   cam.tz = wcamZ();
   if (!c){ cam.tcx = CENTER[0]; cam.tcy = CENTER[1]; return true; }
-  cam.tcx = isoX(c.pos.x, c.pos.y);
-  cam.tcy = isoY(c.pos.x, c.pos.y, c.zBase || 0) - catLift(c) - 14 * (c.k ?? 1) + VH * 0.06 / cam.z;   // 캐릭터를 살짝 아래쪽에 (위쪽은 말풍선 자리)
+  centerOn(c, cam.tz, 0);
   return true;
 }
 function updateCam(rdt){
@@ -3149,7 +3378,7 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   if (scene !== "campus" || !live) return;
   ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`;
   ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr;
-  if (team && (cam.focus === null || cam.focus === team.slot)){
+  if (team && !EMBED && (cam.focus === null || cam.focus === team.slot)){   // 위젯에선 "저장소 · 출근 n/m" 표 생략
     const L = SLOTS[team.slot], n = team.members.filter(m => m.present).length;
     const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
     const txt = `🐙 ${team.repo} · 출근 ${n}/${team.members.length}`;
@@ -3231,14 +3460,21 @@ function drawSessionTag(s, look, now, stampOnly){            // one: 고양이 �
     ctx.beginPath(); ctx.roundRect(x - w/2, y - hh, w, hh, hh/2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = look.bg ? "#1f1d1b" : TOD.ink; ctx.textAlign = "center"; ctx.fillText(txt, x, y - hh/2 + 0.5);
   }
-  if (s.stampUntil > now){
-    const age = 3 - (s.stampUntil - now), sc = Math.min(1, age / 0.25) * (1 + Math.max(0, 0.25 - age) * 2) * 0.7;
+  if (s.stampUntil > now){                       // 완료: 도장 대신 고양이 머리 위 작은 말풍선 ("냥?" 팻말보다 위)
+    const age = 5 - (s.stampUntil - now), sc = reduceMotion ? 1 : Math.min(1, 0.6 + age / 0.2 * 0.4);
+    const k = b.k ?? catK(b), atS = Math.hypot(b.pos.x - b.seat.x, b.pos.y - b.seat.y) < 3 && !b.path.length;
+    const tipY = SY(isoY(b.pos.x, b.pos.y, b.zBase || 0) - (b.lift ?? (atS ? (b.seatLift ?? 7) : 0)) - 34*k);
     ctx.globalAlpha = Math.min(1, (s.stampUntil - now) / 0.6);
-    ctx.translate(x, SY(isoY(b.pos.x, b.pos.y, 40))); ctx.rotate(-0.18); ctx.scale(sc, sc);
-    ctx.strokeStyle = "#d6463f"; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 3*dpr;
-    ctx.beginPath(); ctx.roundRect(-46*dpr, -20*dpr, 92*dpr, 40*dpr, 10*dpr); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#d6463f"; ctx.font = `${24*dpr}px 'Jua', sans-serif`; ctx.textAlign = "center";
-    ctx.fillText("완료!", 0, 1*dpr);
+    ctx.translate(x, tipY); ctx.scale(sc, sc);
+    ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textAlign = "left"; ctx.lineWidth = 1.3*dpr;
+    const chk = "✓ ", msg = "다 했어요!", cw = ctx.measureText(chk).width, tw = cw + ctx.measureText(msg).width;
+    const pad = 7*dpr, bw = tw + pad*2, bh = 20*dpr, bx = -bw/2, by = -6*dpr - bh;
+    ctx.fillStyle = TOD.paper; ctx.strokeStyle = TOD.ink;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 9*dpr); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4*dpr, by + bh - 0.5); ctx.lineTo(1*dpr, 0); ctx.lineTo(4*dpr, by + bh - 0.5); ctx.fill(); ctx.stroke();
+    ctx.fillRect(-3.2*dpr, by + bh - 2*dpr, 6.4*dpr, 2.6*dpr);   // 꼬리 이음새 지우기
+    ctx.fillStyle = "#2f9d5c"; ctx.fillText(chk, bx + pad, by + bh/2 + 0.5);
+    ctx.fillStyle = TOD.ink; ctx.fillText(msg, bx + pad + cw, by + bh/2 + 0.5);
   }
   ctx.restore();
   ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr; ctx.textAlign = "left";
@@ -3583,7 +3819,16 @@ function drawTable(){
 
 /* ───────── 고양이 ───────── */
 const catK = a => 1.7 + (a.pos.x + a.pos.y) / 780 * 0.35;
+/* 화면에 보일 자세: 0.15초 넘게 이어진 자세로만 바꿈. 작업과 작업 사이 1~2프레임 동안 상태가 busy/idle로 바뀌거나
+   걸어서 도착하는 순간 '앉기'가 한 프레임 끼면서 그림이 깜빡이던 문제 */
 function catPose(a, now){
+  const p = catPoseNow(a, now);
+  if (!a.poseShown || p === a.poseShown || p === "walk"){ a.poseShown = p; a.posePend = null; return p; }   // 걷기 시작은 바로
+  if (a.posePend !== p){ a.posePend = p; a.poseAt = now; }
+  if (now - a.poseAt >= 0.15 || reduceMotion){ a.poseShown = p; a.posePend = null; }
+  return a.poseShown;
+}
+function catPoseNow(a, now){
   if (a.path.length) return "walk";
   if (a === talkSel.cat){ a.idleSince = null; return a.state === "working" || a.state === "busy" ? "work" : "sit"; }
   if (a.state === "working") return "work";
@@ -5028,7 +5273,7 @@ pingServer().then(ok => {
   if (!ok && mode === "sim" && (EMBED || OPT.demo)) enterLive("demo");
 });
 if (EMBED){
-  addEventListener("resize", () => { if (talkSel.cat) talkCamera(); });
+  addEventListener("resize", () => { if (talkSel.cat){ talkSel.boxH = null; talkCamera(); } });
   if (ONE && wcam.overview){ $("#zFit").textContent = "🐾"; $("#zFit").setAttribute("aria-label", "캐릭터 따라가기"); }
   let seen = false; try { seen = localStorage.getItem("ao.talkHint") === "1"; } catch {}
   if (!seen) setTimeout(() => {                     // 위젯은 좁아서 큰 안내 카드 대신 작은 칩

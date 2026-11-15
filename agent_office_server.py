@@ -2,7 +2,7 @@
 """에이전트 오피스 라이브 서버.
 
 로컬에서 돌아가는 Claude Code 세션들(~/.claude/projects/*.jsonl)과
-서브에이전트 로그(<세션>/subagents/*.jsonl)를 감시해서
+서브에이전트 로그(<세션>/subagents/*.jsonl), Codex 세션(~/.codex/sessions)을 감시해서
 에이전트 오피스 페이지에 실시간으로 흘려보낸다. 표준 라이브러리만 사용.
 
 페이지에서 세션의 "터미널로 이동 / 새 터미널에서 이어하기 / 폴더 열기"를 누르면
@@ -25,6 +25,7 @@ git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 �
     --port N      포트 (기본: 8765)
     --no-browser  창 자동 열기 끄기
     --no-update   자동 업데이트 끄기
+    --no-codex    Codex 세션(~/.codex/sessions)은 보여주지 않기 (기본: 함께 보여줌)
 """
 import argparse
 import base64
@@ -108,8 +109,9 @@ def learn_meta(path, sess):
         pass
 
 
-def tail(path, sess, proj, agent=None):
-    """파일에서 새로 추가된 줄만 읽어 events 에 넣는다."""
+def tail(path, sess, proj, agent=None, conv=None, src=None):
+    """파일에서 새로 추가된 줄만 읽어 events 에 넣는다.
+    conv: 다른 도구(Codex 등)의 로그 한 줄을 Claude 형식 줄 목록으로 바꾸는 함수, src: 그 도구 이름."""
     global seq
     try:
         st = os.stat(path)
@@ -117,7 +119,7 @@ def tail(path, sess, proj, agent=None):
         return
     if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets:
         return
-    if agent is None:
+    if agent is None and conv is None:
         learn_meta(path, sess)
     first = path not in offsets
     pos = offsets.get(path, max(0, st.st_size - BACKLOG_BYTES))
@@ -146,11 +148,20 @@ def tail(path, sess, proj, agent=None):
         line = line.strip()
         if not line:
             continue
-        seq += 1
-        ev = {"q": seq, "s": sess, "p": proj, "l": line}
-        if agent:
-            ev["a"] = agent
-        events.append(ev)
+        outs = [line]
+        if conv:
+            try:
+                outs = [json.dumps(o, ensure_ascii=False) for o in conv(json.loads(line), sess)]
+            except ValueError:
+                outs = []
+        for out in outs:
+            seq += 1
+            ev = {"q": seq, "s": sess, "p": proj, "l": out}
+            if agent:
+                ev["a"] = agent
+            if src:
+                ev["src"] = src
+            events.append(ev)
 
 
 def scan(root):
@@ -184,6 +195,154 @@ def scan(root):
                 for sf in subs:
                     if sf.endswith(".jsonl"):
                         tail(os.path.join(sub, sf), f[:8], proj, sf[:-6])
+
+
+# ───────── Codex 세션: ~/.codex/sessions/연/월/일/rollout-<시각>-<세션ID>.jsonl ─────────
+# 줄마다 Claude Code 로그 형식으로 바꿔 같은 흐름에 넣는다 (페이지는 Claude 로그처럼 읽음).
+CODEX_ROOT = os.path.expanduser("~/.codex/sessions")
+CODEX_ON = True                # --no-codex 로 끔
+CODEX_SHELL = {"shell", "exec_command", "local_shell", "container.exec", "shell_command"}
+CODEX_STATUS = {"pending": "pending", "in_progress": "in_progress", "completed": "completed"}
+
+
+def codex_sid(path):
+    """rollout-...-<UUID>.jsonl → 'cx' + UUID 끝 6글자 (UUIDv7 앞부분은 시각이라 겹칠 수 있음)."""
+    stem = os.path.basename(path)[:-6]
+    return "cx" + re.sub(r"[^0-9a-f]", "", stem.lower())[-6:]
+
+
+def codex_learn(path, sess):
+    """첫 줄(session_meta)에서 세션 ID·작업 폴더·시작 시각을 읽어 둔다."""
+    m = meta.get(sess)
+    if m and m.get("cwd"):
+        return m
+    m = meta.setdefault(sess, {"id": os.path.basename(path)[-42:-6], "cwd": None, "started": None, "file": path, "src": "codex"})
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for _ in range(5):
+                line = fh.readline()
+                if not line:
+                    break
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                p = o.get("payload") or {}
+                if o.get("type") == "session_meta":
+                    m["id"] = p.get("id") or m["id"]
+                    m["cwd"] = p.get("cwd")
+                    m["started"] = parse_ts(p.get("timestamp") or o.get("timestamp") or "")
+                    break
+    except OSError:
+        pass
+    return m
+
+
+def codex_text(content):
+    return "\n".join(c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("text")).strip()
+
+
+def codex_tool(p):
+    """Codex 도구 호출 → (Claude 도구 이름, 입력)."""
+    name, ns = p.get("name") or "tool", p.get("namespace") or ""
+    raw = p.get("arguments") if p.get("type") == "function_call" else p.get("input")
+    try:
+        args = json.loads(raw) if isinstance(raw, str) and raw[:1] in "{[" else raw
+    except ValueError:
+        args = raw
+    if ns.startswith("mcp__"):
+        return f"{ns}__{name}", args if isinstance(args, dict) else {"input": args}
+    if name in CODEX_SHELL:
+        cmd = args.get("command") or args.get("cmd") if isinstance(args, dict) else args
+        if isinstance(cmd, list):
+            cmd = " ".join(cmd[2:] if cmd[:1] in (["bash"], ["/bin/zsh"], ["zsh"], ["/bin/bash"]) and cmd[1:2] in (["-lc"], ["-c"]) else cmd)
+        return "Bash", {"command": str(cmd or "")[:400]}
+    if name == "apply_patch":
+        files = re.findall(r"\*\*\* (?:Update|Add|Delete) File: (.+)", str(raw or ""))
+        return "Edit", {"file_path": files[0].strip() if files else ""}
+    if name == "update_plan" and isinstance(args, dict):   # 계획 → 할 일 목록 (진행률 표시)
+        todos = [{"content": str(t.get("step", ""))[:80], "status": CODEX_STATUS.get(t.get("status"), "pending")}
+                 for t in args.get("plan") or [] if isinstance(t, dict)]
+        return "TodoWrite", {"todos": todos}
+    if name.startswith("request_user_input"):
+        return "AskUserQuestion", {"questions": []}
+    return name, args if isinstance(args, dict) else {"input": str(args or "")[:400]}
+
+
+def codex_conv(o, sess):
+    """Codex 로그 한 줄 → Claude Code 형식 줄 목록 (없으면 빈 목록)."""
+    t, p = o.get("type"), o.get("payload") or {}
+    ts = o.get("timestamp")
+    cwd = (meta.get(sess) or {}).get("cwd")
+    base = {"timestamp": ts, "cwd": cwd, "sessionId": sess}
+    pt = p.get("type") if isinstance(p, dict) else None
+    if t == "session_meta":
+        return []
+    if t == "event_msg":
+        if pt == "item_completed" and (p.get("item") or {}).get("type") == "UserMessage":
+            text = codex_text(p["item"].get("content"))
+        elif pt == "user_message":                           # 예전 CLI 형식
+            text = str(p.get("message") or "").strip()
+        elif pt == "task_complete":
+            err = (p.get("error") or {}).get("message")
+            msg = p.get("last_agent_message") or (f"오류: {err}" if err else "")
+            return [{**base, "type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
+                                                              "content": [{"type": "text", "text": msg[:2000]}]}}]
+        elif pt == "turn_aborted":
+            return [{**base, "type": "user", "message": {"role": "user", "content": "[Request interrupted by user]"}}]
+        else:
+            return []
+        return [{**base, "type": "user", "message": {"role": "user", "content": text[:2000]}}] if text else []
+    if t != "response_item":
+        return []
+    if pt == "message" and p.get("role") == "assistant":
+        text = codex_text(p.get("content"))
+        if not text:
+            return []
+        # 중간 설명(commentary)은 작업이 계속된다는 뜻 — 끝은 task_complete 로 알린다
+        return [{**base, "type": "assistant", "message": {"role": "assistant", "stop_reason": "tool_use",
+                                                          "content": [{"type": "text", "text": text[:2000]}]}}]
+    if pt in ("function_call", "custom_tool_call"):
+        name, inp = codex_tool(p)
+        return [{**base, "type": "assistant", "message": {"role": "assistant", "stop_reason": "tool_use",
+                 "content": [{"type": "tool_use", "id": p.get("call_id") or p.get("id"), "name": name, "input": inp}]}}]
+    if pt in ("function_call_output", "custom_tool_call_output"):
+        out = p.get("output")
+        text = codex_text(out) if isinstance(out, list) else str(out or "")
+        return [{**base, "type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": p.get("call_id"), "content": text[:1500]}]}}]
+    return []
+
+
+def scan_codex(root=CODEX_ROOT):
+    """최근 사흘 치 날짜 폴더의 rollout 파일만 본다 (오래된 건 tail 이 6시간 기준으로 거름)."""
+    days = []
+    try:
+        for y in sorted(os.listdir(root))[-2:]:
+            yp = os.path.join(root, y)
+            for mo in sorted(os.listdir(yp))[-2:] if os.path.isdir(yp) else []:
+                mp = os.path.join(yp, mo)
+                days += [os.path.join(mp, d) for d in os.listdir(mp)] if os.path.isdir(mp) else []
+    except OSError:
+        return
+    for d in sorted(days)[-3:]:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for f in names:
+            if f.startswith("rollout-") and f.endswith(".jsonl"):
+                path = os.path.join(d, f)
+                if path not in offsets:
+                    try:
+                        if time.time() - os.stat(path).st_mtime > ACTIVE_WINDOW:
+                            continue
+                    except OSError:
+                        continue
+                sess = codex_sid(path)
+                m = codex_learn(path, sess)
+                proj = os.path.basename((m.get("cwd") or "").rstrip("/")) or "codex"
+                tail(path, sess, proj, conv=codex_conv, src="codex")
 
 
 # ───────── 터미널 열기 ─────────
@@ -1454,6 +1613,8 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/events":
             with lock:
                 scan(self.root)
+                if CODEX_ON:
+                    scan_codex()
                 try:
                     since = int(parse_qs(u.query).get("since", ["0"])[0])
                 except ValueError:
@@ -1497,6 +1658,9 @@ class Handler(BaseHTTPRequestHandler):
             m = dict(meta.get(sid) or {})
         if not m or action not in ACTIONS:
             self._json({"ok": False, "msg": "모르는 세션이나 동작이에요."}, 400)
+            return
+        if m.get("src") == "codex" and action != "folder":   # 터미널 이동·이어하기는 Claude Code 전용
+            self._json({"ok": False, "msg": "Codex 세션은 폴더 열기만 할 수 있어요."})
             return
         if not re.fullmatch(r"[0-9A-Za-z-]{8,64}", m["id"]):
             self._json({"ok": False, "msg": "세션 ID 형식이 이상해요."}, 400)
@@ -2025,6 +2189,7 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--no-update", action="store_true", help="자동 업데이트 끄기")
+    ap.add_argument("--no-codex", action="store_true", help="Codex 세션(~/.codex/sessions)은 보여주지 않기")
     ap.add_argument("--install", action="store_true", help="로그인할 때 서버 자동 시작 (지금도 켬)")
     ap.add_argument("--uninstall", action="store_true", help="자동 시작 해제")
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
@@ -2036,9 +2201,11 @@ def main():
     url = f"http://localhost:{args.port}"
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
             (["--no-update"] if args.no_update else []) + \
+            (["--no-codex"] if args.no_codex else []) + \
             (["--repo", args.repo] if args.repo else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
-    global DEFAULT_REPO
+    global DEFAULT_REPO, CODEX_ON
+    CODEX_ON = not args.no_codex
     if args.repo:
         if not REPO_RE.match(args.repo):
             print("[!] --repo 는 owner/repo 형식으로 적어 주세요 (예: square/okhttp).")

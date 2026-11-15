@@ -62,6 +62,7 @@ py agent_office_server.py
 | `--port N` | 서버 포트 | `8765` |
 | `--no-browser` | 창 자동 열기 끄기 | 꺼짐 |
 | `--no-update` | 자동 업데이트 끄기 | 꺼짐 |
+| `--no-codex` | Codex 세션(`~/.codex/sessions`)은 보여주지 않기 | 꺼짐 (Codex 세션도 함께 보여줌) |
 | `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
 | `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
 | `--repo owner/name` | 본사에 보여줄 깃허브 저장소 | 세션 폴더의 git origin에서 자동으로 찾음 |

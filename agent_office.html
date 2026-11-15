@@ -2026,7 +2026,7 @@ function newSession(rec, slot, boss, msg, oneMode){
   Object.assign(boss, {q:[], cur:null, path:[], pos:{...boss.home}, seat:{...boss.home}, seatLift:7,
     state:"idle", stateText:"입주 완료", idleSince:null, bubble:null, inLounge:false, waiting:false,
     napAfter:boss.napBase, activity:"", lastMs:Date.now()});
-  const s = {sid:rec.s, proj:rec.p, slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
+  const s = {sid:rec.s, proj:rec.p, src:rec.src || "claude", slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
        phase:"idle", goal:"", topic:"", todos:[], activity:"", files:new Set(), cmds:0, errs:0, subTotal:0,
        bg:new Map(), bgShell:new Map(), bgAlias:new Map(), bgPending:new Map(), bgCheck:new Map(), bgSeq:0, seen:new Set(), tools:{}, mcp:{}, skills:{},
        startMs:0, result:"", lastText:"", cwd:"", branch:"", fullId:"", pendingEndAt:0, pendingTool:null,
@@ -2623,6 +2623,7 @@ function ago(ms){
   if (s < 86400 * 400) return `${Math.round(s / 86400 / 30)}달 전`;
   return `${Math.round(s / 86400 / 365)}년 전`;
 }
+const SRC_LABEL = {claude:"Claude", codex:"Codex"};   // 세션을 만든 도구 (서버가 이벤트에 src 로 알려 줌)
 function talkInfo(c){
   if (c.human){
     const m = c.human, d = m.info, who = d.name ? `${d.name}(@${m.login})` : `@${m.login}`;
@@ -2641,7 +2642,7 @@ function talkInfo(c){
   if (!s) return null;
   if (c === s.boss){
     const look = phaseLook(s), lines = [];
-    lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
+    lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.src === "codex" ? " Codex로 일해요." : "") + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
     if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
     else if (s.phase === "waiting") lines.push(`${look.icon} ${look.text} — 다음 명령을 기다리고 있어요!`);
     else lines.push("지금은 조용해요. 부르면 바로 달려갈게요.");
@@ -2653,8 +2654,8 @@ function talkInfo(c){
     const bg = [...s.bg.values()].filter(t => t.status === "running");
     if (bg.length) lines.push(`뒤에서 돌리는 작업도 있어요: ${bg.map(t => t.label).join(", ")}`);
     if (s.phase === "waiting" && s.result) lines.push(`방금 끝낸 일: ${s.result}`);
-    return {name:c.name, tag:`AI 메인 에이전트 · ${sessName(s)}`, lines, session:s,
-            ref:{kind:"ai-main", name:c.name, session:sessName(s), phase:s.phase}};
+    return {name:c.name, tag:`${SRC_LABEL[s.src] || "AI"} 메인 에이전트 · ${sessName(s)}`, lines, session:s,
+            ref:{kind:"ai-main", name:c.name, session:sessName(s), phase:s.phase, src:s.src}};
   }
   const lines = [`저는 ${c.name}! ‘${sessName(s)}’ 사무실의 새끼냥이에요.`,
                  `팀장 ${s.boss.name}의 부탁으로 “${clip(c.role, 40)}” 일을 맡았어요.`,
@@ -2686,8 +2687,9 @@ function openTalk(c){
     const a = document.createElement("a"); a.className = "mini"; a.href = info.link; a.target = "_blank"; a.rel = "noopener noreferrer";
     a.textContent = EMBED && innerWidth < 300 ? "GitHub ↗" : "GitHub 프로필 ↗"; talk.actions.appendChild(a);
   }
-  if (!EMBED && info.session && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));   // 위젯에선 터미널 조작 버튼 숨김
-  if (!EMBED && info.session) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
+  const termOk = info.session && info.session.src === "claude";   // 터미널 이동·이어하기는 Claude Code 세션만
+  if (!EMBED && termOk && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));   // 위젯에선 터미널 조작 버튼 숨김
+  if (!EMBED && termOk) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
   if (SHOW_PICKER && c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만 (지금은 숨김)
   talkSel.next = EMBED ? null : talkButton("다음 ▶", advanceTalk, "mini primary");   // 위젯: 대화창을 누르면 넘어가니 버튼 없음
   talk.box.hidden = false;
@@ -3457,7 +3459,7 @@ function drawSessionTag(s, look, now, stampOnly){            // one: 고양이 �
   ctx.save();
   const big = cam.z > 1.6;
   ctx.font = `${Math.max(9, (big ? 11 : 9.5)*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.1*dpr;
-  const txt = big ? `${look.icon} ${clip(sessName(s), 14)} · ${b.name}${n ? "  🐾" + n : ""}` : `${look.icon} ${clip(sessName(s), 10)}${n ? " 🐾" + n : ""}`;
+  const txt = big ? `${look.icon} ${clip(sessName(s), 14)} · ${b.name}${s.src === "codex" ? " · Codex" : ""}${n ? "  🐾" + n : ""}` : `${look.icon} ${clip(sessName(s), 10)}${n ? " 🐾" + n : ""}`;
   const w = ctx.measureText(txt).width + 14*dpr, hh = (big ? 18 : 15)*dpr, y = y0 + hh;
   if (y > hh && !stampOnly){
     ctx.strokeStyle = TOD.ink; ctx.fillStyle = look.bg || TOD.paper;
@@ -4972,6 +4974,7 @@ function buildSumCard(s){
              result:q(".sum-result"), bg:q(".sum-bg"), tools:q(".sum-tools"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
   c.chip.style.background = s.boss.coat.base;
   el.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => openAction(s, b.dataset.a, c.msg)));
+  if (s.src !== "claude") for (const a of ["focus", "resume", "copy"]) q(`[data-a="${a}"]`).hidden = true;   // Codex 등: 폴더·사무실 보기만
   q(".ren").addEventListener("click", () => {
     if (c.editing) return;
     c.editing = true;
@@ -4992,7 +4995,7 @@ function fillSumCard(s){
   c.pill.className = "pill" + (look.bg === "#3f9c62" ? " ok" : look.bg ? " hot" : "");
   c.el.classList.toggle("waiting", s.phase === "waiting");
   c.view.hidden = cam.focus === s.slot;
-  c.sub.textContent = [SLOTS[s.slot].name, s.branch && `⎇ ${s.branch}`, s.sid].filter(Boolean).join(" · ");
+  c.sub.textContent = [s.src !== "claude" && SRC_LABEL[s.src], SLOTS[s.slot].name, s.branch && `⎇ ${s.branch}`, s.sid].filter(Boolean).join(" · ");
   c.goal.textContent = s.goal ? `요청: ${s.goal}` : s.topic ? `주제: ${s.topic}` : "아직 받은 요청이 없어요";
   const helping = [...s.kittens.values()].filter(k => !k.leaving && !k.inLounge).length;
   c.now.textContent =

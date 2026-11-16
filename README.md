@@ -200,7 +200,7 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 
 ## 자주 생기는 상황
 
-- **사무실이 다 "입주 대기"예요**: 최근 6시간 안에 활동한 세션만 보여줘요. Claude Code에서 아무 작업이나 시키면 바로 입주해요.
+- **사무실이 다 비어 있어요**: 최근 6시간 안에 활동한 세션만 보여줘요. Claude Code에서 아무 작업이나 시키면 바로 입주해요.
 - **로그 폴더가 없다고 나와요**: 기본 위치는 맥·리눅스 `~/.claude/projects`, 윈도우 `C:\Users\<사용자>\.claude\projects`예요. 다르면 `--dir`로 지정해 주세요.
 - **포트가 이미 쓰이고 있어요**: `--port 9000`처럼 바꿔 주세요.
 - **글씨체가 기본 폰트로 나와요**: 폰트를 Google Fonts에서 받아와요. 오프라인이어도 기능은 같아요.
@@ -211,3 +211,11 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 | --- | --- |
 | `agent_office.html` | 화면 전체 (캔버스 렌더러, 시뮬레이션, 재생, 라이브 모드) |
 | `agent_office_server.py` | 로그 감시 + 화면 제공 + 터미널 열기 + 웹앱(manifest·service worker·아이콘) 로컬 서버 |
+
+## 라이선스
+
+[MIT](LICENSE) © 2026 akellysoft-junior. 코드와 `agent_office.html`에 들어 있는 캐릭터 그림 모두 MIT로 써도 돼요.
+
+함께 쓰는 것:
+- 글꼴 [Jua](https://fonts.google.com/specimen/Jua), [Gowun Dodum](https://fonts.google.com/specimen/Gowun+Dodum), [IBM Plex Mono](https://fonts.google.com/specimen/IBM+Plex+Mono): SIL Open Font License 1.1. 저장소에 넣지 않고 Google Fonts에서 받아 와요.
+- 위젯에 나오는 깃허브 프로필(이름·사진·자기소개)은 실행할 때 GitHub API에서 받아 오는 각 사용자의 정보예요. 저장소에 들어 있지 않아요.

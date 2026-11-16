@@ -437,7 +437,14 @@ const EMBED = document.documentElement.classList.contains("embed");
 const LAYOUT = (() => { let v = QS.get("layout"); if (!v && EMBED) v = "one"; if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
 const ONE = LAYOUT === "one";
 const ROOM = EMBED && ONE && QS.get("view") === "room";   // 위젯 B안: 작은 방 하나를 상자에 꽉 차게
-const OPT = {repo:(QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
+// "owner/name", "https://github.com/owner/name(.git)/…", "git@github.회사.net:owner/name.git" → "owner/name", 비었으면 "", 이상하면 null
+const repoOf = v => {
+  v = String(v || "").trim().replace(/^(git@[^:\/]+:|ssh:\/\/git@[^\/]+\/|https?:\/\/[^\/]+\/)/i, "");
+  if (!v) return "";
+  const m = v.match(/^([\w.-]+)\/([\w.-]+?)(\.git)?(?:[\/?#].*)?$/);
+  return m ? m[1] + "/" + m[2] : null;
+};
+const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1"};
 const cv = $("#office");
 let ctx = cv.getContext("2d");   // 초상화 그릴 때 잠깐 다른 캔버스로 바꿔 씀
@@ -1089,13 +1096,6 @@ btnLayout.addEventListener("click", () => {          // 바꾸면 새로 불러�
 /* 위젯 미리보기: 이 페이지를 ?embed=1 로 iframe에 띄워 위젯 크기별 모습 확인 */
 {
   const box = $("#wBox"), frame = $("#wFrame"), wW = $("#wW"), wH = $("#wH"), wView = $("#wView"), wDemo = $("#wDemo"), wRepo = $("#wRepo");
-  // "owner/name" 또는 "https://github.com/owner/name(.git)/…" → "owner/name", 비었으면 "", 이상하면 null
-  const repoOf = v => {
-    v = v.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "").replace(/\.git$/i, "");
-    if (!v) return "";
-    const m = v.match(/^([\w.-]+)\/([\w.-]+?)(\.git)?(?:[\/?#].*)?$/);
-    return m ? m[1] + "/" + m[2] : null;
-  };
   try { wRepo.value = localStorage.getItem("ao.wprevRepo") || ""; } catch {}
   wRepo.addEventListener("change", () => { try { localStorage.setItem("ao.wprevRepo", wRepo.value.trim()); } catch {} load(); });
   let size = {w:480, h:420};
@@ -2335,7 +2335,7 @@ function setTeam(data, source){
             nextAt:0, leaveAt:0, breakAt:0, backAt:0, murmurAt:0, first:true,
             coat:coats[h % coats.length], look:{...personLook(d.login), ...(d.look || {})}};   // 본인이 gist 에 정한 모습이 있으면 그걸로
   });
-  team = {repo:data.repo || "", members, slot, source, fetched:data.fetched || Date.now()};
+  team = {repo:data.repo || "", host:data.host || "github.com", members, slot, source, fetched:data.fetched || Date.now()};
   for (const m of members) if (m.first && !m.nextAt){
     // 처음 열었을 때: 상주 멤버(와 자주 오는 멤버 일부)는 이미 자리에, 나머지는 시간차를 두고 출근
     if (RESUME && RESUME.present) m.nextAt = RESUME.present.includes(m.login) ? 1 : Date.now() + rand(20000, 2*MIN);   // 위젯 다시 불러옴: 있던 사람만 그대로
@@ -2635,7 +2635,7 @@ function talkInfo(c){
     lines.push((m.tier === "core" ? "상주 멤버라서 거의 늘 사무실에 있어요." : m.tier === "regular" ? "자주 와서 일하다 가요." : "가끔 잠깐 들러요. 지금 만난 건 행운이에요!")
                + (m.leaving ? " 지금은 퇴근하는 길이에요." : left >= 1 ? ` 이번엔 ${left}분쯤 더 있다 갈 거예요.` : " 곧 가 봐야 해요."));
     return {name: d.name || "@" + m.login, tag:`GitHub 기여자 · ${TIER_LABEL[m.tier]}`, lines,
-            avatar: d.avatar || "", link: d.url || `https://github.com/${m.login}`,
+            avatar: d.avatar || "", link: d.url || `https://${team ? team.host : "github.com"}/${m.login}`,
             ref:{kind:"human", login:m.login, name:d.name || m.login, repo:team ? team.repo : ""}};
   }
   const s = catSessionOf(c);

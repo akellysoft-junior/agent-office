@@ -26,6 +26,7 @@ git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 �
     --no-browser  창 자동 열기 끄기
     --no-update   자동 업데이트 끄기
     --no-codex    Codex 세션(~/.codex/sessions)은 보여주지 않기 (기본: 함께 보여줌)
+    --github-host HOST  회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net)
 """
 import argparse
 import base64
@@ -1606,7 +1607,7 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path.startswith("/api/") and not self._host_ok():
             self._json({"ok": False}, 403)
         elif u.path == "/api/team":
-            repo = (parse_qs(u.query).get("repo") or [""])[0].strip()
+            repo = norm_repo((parse_qs(u.query).get("repo") or [""])[0])
             if repo and not REPO_RE.match(repo):
                 self._json({"repo": None, "members": [], "error": "저장소 이름 형식이 이상해요 (owner/repo)."}, 400)
                 return
@@ -1685,7 +1686,32 @@ class Handler(BaseHTTPRequestHandler):
 
 # ───────── 깃허브 팀: 저장소 기여자 정보 (위젯의 본사 건물에 출근) ─────────
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
-GH_URL_RE = re.compile(r"github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
+GH_HOST = "github.com"         # --github-host 로 회사 깃허브(GitHub Enterprise Server) 주소를 정함
+
+
+def api_base():
+    """깃허브 API 주소: github.com / *.ghe.com / 회사 서버(https://호스트/api/v3)."""
+    if GH_HOST == "github.com":
+        return "https://api.github.com"
+    if GH_HOST.endswith(".ghe.com"):
+        return "https://api." + GH_HOST
+    return f"https://{GH_HOST}/api/v3"
+
+
+def norm_repo(v):
+    """'owner/name', 저장소 주소(https·git@, .git 붙어도, 뒤에 /tree/… 붙어도) → 'owner/name'."""
+    v = re.sub(r"^(git@[^:/]+:|ssh://git@[^/]+/|https?://[^/]+/)", "", (v or "").strip(), flags=re.I)
+    m = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#].*)?$", v)
+    return f"{m.group(1)}/{m.group(2)}" if m else v
+
+
+def gh_repo_of_url(url):
+    """git origin 주소가 이 서버가 보는 깃허브(github.com 또는 --github-host)면 'owner/name'."""
+    m = re.match(r"^(?:git@([^:/]+):|ssh://git@([^/:]+)(?::\d+)?/|https?://(?:[^@/]+@)?([^/:]+)(?::\d+)?/)", (url or "").strip(), re.I)
+    if not m or (m.group(1) or m.group(2) or m.group(3)).lower().removeprefix("www.") != GH_HOST:
+        return None
+    r = norm_repo(url)
+    return r if REPO_RE.match(r) else None
 TEAM_TTL = 30 * 60             # 30분마다 새로 받기 (API 한도 아끼기)
 TEAM_MAX = 24                  # 본사에 등록하는 최대 인원
 DEFAULT_REPO = None            # --repo 로 정한 기본 저장소
@@ -1702,9 +1728,7 @@ def repo_of(cwd):
         return repo_of_cwd[cwd]
     r = None
     if cwd and os.path.isdir(cwd):
-        m = GH_URL_RE.search(run(["git", "-C", cwd, "config", "--get", "remote.origin.url"], timeout=3) or "")
-        if m:
-            r = f"{m.group(1)}/{m.group(2)}"
+        r = gh_repo_of_url(run(["git", "-C", cwd, "config", "--get", "remote.origin.url"], timeout=3) or "")
     repo_of_cwd[cwd] = r
     return r
 
@@ -1729,15 +1753,18 @@ def gh_token():
     """GITHUB_TOKEN / GH_TOKEN, 없으면 gh CLI 로그인 토큰 (있으면 API 한도가 넉넉해짐)."""
     global _gh_token
     if _gh_token is None:
-        _gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        if GH_HOST == "github.com":
+            _gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        else:                                   # 회사 깃허브: gh 와 같은 환경변수 이름
+            _gh_token = os.environ.get("GH_ENTERPRISE_TOKEN") or os.environ.get("GITHUB_ENTERPRISE_TOKEN") or ""
         if not _gh_token and shutil.which("gh"):
-            _gh_token = run(["gh", "auth", "token"], timeout=5) or ""
+            _gh_token = run(["gh", "auth", "token", "--hostname", GH_HOST], timeout=5) or ""
     return _gh_token
 
 
 def gh_get(path, use_token=True):
     global _gh_token
-    req = urllib.request.Request("https://api.github.com" + path, headers={
+    req = urllib.request.Request(api_base() + path, headers={
         "Accept": "application/vnd.github+json", "User-Agent": "agent-office"})
     tok = gh_token() if use_token else ""
     if tok:
@@ -1776,7 +1803,7 @@ def clean_look(d):
 
 
 def gh_send(method, path, body):
-    req = urllib.request.Request("https://api.github.com" + path, method=method, data=json.dumps(body).encode(), headers={
+    req = urllib.request.Request(api_base() + path, method=method, data=json.dumps(body).encode(), headers={
         "Accept": "application/vnd.github+json", "User-Agent": "agent-office", "Content-Type": "application/json",
         "Authorization": "Bearer " + gh_token()})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -1798,9 +1825,13 @@ def fetch_look(login):
         return None
     _, f = hit
     raw = f.get("raw_url") or ""
-    if not raw.startswith("https://gist.githubusercontent.com/"):
+    host = urlparse(raw).hostname or ""
+    if not (raw.startswith("https://") and host in ("gist.githubusercontent.com", GH_HOST, "gist." + GH_HOST)):
         return None
-    with urllib.request.urlopen(urllib.request.Request(raw, headers={"User-Agent": "agent-office"}), timeout=10) as r:
+    req = urllib.request.Request(raw, headers={"User-Agent": "agent-office"})
+    if GH_HOST != "github.com" and gh_token():  # 회사 깃허브는 로그인해야 보이는 경우가 많음
+        req.add_header("Authorization", "Bearer " + gh_token())
+    with urllib.request.urlopen(req, timeout=10) as r:
         text = r.read(4096)
     try:
         return clean_look(json.loads(text))
@@ -1890,12 +1921,13 @@ def fetch_team(repo):
                 m["look"] = lk
         except Exception:
             pass
-    return {"repo": repo, "fetched": int(time.time() * 1000), "members": members}
+    return {"repo": repo, "host": GH_HOST, "fetched": int(time.time() * 1000), "members": members}
 
 
 def team_cache_path(repo):
     base = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office")
-    return os.path.join(base, "team_" + repo.replace("/", "__") + ".json")
+    host = "" if GH_HOST == "github.com" else GH_HOST + "__"
+    return os.path.join(base, "team_" + host + repo.replace("/", "__") + ".json")
 
 
 def get_team(repo):
@@ -2201,18 +2233,29 @@ def main():
     ap.add_argument("--install", action="store_true", help="로그인할 때 서버 자동 시작 (지금도 켬)")
     ap.add_argument("--uninstall", action="store_true", help="자동 시작 해제")
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
+    ap.add_argument("--github-host", metavar="HOST",
+                    help="회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net, 기본: github.com)")
     ap.add_argument("--repo", help="위젯 본사에 보여줄 깃허브 저장소 (owner/repo, 기본: 세션 폴더에서 자동으로 찾음)")
     ap.add_argument("--allow-embed", action="append", default=[], metavar="ORIGIN",
                     help="위젯을 끼워 넣을 수 있는 바깥 사이트 (예: https://tool.example.com). localhost 는 기본 허용")
     ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    if args.repo:
+        args.repo = norm_repo(args.repo)
     url = f"http://localhost:{args.port}"
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
             (["--no-update"] if args.no_update else []) + \
             (["--no-codex"] if args.no_codex else []) + \
             (["--repo", args.repo] if args.repo else []) + \
+            (["--github-host", args.github_host] if args.github_host else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
-    global DEFAULT_REPO, CODEX_ON
+    global DEFAULT_REPO, CODEX_ON, GH_HOST
+    if args.github_host:
+        h = re.sub(r"^https?://", "", args.github_host.strip(), flags=re.I).strip("/").lower()
+        if not re.fullmatch(r"[a-z0-9.-]+(:\d+)?", h):
+            print(f"[!] --github-host 값이 이상해요: {args.github_host} (예: github.company.net)")
+            return
+        GH_HOST = args.github_host = h
     CODEX_ON = not args.no_codex
     if args.repo:
         if not REPO_RE.match(args.repo):

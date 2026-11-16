@@ -66,6 +66,7 @@ py agent_office_server.py
 | `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
 | `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
 | `--repo owner/name` | 본사에 보여줄 깃허브 저장소 | 세션 폴더의 git origin에서 자동으로 찾음 |
+| `--github-host HOST` | 회사 깃허브(GitHub Enterprise Server) 주소 (예: `github.company.net`). 토큰은 `gh auth login --hostname HOST` 또는 `GH_ENTERPRISE_TOKEN` | github.com |
 | `--allow-embed ORIGIN` | 위젯을 끼워 넣을 수 있는 바깥 사이트 (여러 번 쓸 수 있음) | localhost만 허용 |
 
 ### 매번 치기 귀찮다면
@@ -117,7 +118,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 
 | 속성 | 설명 |
 | --- | --- |
-| `data-repo="owner/name"` | 본사에 보여줄 깃허브 저장소. 없으면 서버가 정한 저장소(`--repo` 또는 자동) |
+| `data-repo="owner/name"` | 본사에 보여줄 깃허브 저장소. 깃 주소(`https://github.com/owner/name.git`, `git@github.com:…`)도 돼요. 없으면 서버가 정한 저장소(`--repo` 또는 자동) |
 | `data-theme="light\|dark\|auto"` | 페이지 테마 |
 | `data-tod="day\|dusk\|night\|auto"` | 동네 그림의 낮·밤 |
 | `data-team="0"` | 깃허브 팀 끄기 |

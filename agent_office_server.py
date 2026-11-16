@@ -1527,6 +1527,14 @@ ICONS_B64 = {
 ICONS = {k: base64.b64decode(v) for k, v in ICONS_B64.items()}
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # 브라우저가 받는 도중에 끊은 것(새로고침·위젯 숨김)은 정상이라 로그에 남기지 않음
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     root = os.path.expanduser("~/.claude/projects")
     port = 8765
@@ -2265,7 +2273,7 @@ def main():
         linux_setup_check()
 
     try:
-        srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+        srv = Server(("127.0.0.1", args.port), Handler)
     except OSError as e:
         print(f"[!] {args.port}번 포트를 쓸 수 없어요 ({e}). --port 9000 처럼 다른 번호로 켜 주세요.")
         return

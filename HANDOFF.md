@@ -5,6 +5,7 @@
 - 저장소: https://github.com/akellysoft-junior/agent-office (공개)
 - 작업 브랜치: **`rig-redesign`** (최신 커밋 `b777299`). **`main`은 `d671b67`에서 멈춰 있어요.**
 - 작성 시점: 2026-11-13
+- **그림 원본(`art/`)과 작업 캡처(`handoff/`)는 `assets-archive` 브랜치로 옮겼어요.** 앱은 `agent_office.html`(그림 내장)과 서버 파일만 있으면 돌아가요. 아래에 나오는 `art/…`, `handoff/…` 경로는 그 브랜치에서 찾아요 (`git checkout assets-archive -- art` 로 필요한 것만 꺼낼 수 있어요). 새 캡처도 저장소가 아니라 그 브랜치나 사용자에게 파일로 전달해요.
 
 ---
 

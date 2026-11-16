@@ -2338,6 +2338,7 @@ function setTeam(data, source){
             coat:coats[h % coats.length], look:{...personLook(d.login), ...(d.look || {})}};   // 본인이 gist 에 정한 모습이 있으면 그걸로
   });
   team = {repo:data.repo || "", host:data.host || "github.com", members, slot, source, fetched:data.fetched || Date.now()};
+  for (const m of members) if (m.info.avatar) avatarCache.set(m.info.avatar, Object.assign(new Image(), {src: avatarSrc(m.info.avatar)}));   // 대화창 프사를 미리 받아 둠
   for (const m of members) if (m.first && !m.nextAt){
     // 처음 열었을 때: 상주 멤버(와 자주 오는 멤버 일부)는 이미 자리에, 나머지는 시간차를 두고 출근
     if (RESUME && RESUME.present) m.nextAt = RESUME.present.includes(m.login) ? 1 : Date.now() + rand(20000, 2*MIN);   // 위젯 다시 불러옴: 있던 사람만 그대로
@@ -2474,6 +2475,8 @@ const DEMO_TEAM = () => { const h = 3600e3, d = 24*h, now = Date.now(); return {
   {login:"first-pr-cat", name:"", bio:"오픈소스 첫 기여 연습 중", contributions:2, recent:0, lastAt:now - 200*d, lastMsg:"Fix typo in docs"},
 ]}; };
 let teamLoadId = 0;
+const avatarSrc = a => a + (a.includes("?") ? "&" : "?") + "s=160";
+const avatarCache = new Map();                  // 프사 미리 받기 (Image 를 잡아 둬야 캐시에서 바로 나옴)
 async function loadTeam(refresh = false){
   if (!refresh) clearTeam();
   if (!OPT.team || mode !== "live" || !live) return;
@@ -2680,10 +2683,14 @@ function openTalk(c){
   // 좁은 위젯: 긴 프로필 이름 대신 @아이디 (이름은 인사말에 다시 나옴)
   talk.name.textContent = EMBED && innerWidth <= 420 && info.ref && info.ref.kind === "human" ? "@" + info.ref.login : info.name;
   talk.name.title = info.name; talk.tag.textContent = info.tag;
-  talk.img.hidden = talk.badge.hidden = !info.avatar;
+  // 프사는 다 받은 뒤에 보여줌 (그 전에는 그린 얼굴): 이전 사람 사진이 남아 있다가 늦게 바뀌지 않게
+  talk.img.hidden = talk.badge.hidden = true;
+  talk.img.onload = talk.img.onerror = null;
   if (info.avatar){
-    talk.img.src = info.avatar + (info.avatar.includes("?") ? "&" : "?") + "s=160";
-    talk.img.onerror = () => { talk.img.hidden = talk.badge.hidden = true; };
+    const src = avatarSrc(info.avatar), show = () => { if (talkSel.cat === c) talk.img.hidden = talk.badge.hidden = false; };
+    talk.img.onload = show;
+    talk.img.src = src;
+    if (talk.img.complete && talk.img.naturalWidth) show();
   } else talk.img.removeAttribute("src");
   talk.msg.hidden = true;
   [...talk.actions.querySelectorAll("button, a")].forEach(el => el.remove());

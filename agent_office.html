@@ -3290,13 +3290,6 @@ function drawLot(i, now){
   if (L.big) items.push(...bigOfficeProps(L, now));
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
-  if (!s && !hq){                                              // 빈 사무실 안내판
-    const cx = L.x + 78, cy = L.y + L.d/2;
-    line([gpt(cx, cy, 0), gpt(cx, cy, 12)]);
-    wallQuad(cx - 18, cy, cx + 18, cy, 11, 21, P.paper);
-    ctx.fillStyle = P.ink; ctx.font = "7px 'Jua', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    wallText("입주 대기", cx, cy, 16); ctx.textAlign = "left";
-  }
 }
 /* one: 넓은 사무실 소품 (깊이 정렬에 섞임) */
 function bigOfficeProps(L, now){

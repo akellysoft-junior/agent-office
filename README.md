@@ -136,7 +136,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 const box = document.querySelector("[data-agent-office]");
 box.addEventListener("agent-office:select", e => console.log(e.detail));    // 고양이를 눌렀을 때 {kind:"human"|"ai-main"|"ai-sub", name, login?, session?}
 box.addEventListener("agent-office:close", () => {});                       // 대화창을 닫았을 때
-box.addEventListener("agent-office:attention", e => e.detail.count);        // 확인 안 한 완료·질문 수
+box.addEventListener("agent-office:attention", e => e.detail);             // 확인 안 한 것 {count, questions, done, items:[{session, kind:"question"|"plan"|"done"}]}
 box.addEventListener("agent-office:team", e => e.detail);                   // 팀 정보를 불러왔을 때 {repo, members}
 box.__agentOffice.send("select", {login:"octocat"});                         // 바깥에서 그 사람에게 말 걸기
 ```

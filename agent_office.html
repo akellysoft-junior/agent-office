@@ -284,6 +284,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
 .wprev-presets{display:inline-flex; gap:4px}
 .wprev-presets button{font-size:12px; padding:3px 9px; box-shadow:1px 1px 0 var(--ink)}
 #wClose{margin-left:auto}
+.wprev-attn{font-size:12px; padding:2px 9px; border:1.5px solid var(--ink); border-radius:999px; background:var(--paper)}
 .wprev-hint{margin:0; font-size:12px; color:var(--muted)}
 .wprev-area{flex:1; min-height:0; overflow:auto; padding:4px 12px 12px 4px}
 .wprev-box{box-sizing:border-box; resize:both; overflow:hidden; min-width:240px; min-height:180px; background:var(--paper);
@@ -331,6 +332,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
     <label>저장소 <input type="text" id="wRepo" placeholder="자동 (owner/name 또는 GitHub 주소)" spellcheck="false" autocomplete="off"></label>
     <label><input type="checkbox" id="wDemo"> 데모 데이터</label>
     <button type="button" id="wReload" title="위젯 다시 불러오기">↻</button>
+    <span class="wprev-attn" id="wAttn" hidden title="위젯이 바깥 페이지에 보내는 알림 수 (agent-office:attention)"></span>
     <button type="button" id="wClose" class="primary">닫기 ✕</button>
   </div>
   <p class="wprev-hint">상자 오른쪽 아래 모서리를 끌어도 크기가 바뀌어요.</p>
@@ -1129,7 +1131,15 @@ btnLayout.addEventListener("click", () => {          // 바꾸면 새로 불러�
   wView.addEventListener("change", load);
   wDemo.addEventListener("change", load);
   $("#wReload").addEventListener("click", load);
-  const close = () => { $("#wPrev").hidden = true; frame.src = "about:blank"; $("#btnWidget").focus(); };
+  const attn = $("#wAttn");                           // 끼워 넣은 곳에서 받는 알림(attention 이벤트)을 미리보기에도 보여 줌
+  addEventListener("message", e => {
+    const d = e.data;
+    if (e.source !== frame.contentWindow || !d || d.source !== "agent-office" || d.type !== "attention") return;
+    attn.hidden = !d.count;
+    attn.textContent = [d.questions ? `❓ 답할 것 ${d.questions}` : "", d.done ? `✓ 확인 안 한 완료 ${d.done}` : ""].filter(Boolean).join(" · ");
+    attn.title = "위젯이 보내는 알림 (agent-office:attention)\n" + (d.items || []).map(i => `${i.kind === "done" ? "✓ 완료" : i.kind === "plan" ? "📝 계획 확인" : "❓ 질문"} · ${i.session}`).join("\n");
+  });
+  const close = () => { $("#wPrev").hidden = true; frame.src = "about:blank"; attn.hidden = true; $("#btnWidget").focus(); };
   $("#wClose").addEventListener("click", close);
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && !$("#wPrev").hidden){ e.stopImmediatePropagation(); close(); }
@@ -2079,7 +2089,7 @@ function setWaiting(s, reason, fresh){
   b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
               : reason === "중단" ? "중단됨 · 명령 대기" : "명령 기다리는 중";
   if (fresh && (reason === "질문" || reason === "계획")){
-    s.attention = true;
+    s.attention = true; s.attnKind = reason;
     followNote(s, 3);
     say(b, reason === "질문" ? "물어볼 게 있어요!" : "계획 봐 주세요!", 3);
     notifyUser(`${sessName(s)}: ${reason === "질문" ? "질문이 있어요" : "계획 확인이 필요해요"}`, s.activity);
@@ -2095,7 +2105,7 @@ function complete(s, fresh){
 }
 function celebrate(s){
   const L = SLOTS[s.slot], t = perfNow();
-  s.attention = true;
+  s.attention = true; s.attnKind = "완료";
   followNote(s, 3);
   live.done++;
   s.stampUntil = t + (ONE ? 5 : 3);           // one: 완료 말풍선은 카메라가 도착한 뒤에도 보이게 조금 더 길게
@@ -2133,6 +2143,7 @@ function trackMain(s, o, fresh){
       s.pendingTool = null;
       if (b.is_error) s.errs++;
       if (s.phase === "waiting" && (s.waitReason === "질문" || s.waitReason === "계획")){
+        s.attention = false;                    // 답했으니 확인할 것 없음
         s.phase = "working"; s.activity = "답을 받고 다시 일하는 중"; bossToDesk(s); live.ver++;
       }
     }
@@ -2155,7 +2166,11 @@ function trackMain(s, o, fresh){
         s.todos = inp.todos.map(t => ({content: t.content || t.activeForm || "", activeForm: t.activeForm || t.content || "", status: t.status || "pending"}));
       if (name === "TaskCreate") s.todos.push({content: inp.subject || inp.description || "할 일", activeForm: inp.activeForm || inp.subject || "", status:"pending"});
       if (name === "TaskUpdate" && inp.taskId){ const t = s.todos[(+inp.taskId) - 1]; if (t && inp.status) t.status = inp.status === "deleted" ? "completed" : inp.status; }
-      if (name === "AskUserQuestion"){ setWaiting(s, "질문", fresh); continue; }
+      if (name === "AskUserQuestion"){
+        const q = Array.isArray(inp.questions) && inp.questions[0];
+        s.question = clip((q && (q.question || q.header)) || inp.question || "", 80);
+        setWaiting(s, "질문", fresh); continue;
+      }
       if (name === "ExitPlanMode"){ setWaiting(s, "계획", fresh); continue; }
       s.pendingTool = {name, at: Date.now()};
     } else if (b.type === "text" && b.text && b.text.trim()) text = b.text.trim();
@@ -2649,6 +2664,10 @@ function talkInfo(c){
     const look = phaseLook(s), lines = [];
     lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.src === "codex" ? " Codex로 일해요." : "") + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
     if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
+    else if (s.phase === "waiting" && s.waitReason === "질문")
+      lines.push(`❓ 물어볼 게 있어요${s.question ? `: “${s.question}”` : "!"} 터미널에서 답해 주세요.`);
+    else if (s.phase === "waiting" && s.waitReason === "계획") lines.push("📝 계획을 세웠어요. 터미널에서 확인하고 승인해 주세요!");
+    else if (s.phase === "waiting" && s.attention && s.attnKind === "완료") lines.push("✓ 부탁하신 일 다 했어요! 결과 확인해 주세요.");
     else if (s.phase === "waiting") lines.push(`${look.icon} ${look.text} — 다음 명령을 기다리고 있어요!`);
     else lines.push("지금은 조용해요. 부르면 바로 달려갈게요.");
     if (s.goal){
@@ -2677,6 +2696,7 @@ function openTalk(c){
   const info = talkInfo(c);
   if (!info) return;
   Object.assign(talkSel, {cat:c, lines:info.lines, idx:0, shown:0, boxH:null});
+  if (info.session && c === info.session.boss && info.session.attnKind === "완료") info.session.attention = false;   // 완료는 말 걸어 봤으면 확인한 것
   c.idleSince = null;
   cam.focus = c.lot; cam.tz = SEL_Z;
   $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${SLOTS[c.lot].name}`;
@@ -3378,7 +3398,7 @@ const PHASE_LOOK = {
   idle:    {icon:"😴", text:"조용함", bg:null},
 };
 function phaseLook(s){
-  if (s.phase === "waiting" && s.doneAt && Date.now() - s.doneAt < 20000) return {icon:"✓", text:"완료", bg:"#3f9c62"};
+  if (s.phase === "waiting" && s.doneAt && (Date.now() - s.doneAt < 20000 || (s.attention && s.attnKind === "완료"))) return {icon:"✓", text:"완료", bg:"#3f9c62"};
   if (s.phase === "waiting" && s.waitReason === "질문") return {icon:"❓", text:"답변 대기", bg:"#f09a3e"};
   if (s.phase === "waiting" && s.waitReason === "계획") return {icon:"📝", text:"계획 확인", bg:"#f09a3e"};
   if (s.approval) return {icon:"⏳", text:"승인 필요?", bg:"#f09a3e"};
@@ -3427,6 +3447,8 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   for (const s of live.sessions.values()){
     if (cam.focus !== null && cam.focus !== s.slot) continue;
     const L = SLOTS[s.slot], look = phaseLook(s);
+    ctx.save(); drawAttnMark(s, now); ctx.restore();
+    ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr; ctx.textAlign = "left";
     if (ONE){ if (s.stampUntil > now) drawSessionTag(s, look, now, true); continue; }   // one: 표 없이 완료 도장만
     const tx = SX(isoX(L.x + 78, L.y)), ty = SY(isoY(L.x + 78, L.y, WALL + 14)) - 6*dpr;
     const n = s.kittens.size;
@@ -3456,6 +3478,18 @@ function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화�
   }
 }
 
+function drawAttnMark(s, now){                  // 확인 안 한 질문·완료: 대장냥 머리 위 작은 동그라미 (질문·계획은 주황 ?, 완료는 초록 ✓)
+  if (!s.attention || s.stampUntil > now) return;
+  const b = s.boss, x = SX(isoX(b.pos.x, b.pos.y));
+  const k = b.k ?? catK(b), atS = Math.hypot(b.pos.x - b.seat.x, b.pos.y - b.seat.y) < 3 && !b.path.length;
+  const bob = reduceMotion ? 0 : Math.sin(now * 3) * 1.5*dpr;
+  const cy = SY(isoY(b.pos.x, b.pos.y, b.zBase || 0) - (b.lift ?? (atS ? (b.seatLift ?? 7) : 0)) - 34*k) - 14*dpr + bob, r = 8*dpr;
+  const done = s.attnKind === "완료";
+  ctx.fillStyle = done ? "#3f9c62" : "#f09a3e"; ctx.strokeStyle = TOD.ink; ctx.lineWidth = 1.3*dpr;
+  ctx.beginPath(); ctx.arc(x, cy, r, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = `${11*dpr}px 'Jua', sans-serif`; ctx.textAlign = "center";
+  ctx.fillText(done ? "✓" : "?", x, cy + 0.5*dpr);
+}
 function drawSessionTag(s, look, now, stampOnly){            // one: 고양이 머리 위 세션 표 (+ 완료 도장)
   const b = s.boss;                              // 발밑에 (머리 위 말풍선과 겹치지 않게)
   const x = SX(isoX(b.pos.x, b.pos.y)), y0 = SY(isoY(b.pos.x, b.pos.y, b.zBase || 0)) + 5*dpr;
@@ -5046,9 +5080,11 @@ function updateSummaries(){
   });
 }
 /* 앱 아이콘 배지 + 창 제목: 확인 안 한 완료·질문 수 */
-let lastBadge = -1;
-function setBadge(n){
-  if (n !== lastBadge) emitHost("attention", {count:n});
+let lastBadge = -1, lastAttn = "";
+function setBadge(ss){
+  const items = ss.filter(s => s.attention).map(s => ({session:sessName(s), kind:s.attnKind === "완료" ? "done" : s.attnKind === "계획" ? "plan" : "question"}));
+  const n = items.length, sig = JSON.stringify(items);
+  if (sig !== lastAttn){ lastAttn = sig; emitHost("attention", {count:n, questions:items.filter(i => i.kind !== "done").length, done:items.filter(i => i.kind === "done").length, items}); }
   if (n === lastBadge) return;
   lastBadge = n;
   document.title = n ? `(${n}) 에이전트 오피스` : "에이전트 오피스";
@@ -5078,7 +5114,7 @@ function updateHUD(){
     $("#kRun").textContent  = ss.filter(s => s.phase === "waiting").length;
     $("#kRev").textContent  = ss.reduce((n, s) => n + s.kittens.size, 0);
     $("#kDone").textContent = live.done;
-    setBadge(ss.filter(s => s.attention).length);
+    setBadge(ss);
     if (performance.now() - sumT > 400){ sumT = performance.now(); updateSummaries(); }
     const d = new Date();
     $("#clock").textContent = "LIVE · " +

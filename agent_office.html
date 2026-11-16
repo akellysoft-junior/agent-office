@@ -247,15 +247,17 @@ html.embed .talk{box-sizing:border-box; width:calc(100% - 16px); animation-name:
   html.embed .talk-actions .mini{font-size:11px; padding:2px 8px; box-shadow:1px 1px 0 var(--ink)}
   html.embed .talk-close{top:3px; right:4px; font-size:14px}
   /* 이름과 버튼을 한 줄에: [이름 · 1/5 · GitHub · 다음 ✕] 아래에 대사 */
-  html.embed .talk-body{display:grid; grid-template-columns:auto 1fr; align-items:center; column-gap:6px; row-gap:3px}
+  html.embed .talk-body{display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:center; column-gap:6px; row-gap:3px}
   html.embed .talk-name{grid-area:1 / 1; padding-right:0; flex-wrap:nowrap; min-width:0}
+  html.embed .talk-name b{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  html.embed .talk-tag{white-space:nowrap; flex:none}
   html.embed .talk-actions{grid-area:1 / 2; justify-content:flex-end; flex-wrap:nowrap; padding-right:20px; min-width:0}
-  html.embed .talk-actions .pg{margin-right:2px}
+  html.embed .talk-actions .pg{margin-right:2px; white-space:nowrap}
   html.embed .talk-actions .mini{white-space:nowrap; flex:none}
   html.embed .talk-text, html.embed .talk-msg{grid-column:1 / -1}
   html.embed .talk-close{top:5px}
 }
-@media (max-width:420px){ html.embed .talk-tag{display:none} }
+@media (max-width:420px){ html.embed .talk-tag, html.embed .talk-actions .pg{display:none} }
 @media (max-width:360px), (max-height:300px){
   html.embed .talk-face, html.embed .talk-badge{display:none}
 }
@@ -2675,7 +2677,9 @@ function openTalk(c){
   c.idleSince = null;
   cam.focus = c.lot; cam.tz = SEL_Z;
   $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${SLOTS[c.lot].name}`;
-  talk.name.textContent = info.name; talk.tag.textContent = info.tag;
+  // 좁은 위젯: 긴 프로필 이름 대신 @아이디 (이름은 인사말에 다시 나옴)
+  talk.name.textContent = EMBED && innerWidth <= 420 && info.ref && info.ref.kind === "human" ? "@" + info.ref.login : info.name;
+  talk.name.title = info.name; talk.tag.textContent = info.tag;
   talk.img.hidden = talk.badge.hidden = !info.avatar;
   if (info.avatar){
     talk.img.src = info.avatar + (info.avatar.includes("?") ? "&" : "?") + "s=160";

@@ -2760,8 +2760,9 @@ function openTalk(c){
     const a = document.createElement("a"); a.className = "mini"; a.href = info.link; a.target = "_blank"; a.rel = "noopener noreferrer";
     a.textContent = EMBED && innerWidth < 300 ? "GitHub ↗" : "GitHub 프로필 ↗"; talk.actions.appendChild(a);
   }
-  const termOk = info.session && info.session.src === "claude";   // 터미널 이동·이어하기는 Claude Code 세션만
-  if (!EMBED && termOk && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));   // 위젯에선 터미널 조작 버튼 숨김
+  const termOk = info.session && info.session.src === "claude";   // 이어하기는 Claude Code 세션만
+  if (info.session && !info.session.ending && live.source === "server" && liveCanOpen)          // 터미널 이동: Claude·Codex, 위젯에서도
+    talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));
   if (!EMBED && termOk) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
   if (SHOW_PICKER && c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만 (지금은 숨김)
   talkSel.next = EMBED ? null : talkButton("다음 ▶", advanceTalk, "mini primary");   // 위젯: 대화창을 누르면 넘어가니 버튼 없음

@@ -358,7 +358,32 @@ CLAUDE_HOOK_EVENTS = ["SessionStart", "SessionEnd", "Stop", "Notification"]
 CODEX_HOOK_EVENTS = ["SessionStart", "Stop", "PermissionRequest"]
 AGENT_RE = {"claude": re.compile(r"(^|[\\/\s])claude(\.exe|\.cmd)?(\s|$)|claude-code", re.I),
             "codex": re.compile(r"(^|[\\/\s])codex(\.exe|\.cmd|\.js)?(\s|$)|@openai[\\/]codex", re.I)}
-hook_pids = {}                              # 세션 키 -> {"pid", "src", "proj"}
+hook_pids = {}                              # 세션 키 -> {"pid", "src", "proj", "id"}
+hook_ended = {}                             # 세션 키 -> 끝난 시각 (서버를 다시 켜도 다시 안 나오게)
+HOOK_STATE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office", "hook_sessions.json")
+_restored_ends = []                         # 다시 켰을 때 화면에 다시 알려 줄 '끝난 세션'
+
+
+def save_hook_state():
+    try:
+        os.makedirs(os.path.dirname(HOOK_STATE), exist_ok=True)
+        cut = time.time() - ACTIVE_WINDOW
+        with open(HOOK_STATE + ".tmp", "w", encoding="utf-8") as fh:
+            json.dump({"pids": hook_pids, "ended": {k: v for k, v in hook_ended.items() if v["at"] > cut}}, fh)
+        os.replace(HOOK_STATE + ".tmp", HOOK_STATE)
+    except OSError:
+        pass
+
+
+def load_hook_state():
+    try:
+        with open(HOOK_STATE, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return
+    hook_pids.update({k: v for k, v in (d.get("pids") or {}).items() if isinstance(v, dict)})
+    hook_ended.update({k: v for k, v in (d.get("ended") or {}).items() if isinstance(v, dict)})
+    _restored_ends.extend(hook_ended.items())
 hook_seen = set()                           # hook 을 한 번이라도 보낸 도구 ("claude", "codex")
 _last_alive_check = 0.0
 
@@ -368,7 +393,39 @@ def hook_sess(src, sid):
     return ("cx" + re.sub(r"[^0-9a-f]", "", sid.lower())[-6:]) if src == "codex" else sid[:8]
 
 
+SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "env", "cmd", "cmd.exe", "powershell", "powershell.exe",
+          "pwsh", "pwsh.exe", "bash.exe", "sh.exe"}
+
+
+def _win_procs():
+    """윈도우: {pid: (부모 pid, 실행 파일 이름)} (추가 설치 없이 ctypes 로)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PE(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k.CreateToolhelp32Snapshot(2, 0)
+    out, e = {}, PE()
+    e.dwSize = ctypes.sizeof(PE)
+    ok = k.Process32FirstW(snap, ctypes.byref(e))
+    while ok:
+        out[e.th32ProcessID] = (e.th32ParentProcessID, e.szExeFile)
+        ok = k.Process32NextW(snap, ctypes.byref(e))
+    k.CloseHandle(snap)
+    return out
+
+
 def _cmdline(pid):
+    if SYSTEM == "Windows":
+        try:
+            return (_win_procs().get(pid) or (0, ""))[1]
+        except Exception:
+            return ""
     if SYSTEM == "Linux":
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
@@ -379,6 +436,11 @@ def _cmdline(pid):
 
 
 def _parent(pid):
+    if SYSTEM == "Windows":
+        try:
+            return (_win_procs().get(pid) or (0, ""))[0]
+        except Exception:
+            return 0
     if SYSTEM == "Linux":
         return proc_ppid(pid)
     try:
@@ -387,30 +449,41 @@ def _parent(pid):
         return 0
 
 
+def _is_shell(cmd):
+    first = (shlex.split(cmd, posix=SYSTEM != "Windows")[:1] or [""])[0] if cmd else ""
+    return os.path.basename(first.strip('"')).lower() in SHELLS
+
+
 def agent_pid(src):
-    """이 hook 을 실행한 claude/codex 프로세스를 부모를 따라 올라가며 찾는다 (윈도우는 건너뜀)."""
-    if SYSTEM == "Windows":
-        return None
+    """이 hook 을 실행한 claude/codex 프로세스: 부모를 따라 올라가며 hook 을 띄운 셸을 건너뛴 첫 프로세스.
+    (설치 방식마다 프로그램 이름·경로가 달라서 이름으로 찾지 않는다)"""
     pid = os.getppid()
     for _ in range(6):
         if pid <= 1:
-            break
-        cmd = _cmdline(pid)
-        if HOOK_TAG not in cmd and AGENT_RE[src].search(cmd):   # hook 을 띄운 셸(명령줄에 '--hook claude')은 건너뜀
+            return None
+        try:
+            cmd = _cmdline(pid)
+        except Exception:
+            cmd = ""
+        if cmd and HOOK_TAG not in cmd and not _is_shell(cmd):
             return pid
         pid = _parent(pid)
     return None
 
 
-def pid_alive(pid, src):
+def pid_alive(pid, src=None):
+    if SYSTEM == "Windows":
+        try:
+            return pid in _win_procs()
+        except Exception:
+            return True                         # 확인할 수 없으면 살아 있다고 봄 (잘못 지우지 않게)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except (PermissionError, OSError):
         pass
-    cmd = _cmdline(pid)                     # 같은 번호를 다른 프로그램이 다시 쓰는 경우 거르기
-    return not cmd or bool(AGENT_RE[src].search(cmd))
+    return True
 
 
 def hook_main(src, port):
@@ -422,7 +495,7 @@ def hook_main(src, port):
         body = {"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
                 "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
                 "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
-                "pid": agent_pid(src) if d.get("hook_event_name") == "SessionStart" else None}
+                "pid": agent_pid(src)}
         req = urllib.request.Request(f"http://127.0.0.1:{port}/api/hook", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json", "X-Agent-Office": "1"})
         urllib.request.urlopen(req, timeout=1.5).read()
@@ -431,12 +504,12 @@ def hook_main(src, port):
     return 0
 
 
-def hook_event(src, sess, proj, kind, reason=""):
+def hook_event(src, sess, proj, kind, reason="", at=None):
     """화면에 보낼 hook 이벤트 (로그 줄과 같은 흐름에 'h' 필드로 섞어 보냄)."""
     global seq
     seq += 1
     events.append({"q": seq, "s": sess, "p": proj, "src": src,
-                   "h": {"e": kind, "r": reason or "", "t": int(time.time() * 1000)}})
+                   "h": {"e": kind, "r": reason or "", "t": int((at or time.time()) * 1000)}})
 
 
 def take_hook(b):
@@ -460,13 +533,20 @@ def take_hook(b):
             proj = proj_label(os.path.basename(os.path.dirname(tp)))
         else:
             proj = (hook_pids.get(sess) or {}).get("proj") or os.path.basename(str(cwd).rstrip("/\\")) or src
-        if ev == "SessionStart":
-            pid = b.get("pid")
-            hook_pids[sess] = {"pid": int(pid) if isinstance(pid, int) else None, "src": src, "proj": proj}
-            hook_event(src, sess, proj, "start", reason)
-        elif ev == "SessionEnd":
+        pid = b.get("pid") if isinstance(b.get("pid"), int) and b.get("pid") > 1 else None
+        if ev == "SessionEnd":
             hook_pids.pop(sess, None)
+            hook_ended[sess] = {"at": time.time(), "src": src, "proj": proj}
             hook_event(src, sess, proj, "end", reason)
+            save_hook_state()
+            return True
+        h = hook_pids.get(sess)
+        if ev == "SessionStart" or not h or (pid and h.get("pid") != pid):   # 처음 보거나 PID 를 새로 알게 됨
+            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid}
+            hook_ended.pop(sess, None)
+            save_hook_state()
+        if ev == "SessionStart":
+            hook_event(src, sess, proj, "start", reason)
         elif ev == "Stop":
             hook_event(src, sess, proj, "stop")
         elif ev == "Notification" and reason == "permission_prompt" or ev == "PermissionRequest":
@@ -483,10 +563,18 @@ def check_alive():
     if now - _last_alive_check < 5:
         return
     _last_alive_check = now
+    changed = False
+    while _restored_ends:                   # 다시 켠 직후: 전에 끝난 세션을 화면에 다시 알려 줌 (로그 줄보다 뒤에)
+        sess, e = _restored_ends.pop()
+        hook_event(e.get("src", "claude"), sess, e.get("proj", ""), "end", "restored", e.get("at"))   # 원래 끝난 시각 → 화면은 걷지 않고 바로 뺌
     for sess, h in list(hook_pids.items()):
-        if h["pid"] and not pid_alive(h["pid"], h["src"]):
+        if h.get("pid") and not pid_alive(h["pid"], h.get("src")):
             hook_pids.pop(sess, None)
-            hook_event(h["src"], sess, h["proj"], "end", "process_gone")
+            hook_ended[sess] = {"at": now, "src": h.get("src", "claude"), "proj": h.get("proj", "")}
+            hook_event(h.get("src", "claude"), sess, h.get("proj", ""), "end", "process_gone")
+            changed = True
+    if changed:
+        save_hook_state()
 
 
 def hook_command(src, port):
@@ -1072,9 +1160,27 @@ def linux_setup_check():
         pass
 
 
+def proc_info(pid):
+    """PID 하나의 정보 (claude_processes 항목과 같은 모양)."""
+    if SYSTEM == "Windows":
+        return {"pid": pid, "ppid": _parent(pid), "tty": None, "start": None, "args": _cmdline(pid), "cwd": None}
+    fmt = "pid=,ppid=,tty=,lstart=,command=" if SYSTEM == "Darwin" else "pid=,ppid=,tty=,lstart=,args="
+    parts = run(["ps", "-o", fmt, "-p", str(pid)]).split(None, 8)
+    if len(parts) < 9:
+        return None
+    return {"pid": pid, "ppid": int(parts[1]), "tty": None if parts[2] in ("?", "??") else parts[2],
+            "start": None, "args": parts[8], "cwd": None}
+
+
 def do_focus(m):
-    p = find_process(m)
+    """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 (Claude만) 폴더·시작 시각으로 짐작."""
+    h = hook_pids.get(m.get("key") or "") or {}
+    p = proc_info(h["pid"]) if h.get("pid") and pid_alive(h["pid"]) else None
+    if not p and m.get("src") != "codex":
+        p = find_process(m)
     if not p:
+        if m.get("src") == "codex":
+            return False, "실행 중인 Codex를 찾지 못했어요. 냥오피스 서버를 켠 뒤 시작한 Codex 세션만 찾을 수 있어요."
         return False, "실행 중인 Claude Code를 찾지 못했어요. 세션이 끝났다면 '이어하기'를 눌러 주세요."
     if SYSTEM == "Darwin":
         return focus_mac(p, m)
@@ -1897,9 +2003,10 @@ class Handler(BaseHTTPRequestHandler):
         if not m or action not in ACTIONS:
             self._json({"ok": False, "msg": "모르는 세션이나 동작이에요."}, 400)
             return
-        if m.get("src") == "codex" and action != "folder":   # 터미널 이동·이어하기는 Claude Code 전용
-            self._json({"ok": False, "msg": "Codex 세션은 폴더 열기만 할 수 있어요."})
+        if m.get("src") == "codex" and action not in ("folder", "focus"):   # 이어하기는 Claude Code 전용
+            self._json({"ok": False, "msg": "Codex 세션은 터미널 이동과 폴더 열기만 할 수 있어요."})
             return
+        m["key"] = sid
         if not re.fullmatch(r"[0-9A-Za-z-]{8,64}", m["id"]):
             self._json({"ok": False, "msg": "세션 ID 형식이 이상해요."}, 400)
             return
@@ -2548,6 +2655,7 @@ def main():
 
     Handler.root = args.dir
     Handler.port = args.port
+    load_hook_state()
     if not args.no_hooks:
         try:
             for path in install_hooks(args.port, codex=CODEX_ON):

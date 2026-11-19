@@ -2002,7 +2002,8 @@ function liveSession(rec){
 let oneEnterAt = 0;
 function liveSessionOne(rec){
   const used = new Set([...live.sessions.values()].map(v => v.bossIdx));
-  const prev = RESUME && RESUME.sess && RESUME.sess[rec.s];      // 다시 불러옴: 그 세션이 쓰던 고양이·책상 그대로
+  const back = gonePlace.get(rec.s);                               // 퇴근했다 다시 온 세션
+  const prev = back ? back.at : RESUME && RESUME.sess && RESUME.sess[rec.s];      // 다시 불러옴: 그 세션이 쓰던 고양이·책상 그대로
   let bi = prev && BOSSES[prev[0]] && !used.has(prev[0]) ? prev[0] : BOSSES.findIndex((_, i) => !used.has(i));
   if (bi < 0){                                   // 고양이가 다 일하는 중이면 가장 오래 조용한 세션이 퇴근
     let old = null;
@@ -2014,8 +2015,9 @@ function liveSessionOne(rec){
   }
   const boss = BOSSES[bi];
   oneSeatBoss(boss, prev && prev[1]);
-  const s = newSession(rec, hqSlot(), boss, `${SLOTS[hqSlot()].name}에 출근 — ${rec.p} · ${rec.s}`, true);
+  const s = newSession(rec, hqSlot(), boss, `${SLOTS[hqSlot()].name}에 ${back ? "다시 " : ""}출근 — ${rec.p} · ${rec.s}`, true);
   s.bossIdx = bi;
+  if (back){ Object.assign(s, {goal:back.goal, topic:back.topic, todos:back.todos || [], result:back.result}); gonePlace.delete(rec.s); }
   boss.pos = lotDoor(SLOTS[hqSlot()]);            // 문으로 들어와서 자리로
   const now = Date.now();
   if (RESUME && now - LOAD_AT < 4000){ boss.pos = {...boss.seat}; boss.enterAt = 0; boss.poseShown = resumePose("s:" + rec.s); return s; }   // 위젯 다시 불러옴: 걸어 들어오지 않고 제자리에
@@ -2025,7 +2027,7 @@ function liveSessionOne(rec){
   return s;
 }
 function newSession(rec, slot, boss, msg, oneMode){
-  Object.assign(boss, {q:[], cur:null, path:[], pos:{...boss.home}, seat:{...boss.home}, seatLift:7,
+  Object.assign(boss, {q:[], cur:null, path:[], pos:{...boss.home}, seat:{...boss.home}, seatLift:7, leaving:false, busy:false,
     state:"idle", stateText:"입주 완료", idleSince:null, bubble:null, inLounge:false, waiting:false,
     napAfter:boss.napBase, activity:"", lastMs:Date.now()});
   const s = {sid:rec.s, proj:rec.p, src:rec.src || "claude", slot, boss, kittens:new Map(), taskQ:[], lastMs:Date.now(), lastTs:Date.now(),
@@ -2075,14 +2077,15 @@ function setWaiting(s, reason, fresh){
   for (const k of s.kittens.values()){ k.busy = false; k.pendingTool = null; }
   const b = s.boss;
   b.waiting = true; b.inLounge = false; b.seat = lotWait(SLOTS[s.slot]); b.seatLift = 0; b.napAfter = 90;
+  b.sign = reason === "승인" ? "승인?" : null;
   if (ONE){ b.seat = {...b.home}; b.seatLift = 7; }      // one: 명령 대기는 자기 책상에서 '냥?' 팻말
-  b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요"
+  b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요" : reason === "승인" ? "실행해도 되는지 승인을 기다려요"
               : reason === "중단" ? "중단됨 · 명령 대기" : "명령 기다리는 중";
-  if (fresh && (reason === "질문" || reason === "계획")){
+  if (fresh && (reason === "질문" || reason === "계획" || reason === "승인")){
     s.attention = true;
     followNote(s, 3);
-    say(b, reason === "질문" ? "물어볼 게 있어요!" : "계획 봐 주세요!", 3);
-    notifyUser(`${sessName(s)}: ${reason === "질문" ? "질문이 있어요" : "계획 확인이 필요해요"}`, s.activity);
+    say(b, reason === "질문" ? "물어볼 게 있어요!" : reason === "승인" ? "이거 해도 돼요?" : "계획 봐 주세요!", 3);
+    notifyUser(`${sessName(s)}: ${reason === "질문" ? "질문이 있어요" : reason === "승인" ? "승인이 필요해요" : "계획 확인이 필요해요"}`, s.activity);
   }
   live.ver++;
 }
@@ -2121,7 +2124,7 @@ function trackMain(s, o, fresh){
     const tt = String(txt || "").trim();
     if (tt.startsWith("[Request interrupted")){ s.activity = "중단됨"; setWaiting(s, "중단", false); return; }
     if (isReq(tt)){
-      s.pendingEndAt = 0;
+      s.pendingEndAt = 0; s.hookStopAt = 0;
       s.goal = clip(tt, 70); if (!s.topic) s.topic = clip(tt, 40);
       s.attention = false;
       Object.assign(s, {phase:"working", startMs:Date.now(), files:new Set(), cmds:0, errs:0, subTotal:0, tools:{}, mcp:{}, skills:{},
@@ -2132,7 +2135,7 @@ function trackMain(s, o, fresh){
     if (Array.isArray(c)) for (const b of c) if (b && b.type === "tool_result"){
       s.pendingTool = null;
       if (b.is_error) s.errs++;
-      if (s.phase === "waiting" && (s.waitReason === "질문" || s.waitReason === "계획")){
+      if (s.phase === "waiting" && (s.waitReason === "질문" || s.waitReason === "계획" || s.waitReason === "승인")){
         s.phase = "working"; s.activity = "답을 받고 다시 일하는 중"; bossToDesk(s); live.ver++;
       }
     }
@@ -2165,7 +2168,47 @@ function trackMain(s, o, fresh){
   if (stop === "end_turn") complete(s, fresh);
   else if (text && !tools){ if (fresh) s.pendingEndAt = Date.now() + 7000; else complete(s, false); }
 }
+/* ── hook: Claude Code·Codex가 세션 시작/턴 끝/승인 대기/세션 끝을 직접 알려 줌 (서버가 rec.h 로 전달) ── */
+const hookEnded = new Map();     // 세션 → 끝난 시각(ms): 끝난 뒤 늦게 도착한 로그 줄로 다시 출근하지 않게
+const gonePlace = new Map();     // 세션 → {at:[고양이 번호, 책상], 요약}: 다시 오면 같은 고양이·책상, 하던 일 이어서
+function hookHandle(rec){
+  const h = rec.h, t = h.t || Date.now(), fresh = Date.now() - t < 60000;
+  let s = live.sessions.get(rec.s);
+  if (h.e === "start"){
+    hookEnded.delete(rec.s);
+    if (!s && fresh && h.r !== "compact") s = liveSession(rec);    // 켜자마자 출근 (첫 요청 전이라도)
+    if (s) s.hooked = true;
+    return;
+  }
+  if (h.e === "end"){ hookEnded.set(rec.s, t); if (s) endSession(s, fresh, h.r); return; }
+  if (!s || s.ending) return;
+  s.hooked = true;
+  if (h.e === "stop" && (s.phase === "working" || s.waitReason === "승인")) s.hookStopAt = fresh ? Date.now() + 1500 : 1;   // 마지막 로그 줄이 들어올 틈을 조금 두고 완료
+  if (h.e === "ask") setWaiting(s, "승인", fresh);
+}
+function endSession(s, fresh, reason){
+  if (s.ending) return;
+  if (ONE && s.bossIdx != null)
+    gonePlace.set(s.sid, {at:[s.bossIdx, s.boss.deskIdx], goal:s.goal, topic:s.topic, todos:s.todos, result:s.result});
+  if (!fresh || reduceMotion){ dropSession(s); return; }
+  const L = SLOTS[s.slot];
+  Object.assign(s, {ending:true, endAt:Date.now(), phase:"ended", activity:"퇴근", pendingEndAt:0, hookStopAt:0, pendingTool:null, approval:false});
+  for (const c of [s.boss, ...s.kittens.values()])
+    Object.assign(c, {busy:false, waiting:false, inLounge:false, leaving:true, q:[], cur:null, seat:lotDoor(L), seatLift:0, stateText:"퇴근 중", napAfter:999});
+  say(s.boss, reason === "clear" ? "새로 시작할게요!" : pick(["퇴근!", "오늘은 여기까지", "수고했어요"]), 2);
+  log(`${sessName(s)} 퇴근 — 세션 종료`, null);
+  live.ver++;
+}
+function dropSession(s){
+  const cats = [s.boss, ...s.kittens.values()];
+  if (cats.includes(talkSel.cat)) closeTalk(false);
+  live.sessions.delete(s.sid);
+  if (s.card) s.card.el.remove();
+  s.boss.leaving = false;
+  live.ver++;
+}
 function liveHandle(rec){
+  if (rec.h){ hookHandle(rec); return; }
   let o; try { o = JSON.parse(rec.l); } catch { return; }
   const side = !!(o.isSidechain || rec.a);
   if (o.type === "summary"){
@@ -2176,7 +2219,15 @@ function liveHandle(rec){
   const items = lineItems(o);
   let sess = live.sessions.get(rec.s);
   if (sess && o.uuid && sess.seen.has(o.uuid)) return;          // 같은 기록을 두 번 처리하지 않음
-  if (!sess){ if (!items.length) return; sess = liveSession(rec); }
+  const endT = hookEnded.get(rec.s), lt = Date.parse(o.timestamp || "");
+  const after = endT && lt > endT + 1000;                        // 세션이 끝난 뒤에 생긴 기록 = 다시 이어서 쓰는 중
+  if (sess && sess.ending){ if (!after) return; dropSession(sess); sess = null; }   // 퇴근하는 중에 다시 쓰면 바로 다시 출근
+  if (!sess){
+    if (!items.length) return;
+    if (endT && !after) return;                                  // 끝난 세션의 지난 기록
+    hookEnded.delete(rec.s);
+    sess = liveSession(rec);
+  }
   if (o.uuid){ sess.seen.add(o.uuid); if (sess.seen.size > 20000) sess.seen.clear(); }
   if (o.cwd && !side) sess.cwd = o.cwd;
   if (o.gitBranch && !side) sess.branch = o.gitBranch;
@@ -2236,9 +2287,15 @@ function liveTick(dt){
   followTick();
   const nowMs = Date.now();
   for (const s of live.sessions.values()){
+    if (s.ending){                                              // 문까지 걸어가면(또는 10초 지나면) 사라짐
+      const b = s.boss;
+      if ((!b.path.length && Math.hypot(b.pos.x - b.seat.x, b.pos.y - b.seat.y) < 4) || nowMs - s.endAt > 10000) dropSession(s);
+      continue;
+    }
+    if (s.hookStopAt && nowMs > s.hookStopAt){ const fr = s.hookStopAt > 1; s.hookStopAt = 0; if (s.phase === "working" || s.waitReason === "승인"){ s.phase = "working"; complete(s, fr); } }
     if (s.pendingEndAt && nowMs > s.pendingEndAt) complete(s, true);
     if (s.phase === "working" && nowMs - s.lastTs > 15*60000){ s.phase = "idle"; s.activity = "한동안 조용해요"; bossToDesk(s); live.ver++; }
-    s.approval = s.phase === "working" && s.pendingTool && /^(Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch)$/.test(s.pendingTool.name)
+    s.approval = !s.hooked && s.phase === "working" && s.pendingTool && /^(Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch)$/.test(s.pendingTool.name)
                  && nowMs - s.pendingTool.at > 40000;
     const L = SLOTS[s.slot], cats = [s.boss, ...s.kittens.values()];
     for (const c of cats){
@@ -3381,6 +3438,7 @@ function phaseLook(s){
   if (s.phase === "waiting" && s.doneAt && Date.now() - s.doneAt < 20000) return {icon:"✓", text:"완료", bg:"#3f9c62"};
   if (s.phase === "waiting" && s.waitReason === "질문") return {icon:"❓", text:"답변 대기", bg:"#f09a3e"};
   if (s.phase === "waiting" && s.waitReason === "계획") return {icon:"📝", text:"계획 확인", bg:"#f09a3e"};
+  if (s.phase === "waiting" && s.waitReason === "승인") return {icon:"🔐", text:"승인 대기", bg:"#f09a3e"};
   if (s.approval) return {icon:"⏳", text:"승인 필요?", bg:"#f09a3e"};
   return PHASE_LOOK[s.phase] || PHASE_LOOK.idle;
 }
@@ -3965,9 +4023,10 @@ function drawCat(a, now){
     const px = sx + 10*k, top = sy - lift - 31*k + bob;
     ctx.strokeStyle = TOD.ink; ctx.lineWidth = LW;
     line([[px, sy - lift - 6*k], [px, top + 9*k]]);
-    ctx.fillStyle = "#fff8e6"; ctx.beginPath(); ctx.roundRect(px - 9*k, top, 18*k, 10*k, 2*k); ctx.fill(); ctx.stroke();
+    const sign = a.sign || "냥?", hw = sign.length > 2 ? 12 : 9;          // 승인 대기는 "승인?" 팻말
+    ctx.fillStyle = a.sign ? "#ffe3c2" : "#fff8e6"; ctx.beginPath(); ctx.roundRect(px - hw*k, top, hw*2*k, 10*k, 2*k); ctx.fill(); ctx.stroke();
     ctx.fillStyle = "#1f1d1b"; ctx.font = `${7*k}px 'Jua', sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("냥?", px, top + 5.3*k); ctx.textAlign = "left";
+    ctx.fillText(sign, px, top + 5.3*k); ctx.textAlign = "left";
   }
   // 잠자는 중 zzz
   if (pose === "sleep" && !reduceMotion){
@@ -5006,9 +5065,11 @@ function fillSumCard(s){
       s.phase === "waiting"
         ? (s.waitReason === "질문" ? "❓ 질문에 답해 주세요"
           : s.waitReason === "계획" ? "📝 계획을 확인해 주세요"
+          : s.waitReason === "승인" ? `🔐 실행 승인을 기다려요${s.activity ? " · " + s.activity : ""}`
           : s.waitReason === "중단" ? "중단됐어요 · 다음 명령을 기다려요"
           : `💬 다음 명령을 기다려요 · ${mins(Date.now() - s.waitSince)}`)
       : s.phase === "idle" ? "😴 한동안 조용해요"
+      : s.phase === "ended" ? "🏠 세션이 끝나서 퇴근해요"
       : `지금: ${s.pendingTool ? `${s.activity} · 결과 기다리는 중` : s.boss.state === "busy" ? `💭 생각하는 중 · 직전: ${s.activity || "요청 확인"}` : (s.activity || "준비 중")}${helping ? ` · 새끼냥 ${helping}마리 함께` : ""}${s.approval ? " · ⏳ 승인을 기다리는 걸지도" : ""}`;
   if (s.todos.length){
     const done = s.todos.filter(t => t.status === "completed").length, cur = s.todos.find(t => t.status === "in_progress");

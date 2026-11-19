@@ -64,6 +64,7 @@ py agent_office_server.py
 | `--no-update` | 자동 업데이트 끄기 | 꺼짐 |
 | `--no-codex` | Codex 세션(`~/.codex/sessions`)은 보여주지 않기 | 꺼짐 (Codex 세션도 함께 보여줌) |
 | `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
+| `--no-hooks` / `--uninstall-hooks` | 세션 시작·끝을 알려 주는 hook 을 등록하지 않기 / 등록한 hook 빼기 | 켜짐 (서버를 켤 때 등록) |
 | `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
 | `--repo owner/name` | 본사에 보여줄 깃허브 저장소 | 세션 폴더의 git origin에서 자동으로 찾음 |
 | `--github-host HOST` | 회사 깃허브(GitHub Enterprise Server) 주소 (예: `github.company.net`). 토큰은 `gh auth login --hostname HOST` 또는 `GH_ENTERPRISE_TOKEN` | github.com |
@@ -77,6 +78,16 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 ```
 
 윈도우는 같은 폴더에 `냥이오피스.bat`을 만들고 `py "%~dp0agent_office_server.py"` 한 줄을 넣으면 더블클릭으로 실행돼요.
+
+## 세션이 끝나면 퇴근 (hook)
+
+로그 파일에는 "세션이 꺼졌다"는 기록이 없어서, 서버를 켤 때 Claude Code와 Codex에 hook 을 등록해 두고 각 도구가 직접 알려 주게 해요.
+
+- Claude Code (`~/.claude/settings.json`): 세션 시작·끝, 턴 끝, 권한 승인 대기
+- Codex (`~/.codex/hooks.json`): 세션 시작, 턴 끝, 권한 승인 대기. 세션 끝 이벤트가 없어서, 시작할 때 기억한 Codex 프로세스가 사라지면 끝난 걸로 봐요. Codex는 새 hook 을 한 번 신뢰(승인)해 줘야 동작해요.
+- 터미널을 그냥 닫아서 끝 알림이 안 와도, 기억해 둔 프로세스가 사라지면 퇴근해요 (macOS·리눅스).
+- 원래 설정 파일은 `*.agent-office.bak` 으로 남기고, 이미 등록돼 있으면 건드리지 않아요. 빼려면 `--uninstall-hooks`.
+- hook 을 등록하기 전에 켠 세션은 예전처럼 로그로만 짐작해요.
 
 ## 앱으로 설치 (웹앱)
 

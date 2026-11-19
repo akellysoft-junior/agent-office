@@ -346,6 +346,217 @@ def scan_codex(root=CODEX_ROOT):
                 tail(path, sess, proj, conv=codex_conv, src="codex")
 
 
+# ───────── hook: Claude Code·Codex가 세션 시작/끝/승인 대기를 직접 알려 줌 ─────────
+# 로그 파일엔 '세션이 꺼졌다'는 기록도, 프로세스 번호(PID)도 없어서 화면이 세션을 지울 때를 몰랐다.
+# hook 을 등록하면 각 도구가 이벤트마다 이 파일을 `--hook claude|codex` 로 실행하고, 그게 서버에 알려 준다.
+#   Claude Code: SessionStart · SessionEnd · Stop · Notification(권한 승인 대기)
+#   Codex:       SessionStart · Stop · PermissionRequest   (세션 끝 이벤트가 없어서 PID 가 사라지면 끝으로 봄)
+# SessionStart 때 hook 을 실행한 claude/codex 프로세스의 PID 를 기억해 두고, 그 프로세스가 사라지면
+# (터미널을 그냥 닫은 경우 등) 세션이 끝난 걸로 본다.
+HOOK_TAG = "agent_office_server.py"         # 우리가 넣은 hook 인지 알아보는 표시 (명령줄에 들어 있음)
+CLAUDE_HOOK_EVENTS = ["SessionStart", "SessionEnd", "Stop", "Notification"]
+CODEX_HOOK_EVENTS = ["SessionStart", "Stop", "PermissionRequest"]
+AGENT_RE = {"claude": re.compile(r"(^|[\\/\s])claude(\.exe|\.cmd)?(\s|$)|claude-code", re.I),
+            "codex": re.compile(r"(^|[\\/\s])codex(\.exe|\.cmd|\.js)?(\s|$)|@openai[\\/]codex", re.I)}
+hook_pids = {}                              # 세션 키 -> {"pid", "src", "proj"}
+hook_seen = set()                           # hook 을 한 번이라도 보낸 도구 ("claude", "codex")
+_last_alive_check = 0.0
+
+
+def hook_sess(src, sid):
+    sid = str(sid or "")
+    return ("cx" + re.sub(r"[^0-9a-f]", "", sid.lower())[-6:]) if src == "codex" else sid[:8]
+
+
+def _cmdline(pid):
+    if SYSTEM == "Linux":
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                return fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            return ""
+    return run(["ps", "-o", "command=", "-p", str(pid)], timeout=3)
+
+
+def _parent(pid):
+    if SYSTEM == "Linux":
+        return proc_ppid(pid)
+    try:
+        return int(run(["ps", "-o", "ppid=", "-p", str(pid)], timeout=3) or 0)
+    except ValueError:
+        return 0
+
+
+def agent_pid(src):
+    """이 hook 을 실행한 claude/codex 프로세스를 부모를 따라 올라가며 찾는다 (윈도우는 건너뜀)."""
+    if SYSTEM == "Windows":
+        return None
+    pid = os.getppid()
+    for _ in range(6):
+        if pid <= 1:
+            break
+        cmd = _cmdline(pid)
+        if HOOK_TAG not in cmd and AGENT_RE[src].search(cmd):   # hook 을 띄운 셸(명령줄에 '--hook claude')은 건너뜀
+            return pid
+        pid = _parent(pid)
+    return None
+
+
+def pid_alive(pid, src):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        pass
+    cmd = _cmdline(pid)                     # 같은 번호를 다른 프로그램이 다시 쓰는 경우 거르기
+    return not cmd or bool(AGENT_RE[src].search(cmd))
+
+
+def hook_main(src, port):
+    """`--hook claude|codex`: 도구가 넘겨준 JSON(stdin)을 서버에 전달만 하고 조용히 끝난다.
+    아무것도 출력하지 않는다 (SessionStart 출력은 대화에 끼어들고, PermissionRequest 출력은 승인 결정이 되기 때문)."""
+    try:
+        raw = sys.stdin.read()
+        d = json.loads(raw) if raw.strip() else {}
+        body = {"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
+                "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
+                "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
+                "pid": agent_pid(src) if d.get("hook_event_name") == "SessionStart" else None}
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/hook", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json", "X-Agent-Office": "1"})
+        urllib.request.urlopen(req, timeout=1.5).read()
+    except Exception:
+        pass                                # 서버가 꺼져 있어도 도구 쪽 작업은 막지 않는다
+    return 0
+
+
+def hook_event(src, sess, proj, kind, reason=""):
+    """화면에 보낼 hook 이벤트 (로그 줄과 같은 흐름에 'h' 필드로 섞어 보냄)."""
+    global seq
+    seq += 1
+    events.append({"q": seq, "s": sess, "p": proj, "src": src,
+                   "h": {"e": kind, "r": reason or "", "t": int(time.time() * 1000)}})
+
+
+def take_hook(b):
+    src = "codex" if b.get("src") == "codex" else "claude"
+    sid = str(b.get("session_id") or "")
+    if not re.fullmatch(r"[0-9A-Za-z_-]{6,80}", sid):
+        return False
+    sess = hook_sess(src, sid)
+    ev = str(b.get("event") or "")
+    reason = str(b.get("reason") or "")[:40]
+    tp, cwd = b.get("transcript_path") or "", b.get("cwd") or ""
+    with lock:
+        hook_seen.add(src)
+        if src == "claude" and tp:
+            proj = proj_label(os.path.basename(os.path.dirname(tp)))
+        else:
+            proj = (hook_pids.get(sess) or {}).get("proj") or os.path.basename(str(cwd).rstrip("/\\")) or src
+        if ev == "SessionStart":
+            pid = b.get("pid")
+            hook_pids[sess] = {"pid": int(pid) if isinstance(pid, int) else None, "src": src, "proj": proj}
+            hook_event(src, sess, proj, "start", reason)
+        elif ev == "SessionEnd":
+            hook_pids.pop(sess, None)
+            hook_event(src, sess, proj, "end", reason)
+        elif ev == "Stop":
+            hook_event(src, sess, proj, "stop")
+        elif ev == "Notification" and reason == "permission_prompt" or ev == "PermissionRequest":
+            hook_event(src, sess, proj, "ask", reason)
+        else:
+            return True
+    return True
+
+
+def check_alive():
+    """SessionStart 때 기억한 프로세스가 사라졌으면 세션 끝으로 알린다 (5초에 한 번)."""
+    global _last_alive_check
+    now = time.time()
+    if now - _last_alive_check < 5:
+        return
+    _last_alive_check = now
+    for sess, h in list(hook_pids.items()):
+        if h["pid"] and not pid_alive(h["pid"], h["src"]):
+            hook_pids.pop(sess, None)
+            hook_event(h["src"], sess, h["proj"], "end", "process_gone")
+
+
+def hook_command(src, port):
+    py = sys.executable.replace("\\", "/")
+    me = os.path.abspath(__file__).replace("\\", "/")
+    return f'"{py}" "{me}" --hook {src}' + (f" --port {port}" if port != 8765 else "")
+
+
+def _edit_hooks(path, events_, cmd):
+    """settings.json / hooks.json 의 hooks 에 우리 명령을 넣거나(cmd) 빼고(None), 원래 파일은 .bak 으로 남긴다."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        data = json.loads(text) if text.strip() else {}
+    except FileNotFoundError:
+        text, data = None, {}
+    except (OSError, ValueError) as e:
+        return f"[!] {path} 를 읽지 못해서 건드리지 않았어요 ({e})"
+    if not isinstance(data, dict):
+        return f"[!] {path} 형식이 예상과 달라서 건드리지 않았어요"
+    orig = json.loads(json.dumps(data))
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return f"[!] {path} 의 hooks 형식이 예상과 달라서 건드리지 않았어요"
+    for ev in set(events_) | set(k for k in hooks):
+        groups = hooks.get(ev)
+        if not isinstance(groups, list):
+            continue
+        keep = []
+        for g in groups:
+            hs = [h for h in (g.get("hooks") or []) if HOOK_TAG not in str(h.get("command", ""))] if isinstance(g, dict) else None
+            if hs is None:
+                keep.append(g)
+            elif hs:
+                keep.append({**g, "hooks": hs})
+        hooks[ev] = keep
+        if not keep:
+            hooks.pop(ev)
+    if cmd:
+        for ev in events_:
+            hooks.setdefault(ev, []).append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+    if not hooks:
+        data.pop("hooks", None)
+    if data == orig:                        # 이미 그대로면 파일을 건드리지 않음
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not data and text is not None and not cmd:       # 우리 것만 있던 파일이면 지움
+        os.replace(path, path + ".agent-office.bak")
+        return path
+    if text is not None:
+        with open(path + ".agent-office.bak", "w", encoding="utf-8") as fh:
+            fh.write(text)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+CLAUDE_SETTINGS = os.path.expanduser("~/.claude/settings.json")
+CODEX_HOOKS = os.path.expanduser("~/.codex/hooks.json")
+
+
+def install_hooks(port, codex=True):
+    out = [_edit_hooks(CLAUDE_SETTINGS, CLAUDE_HOOK_EVENTS, hook_command("claude", port))]
+    if codex and os.path.isdir(os.path.expanduser("~/.codex")):
+        out.append(_edit_hooks(CODEX_HOOKS, CODEX_HOOK_EVENTS, hook_command("codex", port)))
+    return [x for x in out if x]
+
+
+def uninstall_hooks():
+    return [x for x in (_edit_hooks(CLAUDE_SETTINGS, CLAUDE_HOOK_EVENTS, None),
+                        _edit_hooks(CODEX_HOOKS, CODEX_HOOK_EVENTS, None)) if x]
+
+
 # ───────── 터미널 열기 ─────────
 
 def run(cmd, timeout=6, **kw):
@@ -1618,12 +1829,13 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/ping":
             last_client = time.time()
             self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True,
-                        "v": html_version(), "boot": BOOT_ID})
+                        "v": html_version(), "boot": BOOT_ID, "hooks": sorted(hook_seen)})
         elif u.path == "/api/events":
             with lock:
                 scan(self.root)
                 if CODEX_ON:
                     scan_codex()
+                check_alive()
                 try:
                     since = int(parse_qs(u.query).get("since", ["0"])[0])
                 except ValueError:
@@ -1636,6 +1848,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if urlparse(self.path).path == "/api/hook":
+            if not self._trusted():
+                self._json({"ok": False}, 403)
+                return
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 16384)
+                b = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                b = {}
+            self._json({"ok": isinstance(b, dict) and take_hook(b)})
+            return
         if urlparse(self.path).path == "/api/me/look":
             if not self._trusted():
                 self._json({"ok": False, "msg": "허용되지 않은 요청이에요."}, 403)
@@ -2238,14 +2461,24 @@ def main():
     ap.add_argument("--repo", help="위젯 본사에 보여줄 깃허브 저장소 (owner/repo, 기본: 세션 폴더에서 자동으로 찾음)")
     ap.add_argument("--allow-embed", action="append", default=[], metavar="ORIGIN",
                     help="위젯을 끼워 넣을 수 있는 바깥 사이트 (예: https://tool.example.com). localhost 는 기본 허용")
+    ap.add_argument("--no-hooks", action="store_true", help="Claude Code·Codex hook 을 등록하지 않기 (세션 끝을 로그로만 짐작)")
+    ap.add_argument("--uninstall-hooks", action="store_true", help="등록한 hook 을 빼고 종료")
+    ap.add_argument("--hook", choices=["claude", "codex"], help=argparse.SUPPRESS)   # 도구가 hook 으로 부를 때
     ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    if args.hook:
+        sys.exit(hook_main(args.hook, args.port))
+    if args.uninstall_hooks:
+        done = uninstall_hooks()
+        print("hook 을 뺐어요: " + ", ".join(done) if done else "등록된 hook 이 없어요.")
+        return
     if args.repo:
         args.repo = norm_repo(args.repo)
     url = f"http://localhost:{args.port}"
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
             (["--no-update"] if args.no_update else []) + \
             (["--no-codex"] if args.no_codex else []) + \
+            (["--no-hooks"] if args.no_hooks else []) + \
             (["--repo", args.repo] if args.repo else []) + \
             (["--github-host", args.github_host] if args.github_host else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
@@ -2309,6 +2542,12 @@ def main():
 
     Handler.root = args.dir
     Handler.port = args.port
+    if not args.no_hooks:
+        try:
+            for path in install_hooks(args.port, codex=CODEX_ON):
+                print(f"세션 시작·끝을 알려 주는 hook 을 등록했어요: {path}  (빼려면 --uninstall-hooks)")
+        except OSError as e:
+            print(f"[!] hook 을 등록하지 못했어요 ({e}). 세션 끝은 로그로만 짐작해요.")
     if not os.path.isdir(args.dir):
         print(f"[!] 로그 폴더가 없어요: {args.dir}")
         print("    Claude Code를 이 PC에서 한 번이라도 실행했는지 확인해 주세요.")

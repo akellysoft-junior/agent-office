@@ -51,7 +51,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ACTIVE_WINDOW = 6 * 3600      # 최근 6시간 내에 움직인 세션만 감시
+ACTIVE_WINDOW = 24 * 3600     # 최근 하루 안에 움직인 세션만 감시 (화면도 하루 넘게 조용한 세션은 뺌)
 BACKLOG_BYTES = 16 * 1024     # 처음 발견한 파일은 마지막 16KB만 소급
 SYSTEM = platform.system()    # "Darwin" | "Windows" | "Linux"
 
@@ -316,7 +316,7 @@ def codex_conv(o, sess):
 
 
 def scan_codex(root=CODEX_ROOT):
-    """최근 사흘 치 날짜 폴더의 rollout 파일만 본다 (오래된 건 tail 이 6시간 기준으로 거름)."""
+    """최근 사흘 치 날짜 폴더의 rollout 파일만 본다 (오래된 건 tail 이 하루 기준으로 거름)."""
     days = []
     try:
         for y in sorted(os.listdir(root))[-2:]:

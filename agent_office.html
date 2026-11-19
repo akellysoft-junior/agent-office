@@ -2172,6 +2172,7 @@ function trackMain(s, o, fresh){
   else if (text && !tools){ if (fresh) s.pendingEndAt = Date.now() + 7000; else complete(s, false); }
 }
 /* ── hook: Claude Code·Codex가 세션 시작/턴 끝/승인 대기/세션 끝을 직접 알려 줌 (서버가 rec.h 로 전달) ── */
+const STALE_MS = 24 * 3600 * 1000;   // 하루 넘게 새 기록이 없는 세션은 화면에서 뺌
 const hookEnded = new Map();     // 세션 → 끝난 시각(ms): 끝난 뒤 늦게 도착한 로그 줄로 다시 출근하지 않게
 const gonePlace = new Map();     // 세션 → {at:[고양이 번호, 책상], 요약}: 다시 오면 같은 고양이·책상, 하던 일 이어서
 function hookHandle(rec){
@@ -2228,6 +2229,7 @@ function liveHandle(rec){
   if (!sess){
     if (!items.length) return;
     if (endT && !after) return;                                  // 끝난 세션의 지난 기록
+    if (lt && Date.now() - lt > STALE_MS) return;                // 하루 넘게 지난 기록으로는 출근하지 않음
     hookEnded.delete(rec.s);
     sess = liveSession(rec);
   }
@@ -2290,6 +2292,7 @@ function liveTick(dt){
   followTick();
   const nowMs = Date.now();
   for (const s of live.sessions.values()){
+    if (nowMs - s.lastTs > STALE_MS && !s.ending){ dropSession(s); continue; }   // 하루 넘게 조용한 세션은 조용히 빠짐
     if (s.ending){                                              // 문까지 걸어가면(또는 10초 지나면) 사라짐
       const b = s.boss;
       if ((!b.path.length && Math.hypot(b.pos.x - b.seat.x, b.pos.y - b.seat.y) < 4) || nowMs - s.endAt > 10000) dropSession(s);
@@ -3552,7 +3555,9 @@ function drawSessionTag(s, look, now, stampOnly){            // one: 고양이 �
   ctx.font = `${Math.max(10, 11*dpr)}px 'Gowun Dodum', sans-serif`; ctx.textBaseline = "middle"; ctx.lineWidth = 1.3*dpr; ctx.textAlign = "left";
 }
 
-/* 멀티 세션 데모: 서버 없이 가짜 세션 4개를 Claude Code 로그 형식으로 흘려보냄 */
+/* 멀티 세션 데모: 서버 없이 가짜 세션 4개를 Claude Code 로그 형식으로 흘려보냄
+   여러 상황을 골고루 볼 수 있게 세션마다 맡은 장면이 있다:
+   myapp = 실행 승인 대기, webtool = 질문, design-sys = 계획 확인, api-server = 중단·퇴근 후 다시 출근 */
 const DEMO_SESS = [
   {s:"a1b2c3d4", p:"myapp", cwd:"/Users/you/StudioProjects/myapp", branch:"feature/compose-login",
    asks:["로그인 화면 Compose로 바꿔줘","딥링크 열릴 때 크래시 나는 거 고쳐줘"],
@@ -3590,7 +3595,9 @@ function demoLine(d, agentId){
 }
 function startDemo(){
   const id = ++liveLoop;
-  const st = DEMO_SESS.map((_, i) => ({phase:"off", at:1 + i*3, req:0, todos:[], cur:0, step:0, subs:[], cap:[3,2,3,2][i], asked:false}));
+  const st = DEMO_SESS.map((_, i) => ({phase:"off", at:1 + i*3, req:0, todos:[], cur:0, step:0, subs:[], cap:[3,2,3,2][i], asked:false, done:0}));
+  const hook = (d, e, r) => liveHandle({s:d.s, p:d.p, h:{e, r:r || "", t:Date.now()}});     // hook 신호 흉내
+  const hold = (S, wait, result) => { S.phase = "hold"; S.at = t + wait; S.result = result; };   // 사용자 답을 기다림
   const full = d => d.s + "-0000-4000-8000-" + d.s + "abcd";
   const emit = (d, o) => liveHandle({s:d.s, p:d.p, a:o.agentId,
     l: JSON.stringify({cwd:d.cwd, gitBranch:d.branch, sessionId:full(d), ...o})});
@@ -3600,6 +3607,12 @@ function startDemo(){
     const k = S.req++ % d.asks.length;
     S.todos = d.todos[k]; S.cur = 0; S.step = 0; S.asked = false; S.phase = "work";
     emit(d, {type:"user", message:{content: d.asks[k]}});
+    if (i === 2){                                           // design-sys: 먼저 계획을 보여 주고 확인을 기다림
+      S.asked = true;
+      emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"ExitPlanMode", input:{plan:"1. 토큰 정리 2. 다크 토큰 추가 3. 적용"}}]}});
+      hold(S, 7, "계획 승인됨");
+      return;
+    }
     todoWrite(d, S);
     if (d.bg && !S.bgId){                                   // 모니터링 스크립트·개발 서버를 백그라운드로
       const tid = "toolu_" + Math.random().toString(16).slice(2, 10);
@@ -3621,9 +3634,14 @@ function startDemo(){
     DEMO_SESS.forEach((d, i) => {
       const S = st[i];
       if ((S.phase === "off" || S.phase === "wait") && t >= S.at) startTask(d, S, i);
-      if (S.phase === "question" && t >= S.at){
+      if (S.phase === "hold" && t >= S.at){                 // 답·승인을 받고 다시 일함
         S.phase = "work";
-        emit(d, {type:"user", message:{content:[{type:"tool_result", content:"사용자 답변: 첫 번째 방법으로"}]}});
+        emit(d, {type:"user", message:{content:[{type:"tool_result", content:S.result}]}});
+        if (S.cur === 0 && S.step === 0) todoWrite(d, S);
+      }
+      if (S.phase === "gone" && S.endAt && t >= S.endAt){ S.endAt = 0; hook(d, "end", "prompt_input_exit"); }
+      if (S.phase === "gone" && t >= S.at){                 // 퇴근했던 세션을 다시 켬 → 같은 고양이가 다시 출근
+        hook(d, "start", "resume"); startTask(d, S, i);
       }
     });
     const on = st.map((x, i) => x.phase === "work" ? i : -1).filter(i => i >= 0);
@@ -3645,10 +3663,20 @@ function startDemo(){
         S.subs.push(sub);
         emit(d, demoLine(d, sub.id));
         emit(d, {type:"user", isSidechain:true, agentId:sub.id, message:{content:[{type:"tool_result", content:"ok"}]}});
-      } else if (!S.asked && i === 1 && Math.random() < 0.15){
-        S.asked = true; S.phase = "question"; S.at = t + 5;
+      } else if (!S.asked && i === 1 && S.step >= 2){       // webtool: 질문
+        S.asked = true;
         emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"AskUserQuestion",
           input:{questions:[{question:"차트 종류는 어떤 걸로 할까요?"}]}}]}});
+        hold(S, 7, "사용자 답변: 첫 번째 방법으로");
+      } else if (!S.asked && i === 0 && S.step >= 3){       // myapp: 명령 실행 승인 대기 (hook 의 권한 알림)
+        S.asked = true;
+        emit(d, {type:"assistant", message:{content:[{type:"tool_use", name:"Bash", input:{command:"adb uninstall com.ex.myapp"}}]}});
+        hook(d, "ask", "permission_prompt");
+        hold(S, 7, "Success");
+      } else if (!S.asked && i === 3 && S.req % 2 === 0 && S.step >= 3){   // api-server: 두 번에 한 번은 중간에 멈춤
+        S.asked = true;
+        emit(d, {type:"user", message:{content:[{type:"text", text:"[Request interrupted by user]"}]}});
+        S.phase = "wait"; S.at = t + 8; S.subs = [];
       } else if (S.bgId && Math.random() < 0.12){
         toolPair(d, "BashOutput", {bash_id: S.bgId}, S.bgEnd ? "<status>completed</status>\n<exit_code>0</exit_code>"
                                                              : "<status>running</status>\n<stdout>...</stdout>");
@@ -3672,6 +3700,9 @@ function startDemo(){
           emit(d, {type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text",
             text: pick(["요청하신 작업을 마쳤어요. 빌드와 테스트 모두 통과했어요.","변경 사항을 정리해 뒀어요. 확인해 주세요!","다 했어요. 다음에 할 일을 알려 주세요."])}]}});
           S.phase = "wait"; S.at = t + 10 + Math.floor(Math.random()*8);
+          if (i === 3 && ++S.done % 2 === 1){                 // api-server: 끝나고 세션을 닫음 → 퇴근, 잠시 뒤 다시 출근
+            S.phase = "gone"; S.at = t + 16; S.endAt = t + 4;
+          }
         }
       }
     }

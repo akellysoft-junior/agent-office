@@ -2253,7 +2253,7 @@ function liveHandle(rec){
   if (o.sessionId && !side) sess.fullId = o.sessionId;
   const ts = Date.parse(o.timestamp || "");
   const fresh = isNaN(ts) || Date.now() - ts < 60000;
-  sess.lastTs = isNaN(ts) ? Date.now() : ts;
+  if (!isNaN(ts)) sess.lastTs = ts;          // 시각이 없는 줄(제목·마지막 요청 같은 메타 기록)은 "방금 활동"으로 치지 않음
   if (!side) trackMain(sess, o, fresh);
   trackTools(sess, o);
   const c0 = o.message && o.message.content;

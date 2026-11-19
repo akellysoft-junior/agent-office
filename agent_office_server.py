@@ -449,6 +449,12 @@ def take_hook(b):
     reason = str(b.get("reason") or "")[:40]
     tp, cwd = b.get("transcript_path") or "", b.get("cwd") or ""
     with lock:
+        try:                                # 그 사이 쌓인 로그 줄을 먼저 읽어 순서를 맞춤 (도구 호출 → 승인 대기)
+            scan(Handler.root)
+            if CODEX_ON:
+                scan_codex()
+        except Exception:
+            pass
         hook_seen.add(src)
         if src == "claude" and tp:
             proj = proj_label(os.path.basename(os.path.dirname(tp)))

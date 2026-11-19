@@ -2106,7 +2106,8 @@ function celebrate(s){
   live.done++;
   s.stampUntil = t + (ONE ? 5 : 3);           // one: 완료 말풍선은 카메라가 도착한 뒤에도 보이게 조금 더 길게
   for (const c of [s.boss, ...s.kittens.values()]) c.cheerUntil = t + 1.8;
-  if (!reduceMotion) for (let i=0; i<4; i++) setTimeout(() => burst(L.x + 30 + Math.random()*120, L.y + 25 + Math.random()*80), i*170);
+  const b = s.boss;                          // 폭죽은 일을 마친 고양이 둘레에서 (사무실 아무 데나가 아니라)
+  if (!reduceMotion) for (let i=0; i<4; i++) setTimeout(() => burst(b.pos.x + (Math.random() - .5) * 24, b.pos.y + (Math.random() - .5) * 24), i*170);
   const sum = [s.files.size ? `파일 ${s.files.size}개 수정` : "", s.cmds ? `명령 ${s.cmds}회` : "",
                s.subTotal ? `새끼냥 ${s.subTotal}마리 출동` : ""].filter(Boolean).join(" · ");
   if (!EMBED) toast(`✓ ${sessName(s)} 작업 완료`, sum || s.result);   // 위젯에선 상단 완료 팝업 생략 (장면 속 완료 도장만)

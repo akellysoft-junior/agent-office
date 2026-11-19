@@ -181,6 +181,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .talk-name{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
 .talk-name b{font-family:var(--font-display); font-weight:400; font-size:17px}
 .talk-tag{font-size:12px; color:var(--muted)}
+.talk-rest{font-size:12px; padding:1px 8px; border-radius:999px; background:var(--chip, rgba(127,127,127,.14)); white-space:nowrap; flex:none}
 .talk-text{margin:0; font-size:14px; line-height:1.6; min-height:3.2em; cursor:pointer; overflow-wrap:anywhere}
 .talk-text::after{content:"▼"; font-size:10px; margin-left:6px; color:var(--accent); opacity:0}
 .talk.done .talk-text::after{opacity:1; animation:blinkdn 1s steps(2) infinite}
@@ -241,7 +242,7 @@ html.embed .talk{box-sizing:border-box; width:calc(100% - 16px); animation-name:
   html.embed .talk-body{gap:2px}
   html.embed .talk-name{gap:6px; padding-right:18px}
   html.embed .talk-name b{font-size:14px}
-  html.embed .talk-tag{font-size:11px}
+  html.embed .talk-tag, html.embed .talk-rest{font-size:11px}
   html.embed .talk-text{font-size:12.5px; line-height:1.5; min-height:0}
   html.embed .talk-actions{gap:4px}
   html.embed .talk-actions .mini{font-size:11px; padding:2px 8px; box-shadow:1px 1px 0 var(--ink)}
@@ -357,7 +358,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -2673,7 +2674,7 @@ picker.box.addEventListener("pointerdown", e => e.stopPropagation());
 /* ── 캐릭터 클릭 → 확대 + 자기소개 대화창 ── */
 const talkSel = {cat:null, lines:[], idx:0, shown:0};
 const talk = {box:$("#talk"), cv:$("#talkCv"), img:$("#talkImg"), badge:$("#talkBadge"), bcv:$("#talkBadgeCv"),
-  name:$("#talkName"), tag:$("#talkTag"), text:$("#talkText"), actions:$("#talkActions"), pg:$("#talkPg"), msg:$("#talkMsg")};
+  name:$("#talkName"), rest:$("#talkRest"), tag:$("#talkTag"), text:$("#talkText"), actions:$("#talkActions"), pg:$("#talkPg"), msg:$("#talkMsg")};
 const SEL_Z = 3.4;
 function catSessionOf(c){
   if (!live) return null;
@@ -2752,6 +2753,20 @@ function talkButton(text, fn, cls = "mini"){
   b.addEventListener("click", e => { e.stopPropagation(); fn(); });
   talk.actions.appendChild(b); return b;
 }
+/* 대화창 이름 옆: 로그 없이 지난 시간 ("💤 3시간째 쉬는 중") — 일하는 중이거나 5분이 안 됐으면 숨김 */
+function updateTalkRest(){
+  const c = talkSel.cat, s = c && !c.human ? catSessionOf(c) : null;
+  const quiet = s && c === s.boss && s.phase !== "working" && !s.ending ? Date.now() - s.lastTs : 0;
+  if (quiet < 5 * 60000){ talk.rest.hidden = true; return; }
+  const m = Math.floor(quiet / 60000), h = Math.floor(m / 60);
+  const span = h >= 1 ? `${h}시간째` : `${m}분째`;
+  const asking = s.phase === "waiting" && ["질문", "계획", "승인"].includes(s.waitReason);
+  const short = EMBED && innerWidth <= 420;
+  talk.rest.textContent = asking ? `⏳ ${span}${short ? "" : " 기다리는 중"}` : `💤 ${span}${short ? "" : " 쉬는 중"}`;
+  talk.rest.title = `마지막 기록 뒤로 ${h >= 1 ? h + "시간 " + (m % 60) + "분" : m + "분"} 지났어요`;
+  talk.rest.hidden = false;
+}
+setInterval(() => { if (talkSel.cat) updateTalkRest(); }, 20000);
 function openTalk(c){
   const info = talkInfo(c);
   if (!info) return;
@@ -2762,6 +2777,7 @@ function openTalk(c){
   // 좁은 위젯: 긴 프로필 이름 대신 @아이디 (이름은 인사말에 다시 나옴)
   talk.name.textContent = EMBED && innerWidth <= 420 && info.ref && info.ref.kind === "human" ? "@" + info.ref.login : info.name;
   talk.name.title = info.name; talk.tag.textContent = info.tag;
+  updateTalkRest();
   // 프사는 다 받은 뒤에 보여줌 (그 전에는 그린 얼굴): 이전 사람 사진이 남아 있다가 늦게 바뀌지 않게
   talk.img.hidden = talk.badge.hidden = true;
   talk.img.onload = talk.img.onerror = null;

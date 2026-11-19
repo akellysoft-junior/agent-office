@@ -2172,6 +2172,19 @@ function trackMain(s, o, fresh){
 }
 /* ── hook: Claude Code·Codex가 세션 시작/턴 끝/승인 대기/세션 끝을 직접 알려 줌 (서버가 rec.h 로 전달) ── */
 const STALE_MS = 24 * 3600 * 1000;   // 하루 넘게 새 기록이 없는 세션은 화면에서 뺌
+const REST_MS = 12 * 3600 * 1000;    // 12시간 넘게 새 기록이 없으면 책상 대신 휴게실에서 쉼
+function sendToRest(s){              // 오래 쉰 세션: 휴게실 빈자리 중 아무 데나
+  const L = SLOTS[s.slot], b = s.boss, spots = lotLounge(L);
+  const sharing = ONE ? visibleCats().filter(x => x.lot === s.slot) : [b, ...s.kittens.values()];
+  const taken = new Set(sharing.filter(x => x.inLounge && x !== b).map(x => x.loungeIdx));
+  const free = spots.map((_, i) => i).filter(i => !taken.has(i));
+  Object.assign(s, {longRest:true, phase:"idle", activity:"12시간 넘게 쉬는 중", pendingEndAt:0, hookStopAt:0, pendingTool:null});
+  Object.assign(b, {waiting:false, sign:null, busy:false, stateText:"12시간 넘게 쉬는 중"});
+  if (!free.length) return;                                    // 빈자리가 없으면 자리에서 쉼
+  const i = free[Math.floor(Math.random() * free.length)];
+  Object.assign(b, {inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift, napAfter:spots[i].nap});
+  live.ver++;
+}
 const hookEnded = new Map();     // 세션 → 끝난 시각(ms): 끝난 뒤 늦게 도착한 로그 줄로 다시 출근하지 않게
 const gonePlace = new Map();     // 세션 → {at:[고양이 번호, 책상], 요약}: 다시 오면 같은 고양이·책상, 하던 일 이어서
 function hookHandle(rec){
@@ -2292,6 +2305,8 @@ function liveTick(dt){
   const nowMs = Date.now();
   for (const s of live.sessions.values()){
     if (nowMs - s.lastTs > STALE_MS && !s.ending){ dropSession(s); continue; }   // 하루 넘게 조용한 세션은 조용히 빠짐
+    if (!s.ending && !s.longRest && nowMs - s.lastTs > REST_MS) sendToRest(s);
+    if (s.longRest && nowMs - s.lastTs < REST_MS) s.longRest = false;          // 새 기록이 오면 다시 평소대로
     if (s.ending){                                              // 문까지 걸어가면(또는 10초 지나면) 사라짐
       const b = s.boss;
       if ((!b.path.length && Math.hypot(b.pos.x - b.seat.x, b.pos.y - b.seat.y) < 4) || nowMs - s.endAt > 10000) dropSession(s);
@@ -2710,7 +2725,8 @@ function talkInfo(c){
   if (c === s.boss){
     const look = phaseLook(s), lines = [];
     lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.src === "codex" ? " Codex로 일해요." : "") + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
-    if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
+    if (s.longRest) lines.push("12시간 넘게 쉬고 있어요. 다시 일을 주면 자리로 돌아갈게요.");
+    else if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
     else if (s.phase === "waiting") lines.push(`${look.icon} ${look.text} — 다음 명령을 기다리고 있어요!`);
     else lines.push("지금은 조용해요. 부르면 바로 달려갈게요.");
     if (s.goal){
@@ -3446,6 +3462,7 @@ function phaseLook(s){
   if (s.phase === "waiting" && s.waitReason === "계획") return {icon:"📝", text:"계획 확인", bg:"#f09a3e"};
   if (s.phase === "waiting" && s.waitReason === "승인") return {icon:"🔐", text:"승인 대기", bg:"#f09a3e"};
   if (s.approval) return {icon:"⏳", text:"승인 필요?", bg:"#f09a3e"};
+  if (s.longRest) return {icon:"😴", text:"12시간 넘게 쉬는 중", bg:null};
   return PHASE_LOOK[s.phase] || PHASE_LOOK.idle;
 }
 function drawCampusTags(now){   // 사무실 위 이름표 + 완료 도장 (화면 좌표)
@@ -5087,6 +5104,7 @@ function fillSumCard(s){
           : s.waitReason === "계획" ? "📝 계획을 확인해 주세요"
           : s.waitReason === "승인" ? `🔐 실행 승인을 기다려요${s.activity ? " · " + s.activity : ""}`
           : `💬 다음 명령을 기다려요 · ${mins(Date.now() - s.waitSince)}`)
+      : s.longRest ? "😴 12시간 넘게 쉬고 있어요"
       : s.phase === "idle" ? "😴 한동안 조용해요"
       : s.phase === "ended" ? "🏠 세션이 끝나서 퇴근해요"
       : `지금: ${s.pendingTool ? `${s.activity} · 결과 기다리는 중` : s.boss.state === "busy" ? `💭 생각하는 중 · 직전: ${s.activity || "요청 확인"}` : (s.activity || "준비 중")}${helping ? ` · 새끼냥 ${helping}마리 함께` : ""}${s.approval ? " · ⏳ 승인을 기다리는 걸지도" : ""}`;

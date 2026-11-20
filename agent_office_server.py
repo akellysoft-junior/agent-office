@@ -366,19 +366,89 @@ HOOK_STATE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser
 _restored_ends = []                         # 다시 켰을 때 화면에 다시 알려 줄 '끝난 세션'
 
 
+def _state_lock():
+    """여러 서버가 '읽고-합치고-쓰기'를 동시에 하지 않게 잠금 파일로 차례를 맞춘다 (최대 약 1초 기다림)."""
+    path = HOOK_STATE + ".lock"
+    for _ in range(50):
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return path
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(path) > 5:   # 꺼진 서버가 남긴 잠금
+                    os.remove(path)
+                    continue
+            except OSError:
+                pass
+            time.sleep(0.02)
+        except OSError:
+            return None
+    return None
+
+
+def _read_state():
+    try:
+        with open(HOOK_STATE, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {}, {}
+    if not isinstance(d, dict):
+        return {}, {}
+    pick = lambda x: {k: v for k, v in (x or {}).items() if isinstance(k, str) and isinstance(v, dict)}
+    return pick(d.get("pids")), pick(d.get("ended"))
+
+
+def merge_state(pids_a, ended_a, pids_b, ended_b):
+    """세션마다 가장 최근 기록 하나만 남긴다: 살아 있음(pid, at) 과 끝남(at) 중 더 늦은 쪽. 같으면 끝남."""
+    pids, ended = {}, {}
+    for k in set(pids_a) | set(ended_a) | set(pids_b) | set(ended_b):
+        best = None
+        for kind, rec in (("pid", pids_a.get(k)), ("pid", pids_b.get(k)), ("end", ended_a.get(k)), ("end", ended_b.get(k))):
+            if not rec:
+                continue
+            key = (float(rec.get("at") or 0), kind == "end")
+            if best is None or key > best[0]:
+                best = (key, kind, rec)
+        if best:
+            (pids if best[1] == "pid" else ended)[k] = best[2]
+    return pids, ended
+
+
 def save_hook_state():
+    """파일에 이미 있는 다른 서버의 기록과 합쳐서 쓴다 (통째로 덮어써서 남의 기록을 지우지 않게).
+    합친 결과로 이 서버의 기억도 맞춘다: 다른 서버가 끝을 본 세션은 여기서도 퇴근, 모르던 PID 는 배움."""
+    tmp = f"{HOOK_STATE}.{os.getpid()}.tmp"     # 서버마다 다른 임시 파일 (여러 서버가 동시에 써도 안 섞이게)
+    lk = None
     try:
         os.makedirs(os.path.dirname(HOOK_STATE), exist_ok=True)
+        lk = _state_lock()
+        fp, fe = _read_state()
+        pids, ended = merge_state(hook_pids, hook_ended, fp, fe)
         cut = time.time() - ACTIVE_WINDOW
-        tmp = f"{HOOK_STATE}.{os.getpid()}.tmp"     # 서버마다 다른 임시 파일 (여러 서버가 동시에 써도 안 섞이게)
+        ended = {k: v for k, v in ended.items() if float(v.get("at") or 0) > cut}
+        for k in list(hook_pids):
+            if k not in pids:
+                h = hook_pids.pop(k)
+                if k in ended:              # 다른 서버가 먼저 끝을 봤음
+                    hook_event(h.get("src", "claude"), k, h.get("proj", ""), "end", "other_server", ended[k].get("at"))
+        for k, v in pids.items():
+            hook_pids.setdefault(k, v)
+        hook_ended.clear()
+        hook_ended.update(ended)
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"pids": hook_pids, "ended": {k: v for k, v in hook_ended.items() if v["at"] > cut}}, fh)
+            json.dump({"pids": pids, "ended": ended}, fh)
         os.replace(tmp, HOOK_STATE)
     except OSError:
         try:
             os.remove(tmp)                  # 바꿔치기에 실패하면 임시 파일은 치움
-        except (OSError, NameError):
+        except OSError:
             pass
+    finally:
+        if lk:
+            try:
+                os.remove(lk)
+            except OSError:
+                pass
 
 
 def load_hook_state():
@@ -625,7 +695,7 @@ def take_hook(b):
             return True
         h = hook_pids.get(sess)
         if ev == "SessionStart" or not h or (pid and h.get("pid") != pid):   # 처음 보거나 PID 를 새로 알게 됨
-            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid}
+            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid, "at": time.time()}
             hook_ended.pop(sess, None)
             save_hook_state()
         if ev == "SessionStart":

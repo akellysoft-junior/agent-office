@@ -1951,6 +1951,8 @@ function startPoll(){
       live.boot = d.boot || live.boot;
       checkHtmlVersion(d.v);
       live.seq = d.seq;
+      live.tracked = new Set(d.tracked || []);          // hook 으로 지켜보는 세션
+      live.hookSrc = new Set(d.hookSrc || []);          // hook 이 동작 중인 도구 (claude / codex)
       for (const rec of d.events) liveHandle(rec);
       live.fail = 0;
     }catch{
@@ -2175,6 +2177,19 @@ function trackMain(s, o, fresh){
 /* ── hook: Claude Code·Codex가 세션 시작/턴 끝/승인 대기/세션 끝을 직접 알려 줌 (서버가 rec.h 로 전달) ── */
 const STALE_MS = 24 * 3600 * 1000;   // 하루 넘게 새 기록이 없는 세션은 화면에서 뺌
 const REST_MS = 12 * 3600 * 1000;    // 12시간 넘게 새 기록이 없으면 책상 대신 휴게실에서 쉼
+const WAIT_REST_MS = 15 * 60000;     // 명령을 15분 넘게 기다리면 휴게실로 (질문·계획·승인 대기는 자리에서 팻말 들고 기다림)
+const LEGACY_KEEP = 2;               // hook 이전부터 남은 세션은 최근 것 2개까지만, 그것도 자리에 여유가 있을 때만
+const legacyDropped = new Map();     // 정리한 옛 세션 → 그때 마지막 기록 시각 (같은 옛 기록으로 다시 나오지 않게)
+const isLegacy = s => !s.hooked && !(live.tracked && live.tracked.has(s.sid)) && !!(live.hookSrc && live.hookSrc.has(s.src));
+function pruneLegacy(){
+  const all = [...live.sessions.values()].filter(s => !s.ending);
+  const old = all.filter(isLegacy).sort((a, b) => b.lastTs - a.lastTs);
+  if (!old.length) return;
+  const seats = ONE ? Math.min(BOSSES.length, SLOTS[hqSlot()].maxDesks || BOSSES.length)
+                    : SLOTS.length - (teamSlot() >= 0 ? 1 : 0);
+  const keep = Math.max(0, Math.min(LEGACY_KEEP, seats - (all.length - old.length)));
+  for (const s of old.slice(keep)){ legacyDropped.set(s.sid, s.lastTs); dropSession(s); }
+}
 function sendToRest(s){              // 오래 쉰 세션: 휴게실 빈자리 중 아무 데나
   const L = SLOTS[s.slot], b = s.boss, spots = lotLounge(L);
   const sharing = ONE ? visibleCats().filter(x => x.lot === s.slot) : [b, ...s.kittens.values()];
@@ -2244,6 +2259,8 @@ function liveHandle(rec){
     if (!items.length) return;
     if (endT && !after) return;                                  // 끝난 세션의 지난 기록
     if (lt && Date.now() - lt > STALE_MS) return;                // 하루 넘게 지난 기록으로는 출근하지 않음
+    if (legacyDropped.has(rec.s) && !(lt > legacyDropped.get(rec.s)) && !(live.tracked && live.tracked.has(rec.s))) return;   // 정리한 옛 세션의 지난 기록
+    legacyDropped.delete(rec.s);
     hookEnded.delete(rec.s);
     sess = liveSession(rec);
   }
@@ -2305,8 +2322,14 @@ function liveTick(dt){
   teamTick();
   followTick();
   const nowMs = Date.now();
+  pruneLegacy();
   for (const s of live.sessions.values()){
+    if (live.tracked && live.tracked.has(s.sid)) s.hooked = true;
     if (nowMs - s.lastTs > STALE_MS && !s.ending){ dropSession(s); continue; }   // 하루 넘게 조용한 세션은 조용히 빠짐
+    if (s.phase === "waiting" && s.boss.waiting && !WAIT_SIGN[s.waitReason] && nowMs - s.lastTs > WAIT_REST_MS){
+      Object.assign(s.boss, {waiting:false, sign:null, stateText:"명령 기다리다 쉬는 중"});   // 아래 휴게실 규칙이 데려감
+      s.boss.lastMs = 0; live.ver++;
+    }
     if (!s.ending && !s.longRest && nowMs - s.lastTs > REST_MS) sendToRest(s);
     if (s.longRest && nowMs - s.lastTs < REST_MS) s.longRest = false;          // 새 기록이 오면 다시 평소대로
     if (s.ending){                                              // 문까지 걸어가면(또는 10초 지나면) 사라짐
@@ -2410,11 +2433,16 @@ function setTeam(data, source){
     let tier = teamTier(d, rank, maxC);
     if (tier === "core" && ++cores > 4) tier = "regular";
     const prev = old.get(d.login);
-    if (prev){ if (d.look) Object.assign(prev.look, d.look); return Object.assign(prev, {info:d, rank, tier}); }
+    if (prev){                                   // 설정(YAML·gist)이 바뀌면 모습도 그대로 따라감 (지운 값은 기본으로)
+      const nl = {...personLook(d.login), ...(d.look || {})};
+      for (const k of Object.keys(prev.look)) if (!(k in nl)) delete prev.look[k];
+      Object.assign(prev.look, nl);
+      return Object.assign(prev, {info:d, rank, tier});
+    }
     const h = hashStr(d.login), coats = [...BOSS_LOOKS.map(b => b.coat), ...KITTEN_COATS];
     return {login:d.login, info:d, rank, tier, present:false, leaving:false, cat:null,
             nextAt:0, leaveAt:0, breakAt:0, backAt:0, murmurAt:0, first:true,
-            coat:coats[h % coats.length], look:{...personLook(d.login), ...(d.look || {})}};   // 본인이 gist 에 정한 모습이 있으면 그걸로
+            coat:coats[h % coats.length], look:{...personLook(d.login), ...(d.look || {})}};   // YAML 설정·본인 gist 모습이 있으면 그걸로, 없으면 아이디 해시
   });
   team = {repo:data.repo || "", host:data.host || "github.com", members, slot, source, fetched:data.fetched || Date.now()};
   for (const m of members) if (m.info.avatar) avatarCache.set(m.info.avatar, Object.assign(new Image(), {src: avatarSrc(m.info.avatar)}));   // 대화창 프사를 미리 받아 둠
@@ -2581,7 +2609,7 @@ async function loadTeam(refresh = false){
     if (src === "server" && !OPT.repo && !(data && data.repo)) setTimeout(() => { if (!team && live && live.source === "server") loadTeam(true); }, 60000);
   }
 }
-setInterval(() => { if (team && live && live.source === "server") loadTeam(true); }, 30*MIN);
+setInterval(() => { if (team && live && live.source === "server") loadTeam(true); }, 5*MIN);   // 서버는 30분 동안 받아 둔 걸 주고, 캐릭터 YAML 을 고치면 5분 안에 반영
 
 const SHOW_PICKER = false;   // 내 캐릭터 꾸미기 버튼 숨김 (기능·저장된 모습 적용은 그대로)
 /* ── 내 캐릭터 꾸미기: 본인 캐릭터에만. 저장은 내 GitHub 계정의 gist (그 계정 주인만 고칠 수 있음) ── */

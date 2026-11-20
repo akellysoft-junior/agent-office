@@ -464,6 +464,12 @@ hook_seen = set()                           # hook 을 한 번이라도 보낸 �
 _last_alive_check = 0.0
 
 
+def hook_sources():
+    """hook 이 동작 중인 도구: 이 도구의 세션 중 hook 신호가 한 번도 없던 건 'hook 이전 세션'으로 본다."""
+    return sorted(hook_seen | {h.get("src", "claude") for h in hook_pids.values()}
+                  | {e.get("src", "claude") for e in hook_ended.values()})
+
+
 def hook_sess(src, sid):
     sid = str(sid or "")
     return ("cx" + re.sub(r"[^0-9a-f]", "", sid.lower())[-6:]) if src == "codex" else sid[:8]
@@ -2089,7 +2095,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"repo": None, "members": [], "error": "저장소 이름 형식이 이상해요 (owner/repo)."}, 400)
                 return
             repo = repo or DEFAULT_REPO or detect_repo()
-            self._json(get_team(repo) if repo else {"repo": None, "members": []})
+            self._json(with_yaml_looks(get_team(repo)) if repo else {"repo": None, "members": []})
         elif u.path == "/api/me":
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":
@@ -2109,7 +2115,8 @@ class Handler(BaseHTTPRequestHandler):
                 out = [e for e in events if e["q"] > since][:400]
                 cur = seq
             last_client = time.time()
-            self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID})
+            self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID,
+                        "tracked": sorted(hook_pids), "hookSrc": hook_sources()})
         else:
             self.send_error(404)
 
@@ -2292,6 +2299,146 @@ def clean_look(d):
     return out or None
 
 
+# ───────── 기여자 캐릭터 설정 (YAML) ─────────
+# 기본은 아이디 해시로 정한 모습. YAML 에 아이디별 값을 적어 두면 그 값이 먼저다.
+#   우선순위: 내 컴퓨터 파일 > 저장소의 .nyang-office.yml > 본인 gist(nyang-office.json) > 아이디 해시
+# 내 컴퓨터 파일: --characters 경로, 없으면 ~/.config/agent-office/characters.yml
+# 저장소 파일: 팀 저장소 기본 브랜치 맨 위의 .nyang-office.yml (팀 정보와 같이 30분마다 받음)
+CHAR_REPO_FILES = (".nyang-office.yml", ".nyang-office.yaml")
+CHAR_LOCAL = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "agent-office", "characters.yml")
+GENDER_ALIAS = {"f": "f", "m": "m", "여": "f", "여자": "f", "여성": "f", "female": "f", "남": "m", "남자": "m", "남성": "m", "male": "m"}
+_char_local = {"path": None, "mtime": None, "data": {}}
+
+
+def _yaml_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    return v
+
+
+def _yaml_strip_comment(line):
+    """# 뒤는 주석. 다만 '키: #3b2a22' 처럼 색 값은 따옴표 없이 써도 받아 준다."""
+    out, q = [], None
+    for i, ch in enumerate(line):
+        if q:
+            q = None if ch == q else q
+        elif ch in "\"'":
+            q = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            if re.match(r"#[0-9a-fA-F]{6}\b", line[i:]) and line[:i].rstrip().endswith(":"):
+                out.append(line[i:i + 7])
+                rest = line[i + 7:]
+                j = rest.find(" #")
+                out.append(rest if j < 0 else rest[:j])
+                return "".join(out)
+            break
+        out.append(ch)
+    return "".join(out)
+
+
+def parse_simple_yaml(text):
+    """냥오피스 설정에 필요한 만큼만 읽는 YAML: 들여쓰기로 겹친 '키: 값' 과 한 줄 {키: 값, ...}."""
+    root = {}
+    stack = [(-1, root)]
+    for raw in text.splitlines():
+        line = _yaml_strip_comment(raw.rstrip())
+        if not line.strip() or line.strip() in ("---", "..."):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        key, sep, val = line.strip().partition(":")
+        if not sep:
+            continue
+        key, val = _yaml_scalar(key), val.strip()
+        while stack and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1] if stack else root
+        if not val:
+            parent[key] = {}
+            stack.append((indent, parent[key]))
+        elif val.startswith("{") and val.endswith("}"):
+            d = {}
+            for part in val[1:-1].split(","):
+                k, sp, v = part.partition(":")
+                if sp:
+                    d[_yaml_scalar(k)] = _yaml_scalar(v)
+            parent[key] = d
+        else:
+            parent[key] = _yaml_scalar(val)
+    return root
+
+
+def chars_from_yaml(text):
+    """{아이디(소문자): 모습}. 맨 위에 characters: (또는 members:) 로 한 번 감싸도 된다."""
+    data = parse_simple_yaml(text or "")
+    if isinstance(data.get("characters"), dict):
+        data = data["characters"]
+    elif isinstance(data.get("members"), dict):
+        data = data["members"]
+    out = {}
+    for login, d in data.items():
+        if not isinstance(d, dict) or not re.fullmatch(r"[A-Za-z0-9-]{1,39}", str(login)):
+            continue
+        d = dict(d)
+        if "gender" in d:
+            d["gender"] = GENDER_ALIAS.get(str(d["gender"]).strip().lower(), "")
+        for k in LOOK_COLORS:
+            v = d.get(k)
+            if isinstance(v, str) and re.fullmatch(r"[0-9a-fA-F]{6}", v.strip()):
+                d[k] = "#" + v.strip()
+        lk = clean_look(d)
+        if lk:
+            out[str(login).lower()] = lk
+    return out
+
+
+def local_chars():
+    """내 컴퓨터의 캐릭터 설정 (파일이 바뀌면 다시 읽음)."""
+    path = _char_local["path"] or CHAR_LOCAL
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _char_local.update(mtime=None, data={})
+        return {}
+    if mt != _char_local["mtime"]:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = chars_from_yaml(fh.read())
+        except (OSError, UnicodeDecodeError):
+            data = {}
+        _char_local.update(mtime=mt, data=data)
+    return _char_local["data"]
+
+
+def fetch_repo_chars(repo):
+    for name in CHAR_REPO_FILES:
+        try:
+            f = gh_get(f"/repos/{repo}/contents/{name}")
+        except Exception:
+            continue
+        if isinstance(f, dict) and f.get("content"):
+            try:
+                return chars_from_yaml(base64.b64decode(f["content"]).decode("utf-8", "replace"))
+            except ValueError:
+                return {}
+    return {}
+
+
+def with_yaml_looks(data):
+    """팀 정보에 YAML 캐릭터 설정을 덮어씀 (받아 둔 팀 정보 자체는 건드리지 않음)."""
+    loc, rep_ = local_chars(), data.get("chars") or {}
+    if not data.get("members") or not (loc or rep_):
+        return {k: v for k, v in data.items() if k != "chars"}
+    members = []
+    for m in data["members"]:
+        key = (m.get("login") or "").lower()
+        y = loc.get(key) or rep_.get(key)
+        if y:
+            m = dict(m, look=dict(m.get("look") or {}, **y), lookFrom="local" if key in loc else "repo")
+        members.append(m)
+    return dict({k: v for k, v in data.items() if k != "chars"}, members=members)
+
+
 def gh_send(method, path, body):
     req = urllib.request.Request(api_base() + path, method=method, data=json.dumps(body).encode(), headers={
         "Accept": "application/vnd.github+json", "User-Agent": "agent-office", "Content-Type": "application/json",
@@ -2411,7 +2558,11 @@ def fetch_team(repo):
                 m["look"] = lk
         except Exception:
             pass
-    return {"repo": repo, "host": GH_HOST, "fetched": int(time.time() * 1000), "members": members}
+    try:
+        chars = fetch_repo_chars(repo)          # 저장소에 둔 팀 캐릭터 설정 (.nyang-office.yml)
+    except Exception:
+        chars = {}
+    return {"repo": repo, "host": GH_HOST, "fetched": int(time.time() * 1000), "members": members, "chars": chars}
 
 
 def team_cache_path(repo):
@@ -2725,6 +2876,7 @@ def main():
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
     ap.add_argument("--github-host", metavar="HOST",
                     help="회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net, 기본: github.com)")
+    ap.add_argument("--characters", help=f"기여자 캐릭터 설정 YAML 파일 (기본: {CHAR_LOCAL})")
     ap.add_argument("--repo", help="위젯 본사에 보여줄 깃허브 저장소 (owner/repo, 기본: 세션 폴더에서 자동으로 찾음)")
     ap.add_argument("--allow-embed", action="append", default=[], metavar="ORIGIN",
                     help="위젯을 끼워 넣을 수 있는 바깥 사이트 (예: https://tool.example.com). localhost 는 기본 허용")
@@ -2747,6 +2899,7 @@ def main():
             (["--no-update"] if args.no_update else []) + \
             (["--no-codex"] if args.no_codex else []) + \
             (["--no-hooks"] if args.no_hooks else []) + \
+            (["--characters", os.path.abspath(os.path.expanduser(args.characters))] if args.characters else []) + \
             (["--repo", args.repo] if args.repo else []) + \
             (["--github-host", args.github_host] if args.github_host else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
@@ -2811,6 +2964,8 @@ def main():
     Handler.root = args.dir
     Handler.port = args.port
     load_hook_state()
+    if args.characters:
+        _char_local["path"] = os.path.abspath(os.path.expanduser(args.characters))
     if not args.no_hooks:
         try:
             for path in install_hooks(args.port, codex=CODEX_ON):

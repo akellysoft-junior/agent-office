@@ -1620,6 +1620,10 @@ const lotSeat  = (L, i) => { const d = lotDesk(L, i); return {x: d.x + DESK_W/2,
 const lotAisle = L => L.lx + 148;
 const lotDoor  = L => ({x: lotAisle(L), y: L.y + L.d + 8});
 const lotWait  = L => ({x: lotAisle(L), y: L.y + L.d - 5});
+// 대기 자리: 사무실을 세션마다 따로 쓰면 문 앞 한 곳, 한 사무실에 모두 있으면 각자 자기 책상 옆 (한 곳에 몰려 겹쳐 서지 않게)
+const waitSpot = s => { const b = s.boss, L = SLOTS[s.slot];
+  if (!ONE || b.deskIdx == null) return lotWait(L);
+  const st = lotSeat(L, b.deskIdx); return {x: st.x + 12, y: st.y + 4}; };
 const lotLounge = L => [
   {x: L.lx + 172, y: L.y+12,  lift:6,  nap:20, say:"소파 최고"},
   {x: L.lx + 192, y: L.y+12,  lift:6,  nap:20, say:"기지개~"},
@@ -2088,7 +2092,7 @@ function setWaiting(s, reason, fresh){
   s.pendingEndAt = 0; s.pendingTool = null;
   for (const k of s.kittens.values()){ k.busy = false; k.pendingTool = null; }
   const b = s.boss;
-  b.waiting = true; b.inLounge = false; b.seat = lotWait(SLOTS[s.slot]); b.seatLift = 0; b.napAfter = 90;
+  b.waiting = true; b.inLounge = false; b.seat = waitSpot(s); b.seatLift = 0; b.napAfter = 90;
   b.sign = WAIT_SIGN[reason] || null;                      // 팻말 말: 상황에 맞는 냥 말투 (명령 대기는 "냥?")
   if (ONE){ b.seat = {...b.home}; b.seatLift = 7; }      // one: 명령 대기는 자기 책상에서 '냥?' 팻말
   b.stateText = reason === "질문" ? "질문에 답을 기다려요" : reason === "계획" ? "계획 확인을 기다려요" : reason === "승인" ? "실행해도 되는지 승인을 기다려요"

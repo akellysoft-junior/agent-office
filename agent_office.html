@@ -209,6 +209,10 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .pk-chips .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px}
 .pk-note{margin:0; font-size:12px; color:var(--muted); line-height:1.5}
 .pk-actions{display:flex; justify-content:flex-end; gap:6px}
+.builder .pk-head select{font:inherit; font-size:13px; max-width:60%; margin-left:auto}
+.builder .pk-actions{flex-wrap:wrap}
+.bd-yaml{margin:0; padding:8px 10px; border-radius:8px; background:var(--paper-2); border:1px solid var(--line, rgba(0,0,0,.12)); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; user-select:all}
+.pk-chips button.def{font-size:11px}
 @media (max-width:560px){ .picker{left:8px; right:8px; top:8px; width:auto} }
 .talk-close{position:absolute; top:6px; right:8px; border:0; box-shadow:none; background:none; font-size:16px; padding:2px 6px}
 @media (max-width:520px), (max-height:360px){
@@ -352,13 +356,14 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
     <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
     <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
     <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
+    <button id="btnChars" hidden title="깃허브 기여자 캐릭터를 골라 YAML 설정으로 복사">🎨 캐릭터 설정</button>
     <button id="btnWidget" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
     <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
     <button id="btnAdd" class="primary">+ 작업 추가</button>
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini primary">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -1088,6 +1093,7 @@ btnFollow.addEventListener("click", () => {
 });
 setTimeout(followText, 0);
 const btnLayout = $("#btnLayout");
+const btnChars = $("#btnChars");
 btnLayout.textContent = "🏢 사무실: " + (ONE ? "한 곳에 모두" : "세션별");
 btnLayout.title = ONE ? "세션마다 건물 하나로 바꾸기" : "모든 세션과 기여자를 한 사무실에 모으기";
 btnLayout.addEventListener("click", () => {          // 바꾸면 새로 불러옴 (라이브 상태는 서버에서 다시 받음)
@@ -2698,6 +2704,104 @@ $("#pkSave").addEventListener("click", async () => {
   } catch { picker.note.textContent = "서버에 연결하지 못했어요."; }
 });
 picker.box.addEventListener("pointerdown", e => e.stopPropagation());
+
+/* ── 캐릭터 설정 만들기: 기여자를 골라 성별·모양·색을 고르면 미리 보여 주고, YAML 로 복사 ──
+   파일에 저장하지는 않는다 (복사해서 ~/.config/agent-office/characters.yml 이나 저장소 .nyang-office.yml 에 붙여 넣음).
+   고른 값만 YAML 에 들어가고, 고르지 않은 항목은 아이디로 정해지는 기본 모습 그대로. 창을 닫으면 사무실 모습은 원래대로. */
+const YAML_KEYS = ["gender", "art", "hair", "skin", "shirt", "inner", "pants", "hat"];
+const builder = {box:$("#builder"), who:$("#bdWho"), cv:$("#bdCv"), opts:$("#bdOpts"), yaml:$("#bdYaml"), note:$("#bdNote"),
+  entries:new Map(), before:new Map(), touched:new Set(), login:null};
+const bdMember = login => team && team.members.find(m => m.login === login);
+const bdEntry = login => {
+  if (!builder.entries.has(login)) builder.entries.set(login, {...((bdMember(login) || {}).info?.yaml || {})});
+  return builder.entries.get(login);
+};
+const bdLook = login => ({...personLook(login), ...bdEntry(login)});
+function bdYamlOf(login, indent = ""){
+  const e = bdEntry(login), keys = YAML_KEYS.filter(k => e[k]);
+  if (!keys.length) return `${indent}# ${login}: 적은 값이 없어서 기본 모습이에요`;
+  return `${indent}${login}:\n` + keys.map(k => `${indent}  ${k}: ${k === "gender" || k === "art" ? e[k] : JSON.stringify(e[k])}`).join("\n");
+}
+function bdApply(login){                          // 사무실의 그 사람 모습에도 임시로 반영
+  const m = bdMember(login); if (!m) return;
+  if (!builder.before.has(login)) builder.before.set(login, {...m.look});
+  const nl = bdLook(login);
+  for (const k of Object.keys(m.look)) delete m.look[k];
+  Object.assign(m.look, nl);
+}
+function bdRender(){
+  const login = builder.login, e = bdEntry(login), O = builder.opts;
+  O.textContent = "";
+  const row = (label, items, key, swatch) => {
+    const r = document.createElement("div"); r.className = "pk-row";
+    const t = document.createElement("span"); t.textContent = label; r.appendChild(t);
+    const c = document.createElement("div"); c.className = "pk-chips"; r.appendChild(c);
+    for (const [val, text] of [["", "기본"], ...items]){
+      const b = document.createElement("button"); b.type = "button";
+      if (swatch && val){ b.className = "sw"; b.style.background = val; b.title = val; b.setAttribute("aria-label", `${label} ${val}`); }
+      else { b.textContent = text; if (!val) b.classList.add("def"); }
+      b.setAttribute("aria-pressed", String((e[key] || "") === val));
+      b.addEventListener("click", () => {
+        if (val) e[key] = val; else delete e[key];
+        if (key === "gender" && e.art && val && !ART_GENDER[val].includes(e.art)) delete e.art;   // 성별에 안 맞는 모양은 지움
+        builder.touched.add(login); bdApply(login); bdRender();
+      });
+      c.appendChild(b);
+    }
+    O.appendChild(r);
+  };
+  row("성별", [["f", "여성"], ["m", "남성"]], "gender");
+  row("모양", (e.gender ? ART_GENDER[e.gender] : Object.keys(ART_LABEL)).filter(k => CHAR_ART["human." + k]).map(k => [k, ART_LABEL[k]]), "art");
+  row("머리색", HAIRS.map(c => [c]), "hair", true);
+  row("피부", SKINS.map(c => [c]), "skin", true);
+  row("상의", ACC_COLORS.map(c => [c]), "shirt", true);
+  row("안에 입은 옷", INNER_COLORS.map(c => [c]), "inner", true);
+  row("바지", PANTS.map(c => [c]), "pants", true);
+  row("모자", ACC_COLORS.map(c => [c]), "hat", true);
+  builder.yaml.textContent = bdYamlOf(login);
+  const art = humanArt({look:bdLook(login), id:"gh-" + login});
+  builder.note.textContent = (e.gender && !e.art ? `성별만 고르면 그 안에서 아이디로 정해져요 (지금: ${ART_LABEL[art] || art}). ` : "")
+    + "복사해서 ~/.config/agent-office/characters.yml 이나 팀 저장소 .nyang-office.yml 에 붙여 넣으세요.";
+  bdPreview();
+}
+function bdPreview(){
+  if (!charArt.ready || !builder.login) return;
+  const fake = {human:bdMember(builder.login) || {login:builder.login}, look:bdLook(builder.login), id:"gh-" + builder.login};
+  const kind = artKind("human", fake), img = artLevelsFor(kind, fake)[0];
+  const p = builder.cv.getContext("2d"), W = builder.cv.width, H = builder.cv.height;
+  p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, W, H);
+  const sc = Math.min((W - 16) / img.width, (H - 16) / img.height);
+  p.imageSmoothingEnabled = true; p.imageSmoothingQuality = "high";
+  p.drawImage(img, (W - img.width * sc) / 2, H - 8 - img.height * sc, img.width * sc, img.height * sc);
+}
+function openBuilder(login){
+  if (!team || !team.members.length) return;
+  closePicker(true);
+  builder.who.innerHTML = team.members.map(m => `<option value="${m.login}">@${m.login}${m.info.name ? " · " + m.info.name : ""}</option>`).join("");
+  builder.login = login && bdMember(login) ? login : team.members[0].login;
+  builder.who.value = builder.login;
+  builder.box.hidden = false;
+  bdRender();
+}
+function closeBuilder(){
+  for (const [login, look] of builder.before){ const m = bdMember(login); if (m){ for (const k of Object.keys(m.look)) delete m.look[k]; Object.assign(m.look, look); } }
+  builder.before.clear(); builder.box.hidden = true;
+}
+async function bdCopy(text, okMsg){
+  try { await navigator.clipboard.writeText(text); builder.note.textContent = okMsg; }
+  catch { builder.yaml.textContent = text; getSelection().selectAllChildren(builder.yaml); builder.note.textContent = "복사가 막혀 있어서 위 내용을 선택해 뒀어요. Ctrl+C(⌘C)로 복사해 주세요."; }
+}
+builder.who.addEventListener("change", () => { builder.login = builder.who.value; bdRender(); });
+$("#bdReset").addEventListener("click", () => { builder.entries.set(builder.login, {}); builder.touched.add(builder.login); bdApply(builder.login); bdRender(); });
+$("#bdCopy").addEventListener("click", () => bdCopy(bdYamlOf(builder.login), `@${builder.login} 설정을 복사했어요.`));
+$("#bdCopyAll").addEventListener("click", () => {
+  const list = [...builder.touched].filter(l => YAML_KEYS.some(k => bdEntry(l)[k]));
+  if (!list.length){ builder.note.textContent = "바꾼 사람이 아직 없어요."; return; }
+  bdCopy("characters:\n" + list.map(l => bdYamlOf(l, "  ")).join("\n"), `${list.length}명 설정을 복사했어요.`);
+});
+$("#bdClose").addEventListener("click", closeBuilder);
+builder.box.addEventListener("pointerdown", e => e.stopPropagation());
+btnChars.addEventListener("click", () => builder.box.hidden ? openBuilder(talkSel.cat && talkSel.cat.human ? talkSel.cat.human.login : null) : closeBuilder());
 
 /* ── 캐릭터 클릭 → 확대 + 자기소개 대화창 ── */
 const talkSel = {cat:null, lines:[], idx:0, shown:0};
@@ -5203,6 +5307,8 @@ function updateHUD(){
   const showFollow = mode === "live";
   if (btnFollow.hidden === showFollow) btnFollow.hidden = !showFollow;
   if (btnLayout.hidden === showFollow) btnLayout.hidden = !showFollow;
+  const showChars = !EMBED && !!(team && team.members.length);
+  if (btnChars.hidden === showChars) btnChars.hidden = !showChars;
   const chip = $("#followChip");
   if (!showFollow || !follow.on){ chip.hidden = true; }
   else {

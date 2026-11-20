@@ -2434,7 +2434,7 @@ def with_yaml_looks(data):
         key = (m.get("login") or "").lower()
         y = loc.get(key) or rep_.get(key)
         if y:
-            m = dict(m, look=dict(m.get("look") or {}, **y), lookFrom="local" if key in loc else "repo")
+            m = dict(m, look=dict(m.get("look") or {}, **y), lookFrom="local" if key in loc else "repo", yaml=y)
         members.append(m)
     return dict({k: v for k, v in data.items() if k != "chars"}, members=members)
 

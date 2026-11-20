@@ -209,6 +209,7 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .pk-chips .sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:1px}
 .pk-note{margin:0; font-size:12px; color:var(--muted); line-height:1.5}
 .pk-actions{display:flex; justify-content:flex-end; gap:6px}
+.builder{width:min(540px, calc(100% - 28px))}
 .builder .pk-head select{font:inherit; font-size:13px; max-width:60%; margin-left:auto}
 .builder .pk-actions{flex-wrap:wrap}
 .bd-yaml{margin:0; padding:8px 10px; border-radius:8px; background:var(--paper-2); border:1px solid var(--line, rgba(0,0,0,.12)); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; user-select:all}
@@ -363,7 +364,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini primary">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button></div><div class="pk-actions"><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -2768,7 +2769,8 @@ function bdRender(){
   builder.yaml.textContent = bdYamlOf(login);
   const art = humanArt({look:bdLook(login), id:"gh-" + login});
   builder.note.textContent = (e.gender && !e.art ? `성별만 고르면 그 안에서 아이디로 정해져요 (지금: ${ART_LABEL[art] || art}). ` : "")
-    + "복사해서 ~/.config/agent-office/characters.yml 이나 팀 저장소 .nyang-office.yml 에 붙여 넣으세요.";
+    + (live && live.source === "server" ? "'내 컴퓨터에 저장'을 누르면 바로 적용돼요. 팀 모두에게 보이려면 복사해서 저장소 .nyang-office.yml 에 넣으세요."
+                                        : "데모에서는 저장하지 않아요. 복사해서 설정 파일에 붙여 넣으세요.");
   bdPreview();
 }
 function bdPreview(){
@@ -2807,6 +2809,25 @@ $("#bdCopyAll").addEventListener("click", () => {
   bdCopy("characters:\n" + list.map(l => bdYamlOf(l, "  ")).join("\n"), `${list.length}명 설정을 복사했어요.`);
 });
 $("#bdClose").addEventListener("click", closeBuilder);
+async function bdPost(path, body){
+  if (!live || live.source !== "server"){ builder.note.textContent = "냥오피스 서버에 연결됐을 때만 할 수 있어요 (데모에서는 복사만)."; return null; }
+  try {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json", "X-Agent-Office":"1"}, body:JSON.stringify(body || {})});
+    const d = await r.json(); builder.note.textContent = d.msg || (d.ok ? "했어요." : "하지 못했어요."); return d;
+  } catch { builder.note.textContent = "서버에 연결하지 못했어요."; return null; }
+}
+$("#bdSave").addEventListener("click", async () => {
+  const list = [...new Set([...builder.touched, builder.login])];
+  const chars = Object.fromEntries(list.map(l => [l, Object.fromEntries(YAML_KEYS.filter(k => bdEntry(l)[k]).map(k => [k, bdEntry(l)[k]]))]));
+  const d = await bdPost("api/characters", {chars});
+  if (d && d.ok){ for (const l of list) builder.before.delete(l); builder.touched.clear(); await loadTeam(true); bdRender(); builder.note.textContent = d.msg + " — 화면에 바로 적용했어요."; }
+});
+$("#bdOpen").addEventListener("click", () => bdPost("api/characters/open"));
+$("#bdRefresh").addEventListener("click", async () => {
+  const d = await bdPost("api/team/refresh", {repo: OPT.repo || (team && team.repo) || ""});
+  if (d && d.ok){ closeBuilderKeep(); await loadTeam(true); openBuilder(builder.login); builder.note.textContent = d.msg; }
+});
+function closeBuilderKeep(){ closeBuilder(); builder.entries.clear(); builder.touched.clear(); }
 builder.box.addEventListener("pointerdown", e => e.stopPropagation());
 btnChars.addEventListener("click", () => builder.box.hidden ? openBuilder(talkSel.cat && talkSel.cat.human ? talkSel.cat.human.login : null) : closeBuilder());
 

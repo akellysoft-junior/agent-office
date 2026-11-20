@@ -2197,7 +2197,38 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if urlparse(self.path).path == "/api/hook":
+        path = urlparse(self.path).path
+        if path in ("/api/characters", "/api/characters/open", "/api/team/refresh"):
+            if not self._trusted():
+                self._json({"ok": False, "msg": "이 페이지에서만 할 수 있어요."}, 403)
+                return
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 65536)
+                b = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                b = {}
+            try:
+                if path == "/api/characters":
+                    chars = b.get("chars") if isinstance(b, dict) else None
+                    if not isinstance(chars, dict):
+                        self._json({"ok": False, "msg": "저장할 내용이 없어요."}, 400)
+                        return
+                    where = save_local_chars(chars)
+                    self._json({"ok": True, "msg": f"내 컴퓨터에 저장했어요: {where}", "path": where})
+                elif path == "/api/characters/open":
+                    open_in_editor(local_chars_path())
+                    self._json({"ok": True, "msg": f"설정 파일을 열었어요: {local_chars_path()}", "path": local_chars_path()})
+                else:
+                    repo = norm_repo(str(b.get("repo") or "")) or DEFAULT_REPO or detect_repo()
+                    if not repo or not REPO_RE.match(repo):
+                        self._json({"ok": False, "msg": "팀 저장소를 모르겠어요."})
+                        return
+                    d = refresh_team(repo)
+                    self._json({"ok": not d.get("error"), "msg": f"{repo} 설정을 다시 받았어요." if not d.get("error") else f"다시 받지 못했어요 ({d.get('error')})"})
+            except OSError as e:
+                self._json({"ok": False, "msg": f"하지 못했어요 ({e})"})
+            return
+        if path == "/api/hook":
             if not self._trusted():
                 self._json({"ok": False}, 403)
                 return
@@ -2484,6 +2515,78 @@ def local_chars():
             data = {}
         _char_local.update(mtime=mt, data=data)
     return _char_local["data"]
+
+
+CHAR_HEADER = """# 냥오피스 기여자 캐릭터 설정 (내 컴퓨터)
+# 이 파일이 저장소의 .nyang-office.yml 보다 먼저예요. 냥오피스의 "🎨 캐릭터 설정"에서 저장하면 여기에 써져요.
+# 직접 고쳐도 돼요: 고치고 저장하면 몇 초 안에 반영돼요 (페이지 새로고침이면 바로).
+#   gender: f / m   art: wavy longglasses ponytail ponyglasses bunhood bob / short fringe curly beanie
+#   색(#rrggbb): hair skin shirt inner pants hat
+"""
+
+
+def local_chars_path():
+    return _char_local["path"] or CHAR_LOCAL
+
+
+def dump_chars_yaml(chars):
+    keys = ("gender", "art") + LOOK_COLORS
+    lines = [CHAR_HEADER, "characters:"]
+    for login in sorted(chars, key=str.lower):
+        d = chars[login]
+        lines.append(f"  {login}:")
+        for k in keys:
+            if d.get(k):
+                lines.append(f"    {k}: " + (d[k] if k in ("gender", "art") else f'"{d[k]}"'))
+    return "\n".join(lines) + "\n"
+
+
+def save_local_chars(updates):
+    """{아이디: 모습(빈 값이면 지움)} 을 내 컴퓨터 파일에 합쳐 씀. 원래 파일은 .bak 으로 남김."""
+    path = local_chars_path()
+    cur = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            old = fh.read()
+        cur = chars_from_yaml(old)
+        with open(path + ".bak", "w", encoding="utf-8") as fh:
+            fh.write(old)
+    except OSError:
+        pass
+    for login, look in updates.items():
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", str(login)):
+            continue
+        lk = clean_look(look) if look else None
+        cur.pop(str(login).lower(), None)
+        if lk:
+            cur[str(login)] = lk
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(dump_chars_yaml(cur))
+    os.replace(tmp, path)
+    _char_local["mtime"] = None                 # 다음 요청에서 바로 다시 읽음
+    return path
+
+
+def open_in_editor(path):
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(CHAR_HEADER + "characters:\n")
+    if SYSTEM == "Darwin":
+        run(["open", "-t", path])
+    elif SYSTEM == "Windows":
+        os.startfile(path)  # noqa: 윈도우 전용
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+def refresh_team(repo):
+    """저장소 팀 정보와 .nyang-office.yml 을 지금 바로 다시 받음."""
+    _team_fresh.discard(repo)
+    _chars_at.pop(repo, None)
+    return get_team(repo)
 
 
 def fetch_repo_chars(repo):

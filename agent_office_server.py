@@ -120,8 +120,8 @@ def tail(path, sess, proj, agent=None, conv=None, src=None):
         st = os.stat(path)
     except OSError:
         return
-    if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets:
-        return
+    if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets and path not in force_paths:
+        return                        # 하루 넘게 조용한 파일은 건너뜀 (프로세스가 살아 있는 세션은 예외)
     if agent is None and conv is None:
         learn_meta(path, sess)
     first = path not in offsets
@@ -877,6 +877,80 @@ def claude_processes():
         out.append({"pid": int(pid), "ppid": int(ppid), "tty": None if tty in ("?", "??") else tty,
                     "start": start, "args": args, "cwd": cwd})
     return out
+
+
+# hook 신호가 없는 세션도 실행 중인지 짐작: 돌고 있는 claude 프로세스를 세션 파일과 짝지음 (30초마다)
+#   명령줄에 세션 ID 가 있으면(--resume) 그 파일, 아니면 같은 폴더의 프로젝트 기록 중 가장 최근 것
+#   hook 으로 PID 를 아는 세션·프로세스는 빼고 짝지음. 윈도우는 작업 폴더를 못 읽어서 하지 않음.
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+force_paths = set()                         # 하루가 지났어도 읽을 세션 파일 (프로세스가 살아 있음)
+_alive_guess = {"at": 0.0, "sess": {}}
+
+
+def project_dir_for(root, cwd):
+    """Claude Code 가 작업 폴더별로 쓰는 기록 폴더 (/a/b.c → -a-b-c)."""
+    name = re.sub(r"[^A-Za-z0-9]", "-", cwd)
+    path = os.path.join(root, name)
+    if os.path.isdir(path):
+        return path
+    try:
+        for d in os.listdir(root):
+            if d.lower() == name.lower():
+                return os.path.join(root, d)
+    except OSError:
+        pass
+    return None
+
+
+def guess_alive(root):
+    """{세션 키: 파일} — hook 없이도 프로세스가 살아 있다고 짐작되는 세션."""
+    now = time.time()
+    if now - _alive_guess["at"] < 30:
+        return _alive_guess["sess"]
+    _alive_guess["at"] = now
+    out = {}
+    if SYSTEM != "Windows":
+        try:
+            procs = claude_processes()
+        except Exception:
+            procs = []
+        pids = {p["pid"] for p in procs}
+        hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
+        claimed = set(hook_pids)
+        for p in sorted(procs, key=lambda p: -(p["start"] or 0)):
+            if p["pid"] in hooked or p["ppid"] in pids:      # hook 으로 아는 프로세스, claude 가 띄운 자식은 빼고
+                continue
+            path = None
+            m = UUID_RE.search(p["args"] or "")
+            if m:
+                for d in (os.listdir(root) if os.path.isdir(root) else []):
+                    f = os.path.join(root, d, m.group(0) + ".jsonl")
+                    if os.path.isfile(f):
+                        path = f
+                        break
+            if not path and p["cwd"]:
+                pdir = project_dir_for(root, p["cwd"])
+                if pdir:
+                    try:
+                        files = [os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jsonl") and f[:8] not in claimed]
+                        files.sort(key=lambda f: -os.path.getmtime(f))
+                        path = files[0] if files else None
+                    except OSError:
+                        path = None
+            if path:
+                key = os.path.basename(path)[:8]
+                if key not in claimed:
+                    out[key] = path
+                    claimed.add(key)
+    force_paths.clear()
+    force_paths.update(out.values())
+    _alive_guess["sess"] = out
+    return out
+
+
+def alive_sessions(root):
+    """화면에 알려 줄 '실행 중' 세션: hook 으로 PID 를 아는 것 + 짐작한 것."""
+    return sorted(set(guess_alive(root)) | {k for k, h in hook_pids.items() if h.get("pid")})
 
 
 def find_process(m):
@@ -2104,6 +2178,7 @@ class Handler(BaseHTTPRequestHandler):
                         "v": html_version(), "boot": BOOT_ID, "hooks": sorted(hook_seen)})
         elif u.path == "/api/events":
             with lock:
+                alive = alive_sessions(self.root)   # 먼저: 하루 지난 파일이라도 실행 중이면 읽도록
                 scan(self.root)
                 if CODEX_ON:
                     scan_codex()
@@ -2116,7 +2191,7 @@ class Handler(BaseHTTPRequestHandler):
                 cur = seq
             last_client = time.time()
             self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID,
-                        "tracked": sorted(hook_pids), "hookSrc": hook_sources()})
+                        "tracked": sorted(hook_pids), "hookSrc": hook_sources(), "alive": alive})
         else:
             self.send_error(404)
 

@@ -1959,6 +1959,7 @@ function startPoll(){
       live.seq = d.seq;
       live.tracked = new Set(d.tracked || []);          // hook 으로 지켜보는 세션
       live.hookSrc = new Set(d.hookSrc || []);          // hook 이 동작 중인 도구 (claude / codex)
+      live.alive = new Set(d.alive || []);              // 프로세스가 살아 있는 세션 (hook PID 또는 짐작)
       for (const rec of d.events) liveHandle(rec);
       live.fail = 0;
     }catch{
@@ -2186,10 +2187,11 @@ const REST_MS = 12 * 3600 * 1000;    // 12시간 넘게 새 기록이 없으면 
 const WAIT_REST_MS = 15 * 60000;     // 명령을 15분 넘게 기다리면 휴게실로 (질문·계획·승인 대기는 자리에서 팻말 들고 기다림)
 const LEGACY_KEEP = 2;               // hook 이전부터 남은 세션은 최근 것 2개까지만, 그것도 자리에 여유가 있을 때만
 const legacyDropped = new Map();     // 정리한 옛 세션 → 그때 마지막 기록 시각 (같은 옛 기록으로 다시 나오지 않게)
+const isAlive = sid => !!(live && live.alive && live.alive.has(sid));   // 프로세스가 살아 있으면 하루가 지나도 보여 줌
 const isLegacy = s => !s.hooked && !(live.tracked && live.tracked.has(s.sid)) && !!(live.hookSrc && live.hookSrc.has(s.src));
 function pruneLegacy(){
   const all = [...live.sessions.values()].filter(s => !s.ending);
-  const old = all.filter(isLegacy).sort((a, b) => b.lastTs - a.lastTs);
+  const old = all.filter(isLegacy).sort((a, b) => (isAlive(b.sid) - isAlive(a.sid)) || (b.lastTs - a.lastTs));   // 살아 있는 것 먼저, 그다음 최근 것
   if (!old.length) return;
   const seats = ONE ? Math.min(BOSSES.length, SLOTS[hqSlot()].maxDesks || BOSSES.length)
                     : SLOTS.length - (teamSlot() >= 0 ? 1 : 0);
@@ -2264,7 +2266,7 @@ function liveHandle(rec){
   if (!sess){
     if (!items.length) return;
     if (endT && !after) return;                                  // 끝난 세션의 지난 기록
-    if (lt && Date.now() - lt > STALE_MS) return;                // 하루 넘게 지난 기록으로는 출근하지 않음
+    if (lt && Date.now() - lt > STALE_MS && !isAlive(rec.s)) return;   // 하루 넘게 지난 기록으로는 출근하지 않음 (실행 중이면 예외)
     if (legacyDropped.has(rec.s) && !(lt > legacyDropped.get(rec.s)) && !(live.tracked && live.tracked.has(rec.s))) return;   // 정리한 옛 세션의 지난 기록
     legacyDropped.delete(rec.s);
     hookEnded.delete(rec.s);
@@ -2331,7 +2333,7 @@ function liveTick(dt){
   pruneLegacy();
   for (const s of live.sessions.values()){
     if (live.tracked && live.tracked.has(s.sid)) s.hooked = true;
-    if (nowMs - s.lastTs > STALE_MS && !s.ending){ dropSession(s); continue; }   // 하루 넘게 조용한 세션은 조용히 빠짐
+    if (nowMs - s.lastTs > STALE_MS && !s.ending && !isAlive(s.sid)){ dropSession(s); continue; }   // 하루 넘게 조용한 세션은 조용히 빠짐 (프로세스가 살아 있으면 남김)
     if (s.phase === "waiting" && s.boss.waiting && !WAIT_SIGN[s.waitReason] && nowMs - s.lastTs > WAIT_REST_MS){
       Object.assign(s.boss, {waiting:false, sign:null, stateText:"명령 기다리다 쉬는 중"});   // 아래 휴게실 규칙이 데려감
       s.boss.lastMs = 0; live.ver++;
@@ -2859,7 +2861,9 @@ function talkInfo(c){
   if (c === s.boss){
     const look = phaseLook(s), lines = [];
     lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.src === "codex" ? " Codex로 일해요." : "") + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
-    if (s.longRest) lines.push("12시간 넘게 쉬고 있어요. 다시 일을 주면 자리로 돌아갈게요.");
+    if (s.longRest) lines.push(Date.now() - s.lastTs > STALE_MS
+      ? "하루 넘게 쉬고 있어요. 터미널은 아직 켜져 있어서 남아 있어요. 다시 일을 주면 자리로 돌아갈게요."
+      : "12시간 넘게 쉬고 있어요. 다시 일을 주면 자리로 돌아갈게요.");
     else if (s.phase === "working") lines.push(`지금 하는 일: ${s.activity || "곰곰이 생각하는 중"}`);
     else if (s.phase === "waiting") lines.push(`${look.icon} ${look.text} — 다음 명령을 기다리고 있어요!`);
     else lines.push("지금은 조용해요. 부르면 바로 달려갈게요.");

@@ -370,11 +370,15 @@ def save_hook_state():
     try:
         os.makedirs(os.path.dirname(HOOK_STATE), exist_ok=True)
         cut = time.time() - ACTIVE_WINDOW
-        with open(HOOK_STATE + ".tmp", "w", encoding="utf-8") as fh:
+        tmp = f"{HOOK_STATE}.{os.getpid()}.tmp"     # 서버마다 다른 임시 파일 (여러 서버가 동시에 써도 안 섞이게)
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump({"pids": hook_pids, "ended": {k: v for k, v in hook_ended.items() if v["at"] > cut}}, fh)
-        os.replace(HOOK_STATE + ".tmp", HOOK_STATE)
+        os.replace(tmp, HOOK_STATE)
     except OSError:
-        pass
+        try:
+            os.remove(tmp)                  # 바꿔치기에 실패하면 임시 파일은 치움
+        except (OSError, NameError):
+            pass
 
 
 def load_hook_state():
@@ -503,9 +507,10 @@ def register_server(port):
     try:
         os.makedirs(SERVERS_DIR, exist_ok=True)
         path = os.path.join(SERVERS_DIR, f"{port}.json")
-        with open(path + ".tmp", "w", encoding="utf-8") as fh:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump({"port": port, "pid": os.getpid(), "started": int(time.time())}, fh)
-        os.replace(path + ".tmp", path)
+        os.replace(tmp, path)
     except OSError as e:
         print(f"[!] 서버 목록에 적지 못했어요 ({e}). hook 은 {port}번으로만 보내져요.")
 
@@ -706,7 +711,7 @@ def _edit_hooks(path, events_, cmd):
     if text is not None:
         with open(path + ".agent-office.bak", "w", encoding="utf-8") as fh:
             fh.write(text)
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"       # 서버 여러 개가 동시에 켜져도 임시 파일이 겹치지 않게
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
         fh.write("\n")

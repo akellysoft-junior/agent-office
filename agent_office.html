@@ -2604,7 +2604,8 @@ async function loadTeam(refresh = false){
   let data = null;
   try {
     if (src === "server"){
-      const r = await fetch("api/team" + (OPT.repo ? "?repo=" + encodeURIComponent(OPT.repo) : ""), {cache:"no-store"});
+      const q = [OPT.repo ? "repo=" + encodeURIComponent(OPT.repo) : "", refresh ? "" : "fresh=1"].filter(Boolean).join("&");   // 페이지를 새로 열면 캐릭터 설정을 다시 받음
+      const r = await fetch("api/team" + (q ? "?" + q : ""), {cache:"no-store"});
       data = await r.json();
     } else if (OPT.repo) data = await fetchTeamDirect(OPT.repo);
   } catch (e) { data = {members:[], error: String(e && e.message || e)}; }

@@ -2169,7 +2169,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"repo": None, "members": [], "error": "저장소 이름 형식이 이상해요 (owner/repo)."}, 400)
                 return
             repo = repo or DEFAULT_REPO or detect_repo()
-            self._json(with_yaml_looks(get_team(repo)) if repo else {"repo": None, "members": []})
+            fresh = (parse_qs(u.query).get("fresh") or [""])[0] == "1"
+            self._json(with_yaml_looks(get_team(repo, fresh)) if repo else {"repo": None, "members": []})
         elif u.path == "/api/me":
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":
@@ -2646,7 +2647,12 @@ def team_cache_path(repo):
     return os.path.join(base, "team_" + host + repo.replace("/", "__") + ".json")
 
 
-def get_team(repo):
+_team_fresh = set()                             # 이번 서버 실행에서 새로 받은 저장소 (서버를 다시 켜면 처음엔 꼭 새로 받음)
+_chars_at = {}                                  # 저장소 → 캐릭터 설정(.nyang-office.yml)을 마지막으로 받은 시각
+
+
+def get_team(repo, fresh_chars=False):
+    """fresh_chars: 페이지를 새로 열었을 때 — 팀 정보는 받아 둔 걸 쓰더라도 캐릭터 설정 파일은 다시 받음 (1분에 한 번까지)."""
     with team_locks[repo]:                      # 같은 저장소를 동시에 두 번 받지 않게
         c = team_cache.get(repo)
         if not c:
@@ -2655,7 +2661,13 @@ def get_team(repo):
                     c = team_cache[repo] = json.load(fh)
             except (OSError, ValueError):
                 c = None
-        if c and time.time() - c["at"] < TEAM_TTL:
+        if c and time.time() - c["at"] < TEAM_TTL and repo in _team_fresh:
+            if fresh_chars and time.time() - _chars_at.get(repo, 0) > 60:
+                try:
+                    c["data"] = dict(c["data"], chars=fetch_repo_chars(repo))
+                    _chars_at[repo] = time.time()
+                except Exception:
+                    pass
             return c["data"]
         try:
             data = fetch_team(repo)
@@ -2665,6 +2677,8 @@ def get_team(repo):
                 return dict(c["data"], stale=True, error=msg)
             return {"repo": repo, "members": [], "error": msg}
         c = team_cache[repo] = {"at": time.time(), "data": data}
+        _team_fresh.add(repo)
+        _chars_at[repo] = time.time()
         try:
             os.makedirs(os.path.dirname(team_cache_path(repo)), exist_ok=True)
             with open(team_cache_path(repo), "w", encoding="utf-8") as fh:

@@ -2198,6 +2198,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/restart":                      # 앱의 '서버 다시 켜기' 버튼: 최신 코드로 받고 다시 켬
+            if not self._trusted():
+                self._json({"ok": False, "msg": "이 페이지에서만 할 수 있어요."}, 403)
+                return
+            try:
+                updated = try_update()
+            except Exception:
+                updated = False
+            self._json({"ok": True, "msg": "새 버전을 받아서 다시 켜요…" if updated else "서버를 다시 켜요…"})
+            threading.Timer(0.6, restart_self).start()
+            return
         if path in ("/api/characters", "/api/characters/open", "/api/team/refresh"):
             if not self._trusted():
                 self._json({"ok": False, "msg": "이 페이지에서만 할 수 있어요."}, 403)

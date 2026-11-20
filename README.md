@@ -87,6 +87,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 - Codex (`~/.codex/hooks.json`): 세션 시작, 턴 끝, 권한 승인 대기. 세션 끝 이벤트가 없어서, 시작할 때 기억한 Codex 프로세스가 사라지면 끝난 걸로 봐요. Codex는 새 hook 을 한 번 신뢰(승인)해 줘야 동작해요.
 - 터미널을 그냥 닫아서 끝 알림이 안 와도, 기억해 둔 프로세스가 사라지면 퇴근해요 (macOS·리눅스·윈도우).
 - 기억한 세션 정보는 `~/.cache/agent-office/hook_sessions.json` 에 저장해서, 서버가 업데이트로 다시 켜져도 이어서 지켜봐요.
+- 서버를 여러 개 켜 두면(포트가 달라도) 모두 같은 신호를 받아요. 켜진 서버는 `~/.cache/agent-office/servers/<포트>.json` 에 자기 포트를 적어 두고 끌 때 지우며, hook 은 이 목록 전체에 보내요.
 - 같은 정보로 '터미널로 이동'이 정확한 터미널을 찾아가요. Codex 세션에서도 쓸 수 있어요 (위젯에선 버튼을 숨겨요).
 - 원래 설정 파일은 `*.agent-office.bak` 으로 남기고, 이미 등록돼 있으면 건드리지 않아요. 빼려면 `--uninstall-hooks`.
 - hook 을 등록하기 전에 켠 세션은 예전처럼 로그로만 짐작해요.

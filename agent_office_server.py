@@ -29,6 +29,7 @@ git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 �
     --github-host HOST  회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net)
 """
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -36,6 +37,7 @@ import json
 import os
 import platform
 import re
+import signal
 import shlex
 import shutil
 import subprocess
@@ -483,22 +485,98 @@ def pid_alive(pid, src=None):
         return False
     except (PermissionError, OSError):
         pass
+    if SYSTEM == "Linux":                   # 끝났지만 아직 거둬지지 않은(좀비) 프로세스는 죽은 걸로
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+        except (OSError, IndexError):
+            return False
     return True
 
 
-def hook_main(src, port):
-    """`--hook claude|codex`: 도구가 넘겨준 JSON(stdin)을 서버에 전달만 하고 조용히 끝난다.
+# 켜져 있는 서버 목록: 서버마다 자기 포트를 이 폴더에 파일 하나로 적어 두고(<포트>.json), 끌 때 지운다.
+# hook 은 이 목록 전체에 이벤트를 보낸다 (포트를 hook 명령에 박아 두면 마지막에 켠 서버 하나만 받았음).
+SERVERS_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office", "servers")
+
+
+def register_server(port):
+    try:
+        os.makedirs(SERVERS_DIR, exist_ok=True)
+        path = os.path.join(SERVERS_DIR, f"{port}.json")
+        with open(path + ".tmp", "w", encoding="utf-8") as fh:
+            json.dump({"port": port, "pid": os.getpid(), "started": int(time.time())}, fh)
+        os.replace(path + ".tmp", path)
+    except OSError as e:
+        print(f"[!] 서버 목록에 적지 못했어요 ({e}). hook 은 {port}번으로만 보내져요.")
+
+
+def unregister_server(port):
+    path = os.path.join(SERVERS_DIR, f"{port}.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if json.load(fh).get("pid") != os.getpid():   # 그 사이 같은 포트로 다른 서버가 켜졌으면 두기
+                return
+        os.remove(path)
+    except (OSError, ValueError):
+        pass
+
+
+def listed_servers():
+    """[(포트, pid, 파일)] — 프로세스가 사라진 항목은 지운다."""
+    out = []
+    try:
+        names = os.listdir(SERVERS_DIR)
+    except OSError:
+        return out
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        path = os.path.join(SERVERS_DIR, n)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            port, pid = int(d["port"]), int(d.get("pid") or 0)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if pid and not pid_alive(pid):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        out.append((port, pid, path))
+    return out
+
+
+def hook_main(src, port=None):
+    """`--hook claude|codex`: 도구가 넘겨준 JSON(stdin)을 켜져 있는 서버 모두에게 전달하고 조용히 끝난다.
     아무것도 출력하지 않는다 (SessionStart 출력은 대화에 끼어들고, PermissionRequest 출력은 승인 결정이 되기 때문)."""
     try:
         raw = sys.stdin.read()
         d = json.loads(raw) if raw.strip() else {}
-        body = {"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
-                "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
-                "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
-                "pid": agent_pid(src)}
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/hook", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json", "X-Agent-Office": "1"})
-        urllib.request.urlopen(req, timeout=1.5).read()
+        body = json.dumps({"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
+                           "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
+                           "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
+                           "pid": agent_pid(src)}).encode()
+        ports = {p for p, _, _ in listed_servers()}
+        if port:
+            ports.add(port)                 # 예전 방식 (--port 를 붙인 hook) 도 계속 받게
+        if not ports:
+            ports = {8765}
+
+        def send(p):
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{p}/api/hook", data=body,
+                                             headers={"Content-Type": "application/json", "X-Agent-Office": "1"})
+                urllib.request.urlopen(req, timeout=1.5).read()
+            except Exception:
+                pass                        # 꺼진 서버는 건너뜀
+
+        ts = [threading.Thread(target=send, args=(p,), daemon=True) for p in sorted(ports)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(2)
     except Exception:
         pass                                # 서버가 꺼져 있어도 도구 쪽 작업은 막지 않는다
     return 0
@@ -577,10 +655,11 @@ def check_alive():
         save_hook_state()
 
 
-def hook_command(src, port):
+def hook_command(src, port=None):
+    """포트를 넣지 않음: 어느 서버가 등록해도 같은 명령이고, hook 이 서버 목록을 보고 모두에게 보낸다."""
     py = sys.executable.replace("\\", "/")
     me = os.path.abspath(__file__).replace("\\", "/")
-    return f'"{py}" "{me}" --hook {src}' + (f" --port {port}" if port != 8765 else "")
+    return f'"{py}" "{me}" --hook {src}'
 
 
 def _edit_hooks(path, events_, cmd):
@@ -2580,7 +2659,8 @@ def main():
     ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
     if args.hook:
-        sys.exit(hook_main(args.hook, args.port))
+        explicit = any(a == "--port" or a.startswith("--port=") for a in sys.argv[1:])
+        sys.exit(hook_main(args.hook, args.port if explicit else None))
     if args.uninstall_hooks:
         done = uninstall_hooks()
         print("hook 을 뺐어요: " + ", ".join(done) if done else "등록된 hook 이 없어요.")
@@ -2673,16 +2753,22 @@ def main():
     except OSError as e:
         print(f"[!] {args.port}번 포트를 쓸 수 없어요 ({e}). --port 9000 처럼 다른 번호로 켜 주세요.")
         return
+    register_server(args.port)
+    atexit.register(unregister_server, args.port)
     print(f"에이전트 오피스 라이브 서버: {url}")
     print(f"감시 중: {args.dir}   (Ctrl+C 로 종료)")
     if not args.no_update:
         threading.Thread(target=update_loop, daemon=True).start()
     if not args.no_browser and not args.restarted:
         threading.Thread(target=open_when_needed, args=(url,), daemon=True).start()
+    if SYSTEM != "Windows":
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # kill 로 꺼도 서버 목록에서 지워지게
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\n종료")
+    finally:
+        unregister_server(args.port)
 
 
 if __name__ == "__main__":

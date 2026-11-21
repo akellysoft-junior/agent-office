@@ -212,6 +212,9 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .pk-actions{display:flex; justify-content:flex-end; gap:6px}
 .builder{width:min(540px, calc(100% - 28px))}
 .bd-add{display:flex; gap:6px}
+.sw-pick{display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:1px 6px 1px 2px; border:1.5px solid var(--ink); border-radius:999px; cursor:pointer}
+.sw-pick.on{outline:2px solid var(--accent, #f08a5d); outline-offset:1px}
+.sw-pick input{width:18px; height:18px; padding:0; border:0; background:none; cursor:pointer}
 .bd-back{margin-left:auto; font-size:13px; color:var(--ink)}
 .bd-prev{display:flex; flex-direction:column; align-items:center; gap:4px}
 .bd-prev b{font-size:13px; font-weight:400; color:var(--muted, #6d5d52)}
@@ -2760,6 +2763,18 @@ picker.box.addEventListener("pointerdown", e => e.stopPropagation());
    파일에 저장하지는 않는다 (복사해서 ~/.config/agent-office/characters.yml 이나 저장소 .nyang-office.yml 에 붙여 넣음).
    고른 값만 YAML 에 들어가고, 고르지 않은 항목은 아이디로 정해지는 기본 모습 그대로. 창을 닫으면 사무실 모습은 원래대로. */
 const YAML_KEYS = ["gender", "art", "hair", "skin", "shirt", "inner", "pants", "hat"];
+/* 설정 페이지에서 고를 수 있는 색 (기본 모습을 정하는 HAIRS·SKINS 등은 그대로 둠: 바꾸면 모두의 기본 모습이 바뀜) */
+const CLOTH = ["#e5534b", "#f08a8a", "#f4a259", "#f0c96b", "#c9d46b", "#8fbf9a", "#3f9a6b", "#5fb3b3", "#7fb2ea", "#3b6fd4",
+  "#2f3e5c", "#c79bff", "#8a5cc7", "#e58fb5", "#b5651d", "#8c6a4f", "#f7f1e6", "#9aa3ad", "#3d3b40", "#1f1d1b"];
+const BD_PAL = {
+  hair:  ["#1f1d1b", "#2b2522", "#4a3426", "#7a5232", "#a8743e", "#c9a06a", "#e3c48f", "#f2dca7", "#b5532f", "#8a2f2a",
+          "#d9d4cc", "#9aa3ad", "#5b6b8c", "#4f7d6b", "#c45a8f", "#7b5ea7"],
+  skin:  ["#fbe6d4", "#f8dcc4", "#f4d0b0", "#f0c7a6", "#e8b48e", "#dda57f", "#c99067", "#bd8260", "#a06a4c", "#7d4f38"],
+  shirt: CLOTH,
+  inner: ["#ffffff", "#f4ecdc", "#f3dfa0", "#cfe3d2", "#d8dde6", "#cfe0f2", "#f6d1d6", "#e3d5f2", "#9aa3ad", "#3a3f4b", "#1f1d1b", "#2f3e5c"],
+  pants: ["#4a5568", "#2f3e5c", "#1f2a44", "#3b6fd4", "#5b4a3a", "#8c6a4f", "#c8b28e", "#e9dfc8", "#3d3b40", "#1f1d1b", "#4f6b4a", "#7a3e3e"],
+  hat:   CLOTH,
+};
 const builder = {box:$("#builder"), who:$("#bdWho"), cv:$("#bdCv"), opts:$("#bdOpts"), yaml:$("#bdYaml"), note:$("#bdNote"),
   entries:new Map(), before:new Map(), touched:new Set(), login:null};
 const bdMember = login => team && team.members.find(m => m.login === login);
@@ -2792,7 +2807,7 @@ function bdRender(){
       const b = document.createElement("button"); b.type = "button";
       if (swatch && val){ b.className = "sw"; b.style.background = val; b.title = val; b.setAttribute("aria-label", `${label} ${val}`); }
       else { b.textContent = text; if (!val) b.classList.add("def"); }
-      b.setAttribute("aria-pressed", String((e[key] || "") === val));
+      b.setAttribute("aria-pressed", String((e[key] || "").toLowerCase() === val.toLowerCase()));
       b.addEventListener("click", () => {
         if (val) e[key] = val; else delete e[key];
         if (key === "gender" && e.art && val && !ART_GENDER[val].includes(e.art)) delete e.art;   // 성별에 안 맞는 모양은 지움
@@ -2800,16 +2815,25 @@ function bdRender(){
       });
       c.appendChild(b);
     }
+    if (swatch){                                  // 팔레트에 없는 색은 직접 고르기
+      const custom = !!e[key] && !items.some(([v]) => v.toLowerCase() === e[key].toLowerCase());
+      const lab = document.createElement("label"); lab.className = "sw-pick" + (custom ? " on" : ""); lab.title = "직접 고르기";
+      const inp = document.createElement("input"); inp.type = "color"; inp.value = /^#[0-9a-f]{6}$/i.test(e[key] || "") ? e[key] : "#888888";
+      inp.setAttribute("aria-label", `${label} 직접 고르기`);
+      inp.addEventListener("change", () => { e[key] = inp.value; builder.touched.add(login); bdApply(login); bdRender(); });
+      lab.append(inp, document.createTextNode("직접"));
+      c.appendChild(lab);
+    }
     O.appendChild(r);
   };
   row("성별", [["f", "여성"], ["m", "남성"]], "gender");
   row("모양", (e.gender ? ART_GENDER[e.gender] : Object.keys(ART_LABEL)).filter(k => CHAR_ART["human." + k]).map(k => [k, ART_LABEL[k]]), "art");
-  row("머리색", HAIRS.map(c => [c]), "hair", true);
-  row("피부", SKINS.map(c => [c]), "skin", true);
-  row("상의", ACC_COLORS.map(c => [c]), "shirt", true);
-  row("안에 입은 옷", INNER_COLORS.map(c => [c]), "inner", true);
-  row("바지", PANTS.map(c => [c]), "pants", true);
-  row("모자", ACC_COLORS.map(c => [c]), "hat", true);
+  row("머리색", BD_PAL.hair.map(c => [c]), "hair", true);
+  row("피부", BD_PAL.skin.map(c => [c]), "skin", true);
+  row("상의", BD_PAL.shirt.map(c => [c]), "shirt", true);
+  row("안에 입은 옷", BD_PAL.inner.map(c => [c]), "inner", true);
+  row("바지", BD_PAL.pants.map(c => [c]), "pants", true);
+  row("모자", BD_PAL.hat.map(c => [c]), "hat", true);
   builder.yaml.textContent = bdYamlOf(login);
   const art = humanArt({look:bdLook(login), id:"gh-" + login});
   builder.note.textContent = (e.gender && !e.art ? `성별만 고르면 그 안에서 아이디로 정해져요 (지금: ${ART_LABEL[art] || art}). ` : "")
@@ -2895,8 +2919,8 @@ $("#bdRandom").addEventListener("click", () => {    // 성별은 고른 게 있�
   const e = bdEntry(builder.login), pick = a => a[Math.floor(Math.random() * a.length)];
   const g = e.gender || pick(["f", "m"]);
   const arts = ART_GENDER[g].filter(k => CHAR_ART["human." + k]);
-  Object.assign(e, {gender:g, art:pick(arts), hair:pick(HAIRS), skin:pick(SKINS), shirt:pick(ACC_COLORS),
-                    inner:pick(INNER_COLORS), pants:pick(PANTS), hat:pick(ACC_COLORS)});
+  Object.assign(e, {gender:g, art:pick(arts), hair:pick(BD_PAL.hair), skin:pick(BD_PAL.skin), shirt:pick(BD_PAL.shirt),
+                    inner:pick(BD_PAL.inner), pants:pick(BD_PAL.pants), hat:pick(BD_PAL.hat)});
   builder.touched.add(builder.login); bdApply(builder.login); bdRender();
 });
 $("#bdReset").addEventListener("click", () => { builder.entries.set(builder.login, {}); builder.touched.add(builder.login); bdApply(builder.login); bdRender(); });

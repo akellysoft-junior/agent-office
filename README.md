@@ -113,7 +113,9 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 
 - 내 컴퓨터: `~/.config/agent-office/characters.yml` (또는 `--characters 경로`). 파일을 고치면 5분 안에 반영돼요.
 - 팀 저장소: 저장소 맨 위에 `.nyang-office.yml` 을 두면 팀 모두에게 같은 모습으로 보여요. 30분마다 다시 받고, 서버를 다시 켜거나 페이지를 새로고침하면 바로 다시 받아요 (페이지 새로고침은 1분에 한 번까지).
-- 우선순위: 내 컴퓨터 파일 > 저장소 파일 > 본인 gist > 아이디 기본 모습
+- 냥오피스 코드를 다른 프로젝트 안(예: `vendor/agent-office/`)에 넣어 쓴다면: 그 프로젝트 맨 위에 `.nyang-office.yml` 을 두세요. 서버가 자기 폴더 위쪽을 찾아 올라가서 읽고, 🎨 캐릭터 설정의 저장도 그 파일에 써요 (프로젝트와 같이 커밋하면 팀이 공유). `vendor/agent-office/` 안에 둬도 읽지만, 스냅샷을 새로 받으면 덮어써지니 프로젝트 맨 위를 권해요.
+- 내 컴퓨터에서 읽는 파일 고르는 순서: `--characters 경로`(또는 환경변수 `NYANG_OFFICE_CHARACTERS`) > 프로젝트의 `.nyang-office.yml` > `~/.config/agent-office/characters.yml`
+- 우선순위: 내 컴퓨터에서 읽은 파일 > GitHub 저장소 파일 > 본인 gist > 아이디 기본 모습
 
 ## 앱으로 설치 (웹앱)
 

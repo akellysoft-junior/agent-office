@@ -2170,7 +2170,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             repo = repo or DEFAULT_REPO or detect_repo()
             fresh = (parse_qs(u.query).get("fresh") or [""])[0] == "1"
-            self._json(with_yaml_looks(get_team(repo, fresh)) if repo else {"repo": None, "members": []})
+            out = with_yaml_looks(get_team(repo, fresh)) if repo else {"repo": None, "members": []}
+            self._json(dict(out, charsPath=local_chars_path()))   # 화면에 '어느 파일에 저장되는지' 보여 주려고
         elif u.path == "/api/me":
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":
@@ -2512,13 +2513,14 @@ def chars_from_yaml(text):
 
 def local_chars():
     """내 컴퓨터의 캐릭터 설정 (파일이 바뀌면 다시 읽음)."""
-    path = _char_local["path"] or CHAR_LOCAL
+    path = local_chars_path()
     try:
         mt = os.path.getmtime(path)
     except OSError:
         _char_local.update(mtime=None, data={})
         return {}
-    if mt != _char_local["mtime"]:
+    if mt != _char_local["mtime"] or path != _char_local.get("read"):
+        _char_local["read"] = path
         try:
             with open(path, encoding="utf-8") as fh:
                 data = chars_from_yaml(fh.read())
@@ -2528,16 +2530,43 @@ def local_chars():
     return _char_local["data"]
 
 
-CHAR_HEADER = """# 냥오피스 기여자 캐릭터 설정 (내 컴퓨터)
-# 이 파일이 저장소의 .nyang-office.yml 보다 먼저예요. 냥오피스의 "🎨 캐릭터 설정"에서 저장하면 여기에 써져요.
+CHAR_HEADER = """# 냥오피스 기여자 캐릭터 설정
+# 냥오피스의 "🎨 캐릭터 설정"에서 저장하면 여기에 써져요. GitHub 저장소의 .nyang-office.yml 보다 먼저예요.
 # 직접 고쳐도 돼요: 고치고 저장하면 몇 초 안에 반영돼요 (페이지 새로고침이면 바로).
 #   gender: f / m   art: wavy longglasses ponytail ponyglasses bunhood bob / short fringe curly beanie
 #   색(#rrggbb): hair skin shirt inner pants hat
 """
 
 
+def project_chars_file():
+    """냥오피스 코드를 다른 프로젝트 안(예: vendor/agent-office)에 넣어 쓸 때: 그 프로젝트의 .nyang-office.yml.
+    서버 파일이 있는 폴더의 위쪽 폴더들을 차례로 찾고(프로젝트 맨 위까지), 없으면 그 폴더 안(스냅샷 안)도 봄.
+    냥오피스 저장소를 git 으로 받아 쓰는 경우엔 저장소 자체의 .nyang-office.yml 은 쓰지 않음 (고치면 자동 업데이트가 막힘)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    home = os.path.expanduser("~")
+    d = os.path.dirname(here)
+    for _ in range(6):
+        if not d or d == os.path.dirname(d) or d == home:
+            break
+        for n in CHAR_REPO_FILES:
+            f = os.path.join(d, n)
+            if os.path.isfile(f):
+                return f
+        if os.path.isdir(os.path.join(d, ".git")):   # 프로젝트 맨 위에서 멈춤
+            break
+        d = os.path.dirname(d)
+    if not os.path.isdir(os.path.join(here, ".git")):
+        for n in CHAR_REPO_FILES:
+            f = os.path.join(here, n)
+            if os.path.isfile(f):
+                return f
+    return None
+
+
 def local_chars_path():
-    return _char_local["path"] or CHAR_LOCAL
+    """내 컴퓨터에서 읽고 '💾 저장'이 쓰는 파일: --characters(또는 NYANG_OFFICE_CHARACTERS) > 프로젝트의 .nyang-office.yml
+    > ~/.config/agent-office/characters.yml"""
+    return _char_local["path"] or os.environ.get("NYANG_OFFICE_CHARACTERS") or project_chars_file() or CHAR_LOCAL
 
 
 def dump_chars_yaml(chars):

@@ -2599,7 +2599,7 @@ const DEMO_TEAM = () => { const h = 3600e3, d = 24*h, now = Date.now(); return {
 let teamLoadId = 0;
 const avatarSrc = a => a + (a.includes("?") ? "&" : "?") + "s=160";
 const avatarCache = new Map();                  // 프사 미리 받기 (Image 를 잡아 둬야 캐시에서 바로 나옴)
-let teamError = "", teamRetry = 0;
+let teamError = "", teamRetry = 0, teamCharsPath = "";
 async function loadTeam(refresh = false){
   if (!refresh) clearTeam();
   if (!OPT.team || mode !== "live" || !live) return;
@@ -2614,6 +2614,7 @@ async function loadTeam(refresh = false){
     } else if (OPT.repo) data = await fetchTeamDirect(OPT.repo);
   } catch (e) { data = {members:[], error: String(e && e.message || e)}; }
   if (id !== teamLoadId || mode !== "live" || !live || live.source !== src) return;
+  if (data && data.charsPath) teamCharsPath = data.charsPath;
   if ((!data || !data.members || !data.members.length) && src === "demo") data = DEMO_TEAM();
   if (data && data.members && data.members.length){
     if (!setTeam(data, src)) setTimeout(() => { if (!team) loadTeam(true); }, 60000);
@@ -2775,7 +2776,7 @@ function bdRender(){
   builder.yaml.textContent = bdYamlOf(login);
   const art = humanArt({look:bdLook(login), id:"gh-" + login});
   builder.note.textContent = (e.gender && !e.art ? `성별만 고르면 그 안에서 아이디로 정해져요 (지금: ${ART_LABEL[art] || art}). ` : "")
-    + (live && live.source === "server" ? "'내 컴퓨터에 저장'을 누르면 바로 적용돼요. 팀 모두에게 보이려면 복사해서 저장소 .nyang-office.yml 에 넣으세요."
+    + (live && live.source === "server" ? `'내 컴퓨터에 저장'을 누르면 바로 적용돼요${teamCharsPath ? ` (저장 위치: ${teamCharsPath})` : ""}. 팀 모두에게 보이려면 그 파일을 커밋하거나, 복사해서 저장소 .nyang-office.yml 에 넣으세요.`
                                         : "데모에서는 저장하지 않아요. 복사해서 설정 파일에 붙여 넣으세요.");
   bdPreview();
 }

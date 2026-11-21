@@ -210,6 +210,8 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .pk-note{margin:0; font-size:12px; color:var(--muted); line-height:1.5}
 .pk-actions{display:flex; justify-content:flex-end; gap:6px}
 .builder{width:min(540px, calc(100% - 28px))}
+.bd-add{display:flex; gap:6px}
+.bd-add input{flex:1; font:inherit; font-size:13px; padding:4px 8px; border:1.5px solid var(--ink); border-radius:8px; background:var(--paper); color:var(--ink)}
 .builder .pk-head select{font:inherit; font-size:13px; max-width:60%; margin-left:auto}
 .builder .pk-actions{flex-wrap:wrap}
 .bd-yaml{margin:0; padding:8px 10px; border-radius:8px; background:var(--paper-2); border:1px solid var(--line, rgba(0,0,0,.12)); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; user-select:all}
@@ -364,7 +366,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -2597,6 +2599,7 @@ const DEMO_TEAM = () => { const h = 3600e3, d = 24*h, now = Date.now(); return {
 let teamLoadId = 0;
 const avatarSrc = a => a + (a.includes("?") ? "&" : "?") + "s=160";
 const avatarCache = new Map();                  // 프사 미리 받기 (Image 를 잡아 둬야 캐시에서 바로 나옴)
+let teamError = "", teamRetry = 0;
 async function loadTeam(refresh = false){
   if (!refresh) clearTeam();
   if (!OPT.team || mode !== "live" || !live) return;
@@ -2619,8 +2622,10 @@ async function loadTeam(refresh = false){
     if (data.error && data.stale) log(`깃허브 정보를 새로 못 받아서 예전 정보를 보여줘요 (${data.error})`, "warn");
   } else {
     teamWanted = false;
+    teamError = data && data.error ? data.error : (data && !data.repo ? "세션 폴더에서 깃허브 저장소를 아직 못 찾음" : "기여자가 없음");
     if (data && data.error) log(`깃허브 팀 정보를 못 불러왔어요: ${data.error}`, "bad");
-    if (src === "server" && !OPT.repo && !(data && data.repo)) setTimeout(() => { if (!team && live && live.source === "server") loadTeam(true); }, 60000);
+    if (src === "server" && !OPT.repo && !(data && data.repo))       // 서버가 막 켜져 세션을 아직 못 읽었을 수 있음: 처음엔 빨리, 그다음 1분마다
+      setTimeout(() => { if (!team && live && live.source === "server") loadTeam(true); }, (teamRetry++ < 3) ? 8000 : 60000);
   }
 }
 setInterval(() => { if (team && live && live.source === "server") loadTeam(true); }, 5*MIN);   // 서버는 30분 동안 받아 둔 걸 주고, 캐릭터 YAML 을 고치면 5분 안에 반영
@@ -2720,6 +2725,7 @@ const YAML_KEYS = ["gender", "art", "hair", "skin", "shirt", "inner", "pants", "
 const builder = {box:$("#builder"), who:$("#bdWho"), cv:$("#bdCv"), opts:$("#bdOpts"), yaml:$("#bdYaml"), note:$("#bdNote"),
   entries:new Map(), before:new Map(), touched:new Set(), login:null};
 const bdMember = login => team && team.members.find(m => m.login === login);
+const bdExtra = [];                               // 팀 목록에 없지만 직접 넣은 아이디
 const bdEntry = login => {
   if (!builder.entries.has(login)) builder.entries.set(login, {...((bdMember(login) || {}).info?.yaml || {})});
   return builder.entries.get(login);
@@ -2783,15 +2789,36 @@ function bdPreview(){
   p.imageSmoothingEnabled = true; p.imageSmoothingQuality = "high";
   p.drawImage(img, (W - img.width * sc) / 2, H - 8 - img.height * sc, img.width * sc, img.height * sc);
 }
+function bdFill(){
+  const ms = team ? team.members : [];
+  builder.who.innerHTML = ms.map(m => `<option value="${m.login}">@${m.login}${m.info.name ? " · " + m.info.name : ""}</option>`).join("")
+    + bdExtra.filter(l => !bdMember(l)).map(l => `<option value="${l}">@${l} (직접 넣음)</option>`).join("");
+  builder.who.hidden = !builder.who.options.length;
+}
 function openBuilder(login){
-  if (!team || !team.members.length) return;
   closePicker(true);
-  builder.who.innerHTML = team.members.map(m => `<option value="${m.login}">@${m.login}${m.info.name ? " · " + m.info.name : ""}</option>`).join("");
-  builder.login = login && bdMember(login) ? login : team.members[0].login;
-  builder.who.value = builder.login;
+  bdFill();
+  const first = builder.who.options[0] && builder.who.options[0].value;
+  builder.login = login && (bdMember(login) || bdExtra.includes(login)) ? login : first || null;
   builder.box.hidden = false;
+  if (!builder.login){                            // 팀 정보가 아직 없음: 아이디를 직접 넣게
+    builder.opts.textContent = ""; builder.yaml.textContent = "";
+    builder.note.textContent = `팀 저장소 정보를 아직 못 받았어요${teamError ? ` (${teamError})` : ""}. 위에 깃허브 아이디를 넣고 '추가'를 눌러 설정할 수 있어요.`;
+    bdPreviewClear(); return;
+  }
+  builder.who.value = builder.login;
   bdRender();
 }
+function bdPreviewClear(){ const p = builder.cv.getContext("2d"); p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, builder.cv.width, builder.cv.height); }
+$("#bdAdd").addEventListener("click", () => {
+  const l = $("#bdLogin").value.trim().replace(/^@/, "");
+  if (!/^[A-Za-z0-9-]{1,39}$/.test(l)){ builder.note.textContent = "깃허브 아이디 형식이 아니에요 (영문·숫자·하이픈)."; return; }
+  const hit = team && team.members.find(m => m.login.toLowerCase() === l.toLowerCase());
+  const login = hit ? hit.login : l;
+  if (!hit && !bdExtra.includes(login)) bdExtra.push(login);
+  $("#bdLogin").value = ""; openBuilder(login);
+});
+$("#bdLogin").addEventListener("keydown", e => { if (e.key === "Enter") $("#bdAdd").click(); });
 function closeBuilder(){
   for (const [login, look] of builder.before){ const m = bdMember(login); if (m){ for (const k of Object.keys(m.look)) delete m.look[k]; Object.assign(m.look, look); } }
   builder.before.clear(); builder.box.hidden = true;
@@ -5342,7 +5369,7 @@ function updateHUD(){
   const showFollow = mode === "live";
   if (btnFollow.hidden === showFollow) btnFollow.hidden = !showFollow;
   if (btnLayout.hidden === showFollow) btnLayout.hidden = !showFollow;
-  const showChars = !EMBED && !!(team && team.members.length);
+  const showChars = !EMBED && mode === "live";          // 팀 정보를 못 받아도 아이디를 직접 넣어 설정할 수 있게 항상 보임
   if (btnChars.hidden === showChars) btnChars.hidden = !showChars;
   const chip = $("#followChip");
   if (!showFollow || !follow.on){ chip.hidden = true; }

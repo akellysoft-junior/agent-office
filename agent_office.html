@@ -3003,7 +3003,8 @@ function closeBuilderKeep(){ closeBuilder(); builder.entries.clear(); builder.to
 builder.box.addEventListener("pointerdown", e => e.stopPropagation());
 btnChars.addEventListener("click", () => {          // 캐릭터 설정은 따로 있는 페이지에서 (새 탭)
   const q = new URLSearchParams(location.search); q.delete("embed");
-  const url = location.protocol === "file:" ? (q.set("page", "characters"), "?" + q) : "characters" + (q.toString() ? "?" + q : "");
+  q.set("page", "characters");                     // ?page=characters: 서버 버전·앱 설치(PWA)와 상관없이 항상 열림 (/characters 주소는 예전 서버에 없음)
+  const url = (location.protocol === "file:" ? "" : "./") + "?" + q;
   window.open(url, "_blank");
 });
 

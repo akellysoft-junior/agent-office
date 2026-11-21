@@ -65,6 +65,7 @@ seq = 0
 lock = threading.Lock()
 last_client = 0.0              # 페이지가 마지막으로 서버에 연결한 시각
 BOOT_ID = uuid.uuid4().hex[:8] # 서버가 다시 켜졌는지 페이지가 알아차리게
+_code_watch = {"hash": None, "at": 0.0, "on": False}   # 서버 코드가 디스크에서 바뀌었는지 (git pull 등) 지켜봄
 
 
 def html_version():
@@ -2176,6 +2177,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":
             last_client = time.time()
+            code_changed_restart()
             self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True,
                         "v": html_version(), "boot": BOOT_ID, "hooks": sorted(hook_seen)})
         elif u.path == "/api/events":
@@ -2972,6 +2974,23 @@ def git(*a, timeout=60):
         return 1, str(e)
 
 
+def code_changed_restart():
+    """누가 git pull 등으로 서버 코드를 바꿨는데 서버는 예전 코드로 돌고 있으면 (화면은 새 것, 서버는 옛 것 → 404 등)
+    알아서 다시 켬. 30초에 한 번만 확인."""
+    w = _code_watch
+    if not w["on"] or time.time() - w["at"] < 30:
+        return
+    w["at"] = time.time()
+    try:
+        h = file_hash(os.path.abspath(__file__))
+    except OSError:
+        return
+    if w["hash"] and h != w["hash"]:
+        w["on"] = False
+        print("[업데이트] 서버 코드가 바뀌어서 새 코드로 다시 켤게요.")
+        threading.Timer(0.5, restart_self).start()
+
+
 def file_hash(p):
     try:
         with open(p, "rb") as fh:
@@ -3195,6 +3214,11 @@ def main():
 
     Handler.root = args.dir
     Handler.port = args.port
+    if not args.no_update:                      # 서버 코드가 바뀌면 다시 켜기 (자동 업데이트를 끈 경우는 그대로)
+        try:
+            _code_watch.update(hash=file_hash(os.path.abspath(__file__)), on=True, at=time.time())
+        except OSError:
+            pass
     load_hook_state()
     if args.characters:
         _char_local["path"] = os.path.abspath(os.path.expanduser(args.characters))

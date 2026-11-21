@@ -2171,7 +2171,7 @@ class Handler(BaseHTTPRequestHandler):
             repo = repo or DEFAULT_REPO or detect_repo()
             fresh = (parse_qs(u.query).get("fresh") or [""])[0] == "1"
             out = with_yaml_looks(get_team(repo, fresh)) if repo else {"repo": None, "members": []}
-            self._json(dict(out, charsPath=local_chars_path()))   # 화면에 '어느 파일에 저장되는지' 보여 주려고
+            self._json(dict(out, charsPath=local_chars_path(), localChars=local_chars()))   # 저장 위치, 그 파일에 적힌 아이디들
         elif u.path == "/api/me":
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":

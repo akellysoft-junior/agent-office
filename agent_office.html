@@ -237,6 +237,9 @@ html.charpage body{min-height:100%; margin:0; background:var(--paper, #fbf4e8)}
 .bd-list{grid-area:list; list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; overflow:auto; max-height:calc(100vh - 140px); align-self:start}
 .bd-list li button{display:flex; align-items:center; gap:8px; width:100%; text-align:left; font:inherit; font-size:14px; padding:4px 8px 4px 4px; border:1.5px solid transparent; border-radius:10px; background:none; color:var(--ink); cursor:pointer}
 .bd-list li button:hover{background:var(--paper-2, #f3e6d2)}
+.bd-list li{display:flex; align-items:center; gap:4px}
+.bd-list li button.bd-del{width:auto; flex:none; font-size:12px; padding:2px 8px; border:1.5px solid var(--line, rgba(0,0,0,.15)); border-radius:999px; justify-content:center}
+.bd-list li button.bd-del:hover{border-color:#e5534b; color:#e5534b}
 .bd-list li button[aria-current=true]{border-color:var(--ink); background:var(--paper-2, #f3e6d2)}
 .bd-list canvas{width:36px !important; height:48px !important; flex:none; background:none !important}
 .bd-list .set{margin-left:auto; font-size:11px; padding:0 6px; border-radius:999px; background:var(--ink); color:var(--paper, #fff); white-space:nowrap; flex:none}
@@ -2654,6 +2657,7 @@ async function loadTeam(refresh = false){
   } catch (e) { data = {members:[], error: String(e && e.message || e)}; }
   if (id !== teamLoadId || mode !== "live" || !live || live.source !== src) return;
   if (data && data.charsPath) teamCharsPath = data.charsPath;
+  if (data && data.localChars) bdLocal = data.localChars;   // 내 컴퓨터 설정 파일에 적힌 아이디 (팀에 없는 사람도 목록에 보이게)
   if ((!data || !data.members || !data.members.length) && src === "demo") data = DEMO_TEAM();
   if (data && data.members && data.members.length){
     if (!setTeam(data, src)) setTimeout(() => { if (!team) loadTeam(true); }, 60000);
@@ -2779,6 +2783,14 @@ const builder = {box:$("#builder"), who:$("#bdWho"), cv:$("#bdCv"), opts:$("#bdO
   entries:new Map(), before:new Map(), touched:new Set(), login:null};
 const bdMember = login => team && team.members.find(m => m.login === login);
 const bdExtra = [];                               // 팀 목록에 없지만 직접 넣은 아이디
+let bdLocal = {};                                 // 설정 파일에 저장돼 있는 아이디 → 모습
+function bdSyncLocal(){                           // 파일에 저장된, 팀에 없는 아이디를 목록에 올림
+  for (const [l, look] of Object.entries(bdLocal)){
+    if (bdMember(l) || (team && team.members.some(m => m.login.toLowerCase() === l))) continue;
+    if (!bdExtra.some(x => x.toLowerCase() === l)) bdExtra.push(l);
+    if (!builder.entries.has(l)) builder.entries.set(l, {...look});
+  }
+}
 const bdEntry = login => {
   if (!builder.entries.has(login)) builder.entries.set(login, {...((bdMember(login) || {}).info?.yaml || {})});
   return builder.entries.get(login);
@@ -2865,17 +2877,33 @@ function bdList(){                                // 설정 페이지 왼쪽: �
   const ul = $("#bdList"), logins = [...(team ? team.members.map(m => m.login) : []), ...bdExtra.filter(l => !bdMember(l))];
   if (ul.dataset.keys !== logins.join(",")){
     ul.dataset.keys = logins.join(",");
-    ul.innerHTML = logins.map(l => `<li><button type="button" data-l="${l}"><canvas width="72" height="96"></canvas><span>@${l}</span><span class="set" hidden>설정됨</span></button></li>`).join("");
+    ul.innerHTML = logins.map(l => `<li><button type="button" data-l="${l}"><canvas width="72" height="96"></canvas><span>@${l}</span><span class="set" hidden>설정됨</span></button>${bdMember(l) ? "" : `<button type="button" class="bd-del" data-del="${l}" title="목록과 설정 파일에서 지우기" aria-label="@${l} 지우기">✕</button>`}</li>`).join("");
   }
-  for (const b of ul.querySelectorAll("button")){
+  for (const b of ul.querySelectorAll("button[data-l]")){
     const l = b.dataset.l;
     b.setAttribute("aria-current", String(l === builder.login));
     b.querySelector(".set").hidden = !YAML_KEYS.some(k => bdEntry(l)[k]);
     if (charArt.ready) bdDraw(b.querySelector("canvas"), l, "human");
   }
 }
-$("#bdList").addEventListener("click", e => { const b = e.target.closest("button[data-l]"); if (b){ builder.login = b.dataset.l; builder.who.value = b.dataset.l; bdRender(); } });
+$("#bdList").addEventListener("click", async e => {
+  const del = e.target.closest("button[data-del]");
+  if (del){                                       // 직접 넣은 아이디 지우기: 목록에서 빼고, 설정 파일에 있으면 거기서도 지움
+    const l = del.dataset.del;
+    const saved = Object.keys(bdLocal).includes(l.toLowerCase());
+    if (saved && !confirmDel(l)) return;
+    bdExtra.splice(bdExtra.indexOf(l), 1); builder.entries.delete(l); builder.touched.delete(l);
+    if (saved){ const d = await bdPost("api/characters", {chars:{[l]: {}}}); if (d && d.ok){ delete bdLocal[l.toLowerCase()]; await loadTeam(true); } }
+    const ul = $("#bdList"); ul.dataset.keys = "";
+    openBuilder(builder.login === l ? null : builder.login);
+    if (saved) builder.note.textContent = `@${l} 을(를) 목록과 설정 파일에서 지웠어요.`;
+    return;
+  }
+  const b = e.target.closest("button[data-l]"); if (b){ builder.login = b.dataset.l; builder.who.value = b.dataset.l; bdRender(); }
+});
+function confirmDel(l){ const b = $("#bdList").querySelector(`button[data-del="${l}"]`); if (b && b.dataset.sure) return true; if (b){ b.dataset.sure = "1"; b.textContent = "지우기?"; setTimeout(() => { if (b.isConnected){ delete b.dataset.sure; b.textContent = "✕"; } }, 3000); } return false; }
 function bdFill(){
+  bdSyncLocal();
   const ms = team ? team.members : [];
   builder.who.innerHTML = ms.map(m => `<option value="${m.login}">@${m.login}${m.info.name ? " · " + m.info.name : ""}</option>`).join("")
     + bdExtra.filter(l => !bdMember(l)).map(l => `<option value="${l}">@${l} (직접 넣음)</option>`).join("");

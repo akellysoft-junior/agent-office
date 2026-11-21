@@ -2780,7 +2780,7 @@ const BD_PAL = {
   hat:   CLOTH,
 };
 const builder = {box:$("#builder"), who:$("#bdWho"), cv:$("#bdCv"), opts:$("#bdOpts"), yaml:$("#bdYaml"), note:$("#bdNote"),
-  entries:new Map(), before:new Map(), touched:new Set(), login:null};
+  entries:new Map(), before:new Map(), touched:new Set(), login:null, pinG:new Set()};   // pinG: 성별을 직접 고른 아이디
 const bdMember = login => team && team.members.find(m => m.login === login);
 const bdExtra = [];                               // 팀 목록에 없지만 직접 넣은 아이디
 let bdLocal = {};                                 // 설정 파일에 저장돼 있는 아이디 → 모습
@@ -2822,6 +2822,7 @@ function bdRender(){
       b.setAttribute("aria-pressed", String((e[key] || "").toLowerCase() === val.toLowerCase()));
       b.addEventListener("click", () => {
         if (val) e[key] = val; else delete e[key];
+        if (key === "gender"){ if (val) builder.pinG.add(login); else builder.pinG.delete(login); }   // 직접 고른 성별은 랜덤 조합에서도 유지
         if (key === "gender" && e.art && val && !ART_GENDER[val].includes(e.art)) delete e.art;   // 성별에 안 맞는 모양은 지움
         builder.touched.add(login); bdApply(login); bdRender();
       });
@@ -2945,13 +2946,13 @@ builder.who.addEventListener("change", () => { builder.login = builder.who.value
 $("#bdRandom").addEventListener("click", () => {    // 성별은 고른 게 있으면 그대로, 모양·색은 새로 뽑아서 값으로 적음 (저장하면 그대로 고정)
   if (!builder.login) return;
   const e = bdEntry(builder.login), pick = a => a[Math.floor(Math.random() * a.length)];
-  const g = e.gender || pick(["f", "m"]);
+  const g = builder.pinG.has(builder.login) && e.gender ? e.gender : pick(["f", "m"]);   // 성별을 직접 골랐을 때만 고정, 아니면 성별도 랜덤
   const arts = ART_GENDER[g].filter(k => CHAR_ART["human." + k]);
   Object.assign(e, {gender:g, art:pick(arts), hair:pick(BD_PAL.hair), skin:pick(BD_PAL.skin), shirt:pick(BD_PAL.shirt),
                     inner:pick(BD_PAL.inner), pants:pick(BD_PAL.pants), hat:pick(BD_PAL.hat)});
   builder.touched.add(builder.login); bdApply(builder.login); bdRender();
 });
-$("#bdReset").addEventListener("click", () => { builder.entries.set(builder.login, {}); builder.touched.add(builder.login); bdApply(builder.login); bdRender(); });
+$("#bdReset").addEventListener("click", () => { builder.entries.set(builder.login, {}); builder.pinG.delete(builder.login); builder.touched.add(builder.login); bdApply(builder.login); bdRender(); });
 $("#bdCopy").addEventListener("click", () => bdCopy(bdYamlOf(builder.login), `@${builder.login} 설정을 복사했어요.`));
 $("#bdCopyAll").addEventListener("click", () => {
   const list = [...builder.touched].filter(l => YAML_KEYS.some(k => bdEntry(l)[k]));
@@ -5154,6 +5155,42 @@ function artKind(base, a){
   const k = base + "." + (a.human ? humanArt(a) : catArt(a.coat));
   return CHAR_ART[k] && charArt.levels[k] && charArt.levels[k].length ? k : base;
 }
+/* 색 지도 다듬기: 원본 그림은 피부·신발처럼 원래 색이 비슷한 곳의 경계에서 지도가 몇 픽셀씩 틀려 있어서,
+   색을 크게 바꾸면(예: 어두운 피부) 그 자리가 원래 색 점으로 남아 노이즈처럼 보였다.
+   주변 5×5 중 같은 영역이 대부분이고 원래 색도 그 영역 색에 가까운 픽셀은 그 영역으로 고쳐 준다 (그림마다 한 번만 계산). */
+const mapFix = new Map();
+function fixedMap(kind, p, w, h){
+  if (mapFix.has(kind)) return mapFix.get(kind);
+  const m = charArt.maps[kind], O = hexRGB(CHAR_ART[kind].O), n = w * h;
+  const ids = new Set(Object.values(REGION[kind.startsWith("human") ? "human" : "cat"]));
+  const L = new Uint8Array(n), G = new Uint8Array(n);
+  for (let k = 0; k < n; k++){ L[k] = m[k * 4]; G[k] = m[k * 4 + 1]; }
+  const ref = {}, cnt = {};                                    // 영역마다 원래 색 (진하게 칠해진 곳 평균)
+  for (let k = 0; k < n; k++){ const r = L[k]; if (!ids.has(r) || G[k] < 180) continue;
+    const a = ref[r] || (ref[r] = [0, 0, 0]); a[0] += p[k*4]; a[1] += p[k*4+1]; a[2] += p[k*4+2]; cnt[r] = (cnt[r] || 0) + 1; }
+  for (const r in ref) ref[r] = ref[r].map(v => v / cnt[r]);
+  const dist = (k, c) => Math.hypot(p[k*4] - c[0], p[k*4+1] - c[1], p[k*4+2] - c[2]);
+  for (let pass = 0; pass < 2; pass++){
+    const L2 = L.slice(), G2 = G.slice();
+    for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++){
+      const k = y * w + x;
+      if (p[k*4+3] < 128 || dist(k, O) < 70) continue;          // 투명·외곽선은 그대로
+      const votes = {}; let tot = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){
+        const q = k + dy * w + dx; if (q === k || p[q*4+3] < 128 || dist(q, O) < 70) continue;
+        votes[L[q]] = (votes[L[q]] || 0) + 1; tot++;
+      }
+      let best = L[k], bv = 0;
+      for (const r in votes) if (votes[r] > bv){ bv = votes[r]; best = +r; }
+      if (best === L[k] || !ids.has(best) || bv < tot * 0.6 || !ref[best] || dist(k, ref[best]) > 60) continue;
+      const c = ref[best], v = [p[k*4] - O[0], p[k*4+1] - O[1], p[k*4+2] - O[2]], u = [c[0] - O[0], c[1] - O[1], c[2] - O[2]];
+      const f = Math.max(0, Math.min(1, (v[0]*u[0] + v[1]*u[1] + v[2]*u[2]) / (u[0]*u[0] + u[1]*u[1] + u[2]*u[2] || 1)));
+      L2[k] = best; G2[k] = Math.round(f * 200);
+    }
+    L.set(L2); G.set(G2);
+  }
+  const out = {L, G}; mapFix.set(kind, out); return out;
+}
 function recolorArt(kind, cols){
   const base = charArt.base[kind], m = charArt.maps[kind];
   const c = document.createElement("canvas"); c.width = base.width; c.height = base.height;
@@ -5162,9 +5199,10 @@ function recolorArt(kind, cols){
   if (m.length !== p.length) return base;                     // 지도와 그림 크기가 다르면 원래 색
   const O = hexRGB(CHAR_ART[kind].O), T = [];
   for (const [name, id] of Object.entries(REGION[kind.startsWith("human") ? "human" : "cat"])) if (cols[name]) T[id] = hexRGB(cols[name]);
+  const F = fixedMap(kind, p, c.width, c.height);
   for (let i = 0; i < p.length; i += 4){
-    const t = T[m[i]]; if (!t) continue;
-    const f = m[i + 1] / 200;
+    const t = T[F.L[i >> 2]]; if (!t) continue;
+    const f = F.G[i >> 2] / 200;
     p[i] = O[0] + (t[0] - O[0]) * f; p[i + 1] = O[1] + (t[1] - O[1]) * f; p[i + 2] = O[2] + (t[2] - O[2]) * f;
   }
   x.putImageData(d, 0, 0);

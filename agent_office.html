@@ -2,7 +2,8 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&family=IBM+Plex+Mono:wght@500&display=swap">
 <script>/* 위젯 모드는 그리기 전에 표시 (헤더·카드가 잠깐 보였다 사라지지 않게) */
-if (/[?&]embed(=1|=true)?(&|$)/.test(location.search)) document.documentElement.classList.add("embed");</script>
+if (/[?&]embed(=1|=true)?(&|$)/.test(location.search)) document.documentElement.classList.add("embed");
+if (/\/characters\/?$/.test(location.pathname) || /[?&]page=characters(&|$)/.test(location.search)) document.documentElement.classList.add("charpage");   // 캐릭터 설정 페이지</script>
 <style>
 /* Layout: 펜으로 그린 아이소메트릭 사무실이 주인공, 오른쪽엔 종이 메모 같은 HUD. 모바일에선 세로로 쌓임. */
 :root{
@@ -211,6 +212,40 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .pk-actions{display:flex; justify-content:flex-end; gap:6px}
 .builder{width:min(540px, calc(100% - 28px))}
 .bd-add{display:flex; gap:6px}
+.bd-back{margin-left:auto; font-size:13px; color:var(--ink)}
+.bd-prev{display:flex; flex-direction:column; align-items:center; gap:4px}
+.bd-prev b{font-size:13px; font-weight:400; color:var(--muted, #6d5d52)}
+html.charpage .app{display:none}
+html.charpage body{min-height:100%; margin:0; background:var(--paper, #fbf4e8)}
+.builder.page{position:static; display:grid; grid-template-columns:220px minmax(0,1fr); grid-template-areas:"head head" "list add" "list main" "list yaml" "list note" "list act" "list act2";
+  gap:12px 20px; width:min(1080px, calc(100% - 32px)); max-height:none; margin:24px auto 48px; padding:20px; transform:none; left:auto; top:auto; right:auto; bottom:auto}
+.builder.page .pk-head{grid-area:head}
+.builder.page .pk-head b{font-family:'Jua', sans-serif; font-size:clamp(24px,3vw,32px); font-weight:400}
+.builder.page .pk-head select{display:none}
+.builder.page .bd-add{grid-area:add}
+.builder.page .pk-main{grid-area:main; gap:20px}
+.builder.page .bd-yaml{grid-area:yaml}
+.builder.page .pk-note{grid-area:note; margin:0}
+.builder.page .pk-actions{grid-area:act; justify-content:flex-start}
+.builder.page .pk-actions + .pk-actions{grid-area:act2}
+.builder.page .bd-prev{flex-direction:row; flex-wrap:wrap; justify-content:center; align-content:flex-start; max-width:340px}
+.builder.page .bd-prev b{flex-basis:100%; text-align:center; font-size:15px}
+.builder.page canvas{width:160px; height:220px; border-radius:12px; background:var(--paper-2, #f3e6d2)}
+.bd-list{grid-area:list; list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; overflow:auto; max-height:calc(100vh - 140px); align-self:start}
+.bd-list li button{display:flex; align-items:center; gap:8px; width:100%; text-align:left; font:inherit; font-size:14px; padding:4px 8px 4px 4px; border:1.5px solid transparent; border-radius:10px; background:none; color:var(--ink); cursor:pointer}
+.bd-list li button:hover{background:var(--paper-2, #f3e6d2)}
+.bd-list li button[aria-current=true]{border-color:var(--ink); background:var(--paper-2, #f3e6d2)}
+.bd-list canvas{width:36px !important; height:48px !important; flex:none; background:none !important}
+.bd-list .set{margin-left:auto; font-size:11px; padding:0 6px; border-radius:999px; background:var(--ink); color:var(--paper, #fff); white-space:nowrap; flex:none}
+.bd-list li button span{overflow-wrap:anywhere}
+.bd-list li button, .bd-list li button:hover{box-shadow:none; transform:none}
+@media (max-width:760px){
+  .builder.page{grid-template-columns:minmax(0,1fr); grid-template-areas:"head" "add" "list" "main" "yaml" "note" "act" "act2"}
+  .bd-list{flex-direction:row; overflow-x:auto; max-height:none}
+  .bd-list li button{flex-direction:column; width:auto}
+  .bd-list .set{margin:0}
+  .builder.page .pk-main{flex-direction:column}
+}
 .bd-add input{flex:1; font:inherit; font-size:13px; padding:4px 8px; border:1.5px solid var(--ink); border-radius:8px; background:var(--paper); color:var(--ink)}
 .builder .pk-head select{font:inherit; font-size:13px; max-width:60%; margin-left:auto}
 .builder .pk-actions{flex-wrap:wrap}
@@ -366,7 +401,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b>캐릭터 설정 만들기</b><select id="bdWho" aria-label="기여자"></select></div><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><canvas id="bdCv" width="160" height="220"></canvas><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
       <section class="card">
@@ -444,6 +479,7 @@ const $ = s => document.querySelector(s);
 /* 주소 옵션: ?embed=1(위젯) &repo=owner/name &theme=dark &tod=night &team=0 &follow=0 &demo=1 */
 const QS = new URLSearchParams(location.search);
 const EMBED = document.documentElement.classList.contains("embed");
+const CHARPAGE = !EMBED && document.documentElement.classList.contains("charpage");   // /characters: 캐릭터 설정만 하는 페이지
 /* 사무실 구성: rooms = 세션마다 건물 하나 / one = 한 사무실에 세션 고양이와 기여자 사람이 함께 (URL ?layout=one, 아니면 저장된 값) */
 const LAYOUT = (() => { let v = QS.get("layout"); if (!v && EMBED) v = "one"; if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
 const ONE = LAYOUT === "one";
@@ -2619,11 +2655,12 @@ async function loadTeam(refresh = false){
   if (data && data.members && data.members.length){
     if (!setTeam(data, src)) setTimeout(() => { if (!team) loadTeam(true); }, 60000);
     else if (!refresh) log(`🐙 ${team.repo} 팀 ${team.members.length}명이 ${SLOTS[team.slot].name}에 등록됐어요`, "good");
-    if (team && !refresh) loadMe();
+    if (team && !refresh) loadMe().then(() => charPageOpen());
     if (data.error && data.stale) log(`깃허브 정보를 새로 못 받아서 예전 정보를 보여줘요 (${data.error})`, "warn");
   } else {
     teamWanted = false;
     teamError = data && data.error ? data.error : (data && !data.repo ? "세션 폴더에서 깃허브 저장소를 아직 못 찾음" : "기여자가 없음");
+    if (CHARPAGE && !charPageOpened) loadMe().then(() => charPageOpen());
     if (data && data.error) log(`깃허브 팀 정보를 못 불러왔어요: ${data.error}`, "bad");
     if (src === "server" && !OPT.repo && !(data && data.repo))       // 서버가 막 켜져 세션을 아직 못 읽었을 수 있음: 처음엔 빨리, 그다음 1분마다
       setTimeout(() => { if (!team && live && live.source === "server") loadTeam(true); }, (teamRetry++ < 3) ? 8000 : 60000);
@@ -2780,16 +2817,40 @@ function bdRender(){
                                         : "데모에서는 저장하지 않아요. 복사해서 설정 파일에 붙여 넣으세요.");
   bdPreview();
 }
+function bdDraw(cv, login, base){                // 캐릭터 그림 한 장 (base: "human" 서 있기 / "humanWork" 일하기)
+  const fake = {human:bdMember(login) || {login}, look:bdLook(login), id:"gh-" + login};
+  const kind = artKind(base, fake);
+  if (!CHAR_ART[kind]) return false;
+  const img = artLevelsFor(kind, fake)[0];
+  const p = cv.getContext("2d"), W = cv.width, H = cv.height;
+  p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, W, H);
+  const pad = Math.max(2, W * 0.05), sc = Math.min((W - pad * 2) / img.width, (H - pad * 2) / img.height);
+  p.imageSmoothingEnabled = true; p.imageSmoothingQuality = "high";
+  p.drawImage(img, (W - img.width * sc) / 2, H - pad - img.height * sc, img.width * sc, img.height * sc);
+  return true;
+}
 function bdPreview(){
   if (!charArt.ready || !builder.login) return;
-  const fake = {human:bdMember(builder.login) || {login:builder.login}, look:bdLook(builder.login), id:"gh-" + builder.login};
-  const kind = artKind("human", fake), img = artLevelsFor(kind, fake)[0];
-  const p = builder.cv.getContext("2d"), W = builder.cv.width, H = builder.cv.height;
-  p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, W, H);
-  const sc = Math.min((W - 16) / img.width, (H - 16) / img.height);
-  p.imageSmoothingEnabled = true; p.imageSmoothingQuality = "high";
-  p.drawImage(img, (W - img.width * sc) / 2, H - 8 - img.height * sc, img.width * sc, img.height * sc);
+  bdDraw(builder.cv, builder.login, "human");
+  const cv2 = $("#bdCv2");
+  cv2.hidden = !CHARPAGE || !bdDraw(cv2, builder.login, "humanWork");   // 설정 페이지에선 일하는 자세도
+  $("#bdName").textContent = CHARPAGE ? `@${builder.login}` : "";
+  if (CHARPAGE) bdList();
 }
+function bdList(){                                // 설정 페이지 왼쪽: 기여자 목록 (작은 그림 + 설정됨 표시)
+  const ul = $("#bdList"), logins = [...(team ? team.members.map(m => m.login) : []), ...bdExtra.filter(l => !bdMember(l))];
+  if (ul.dataset.keys !== logins.join(",")){
+    ul.dataset.keys = logins.join(",");
+    ul.innerHTML = logins.map(l => `<li><button type="button" data-l="${l}"><canvas width="72" height="96"></canvas><span>@${l}</span><span class="set" hidden>설정됨</span></button></li>`).join("");
+  }
+  for (const b of ul.querySelectorAll("button")){
+    const l = b.dataset.l;
+    b.setAttribute("aria-current", String(l === builder.login));
+    b.querySelector(".set").hidden = !YAML_KEYS.some(k => bdEntry(l)[k]);
+    if (charArt.ready) bdDraw(b.querySelector("canvas"), l, "human");
+  }
+}
+$("#bdList").addEventListener("click", e => { const b = e.target.closest("button[data-l]"); if (b){ builder.login = b.dataset.l; builder.who.value = b.dataset.l; bdRender(); } });
 function bdFill(){
   const ms = team ? team.members : [];
   builder.who.innerHTML = ms.map(m => `<option value="${m.login}">@${m.login}${m.info.name ? " · " + m.info.name : ""}</option>`).join("")
@@ -2846,6 +2907,22 @@ $("#bdCopyAll").addEventListener("click", () => {
   bdCopy("characters:\n" + list.map(l => bdYamlOf(l, "  ")).join("\n"), `${list.length}명 설정을 복사했어요.`);
 });
 $("#bdClose").addEventListener("click", closeBuilder);
+if (CHARPAGE){                                    // 캐릭터 설정 페이지: 창을 페이지 본문으로
+  document.body.appendChild(builder.box);
+  builder.box.classList.add("page"); builder.box.removeAttribute("role");
+  $("#bdTitle").textContent = "냥오피스 캐릭터 설정";
+  $("#bdBack").hidden = false; $("#bdBack").href = "./" + location.search.replace(/([?&])page=characters(&|$)/, "$1").replace(/[?&]$/, "");
+  $("#bdList").hidden = false; $("#bdClose").hidden = true;
+  document.title = "냥오피스 캐릭터 설정";
+}
+let charPageOpened = false;
+function charPageOpen(){                          // 팀 정보가 오면(또는 못 받아도) 내 아이디로 열기
+  if (!CHARPAGE) return;
+  const want = builder.login || (me && me.login) || null;
+  if (want && !bdMember(want) && !bdExtra.includes(want)) bdExtra.push(want);
+  openBuilder(want);
+  charPageOpened = true;
+}
 async function bdPost(path, body){
   if (!live || live.source !== "server"){ builder.note.textContent = "냥오피스 서버에 연결됐을 때만 할 수 있어요 (데모에서는 복사만)."; return null; }
   try {
@@ -2871,7 +2948,11 @@ $("#bdRefresh").addEventListener("click", async () => {
 });
 function closeBuilderKeep(){ closeBuilder(); builder.entries.clear(); builder.touched.clear(); }
 builder.box.addEventListener("pointerdown", e => e.stopPropagation());
-btnChars.addEventListener("click", () => builder.box.hidden ? openBuilder(talkSel.cat && talkSel.cat.human ? talkSel.cat.human.login : null) : closeBuilder());
+btnChars.addEventListener("click", () => {          // 캐릭터 설정은 따로 있는 페이지에서 (새 탭)
+  const q = new URLSearchParams(location.search); q.delete("embed");
+  const url = location.protocol === "file:" ? (q.set("page", "characters"), "?" + q) : "characters" + (q.toString() ? "?" + q : "");
+  window.open(url, "_blank");
+});
 
 /* ── 캐릭터 클릭 → 확대 + 자기소개 대화창 ── */
 const talkSel = {cat:null, lines:[], idx:0, shown:0};
@@ -4956,6 +5037,7 @@ function loadCharArt(){
   })))).then(list => {
     for (const [kind, img] of list){ charArt.levels[kind] = artLevels(img); charArt.base[kind] = img; }
     charArt.ready = true;
+    if (CHARPAGE && builder.login) bdPreview();   // 설정 페이지: 그림이 늦게 오면 그때 그림
   }).catch(e => {
     charArt.failed = true;
     toast("캐릭터 그림을 불러오지 못했어요", "대신 선으로 그린 캐릭터로 보여줄게요.");
@@ -5446,6 +5528,7 @@ function updateHUD(){
 /* ───────── 메인 루프 ───────── */
 let last = performance.now();
 function frame(nowMs){
+  if (CHARPAGE){ requestAnimationFrame(frame); return; }   // 캐릭터 설정 페이지: 사무실은 그리지 않음
   const now = nowMs/1000;
   let dt = Math.min(0.05, (nowMs - last)/1000);
   last = nowMs;

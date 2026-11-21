@@ -2132,7 +2132,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         global last_client
         u = urlparse(self.path)
-        if u.path in ("/", "/index.html"):
+        if u.path in ("/", "/index.html", "/characters"):   # /characters: 캐릭터 설정 페이지 (같은 파일)
             try:
                 with open(os.path.join(HERE, "agent_office.html"), "rb") as fh:
                     body = fh.read()

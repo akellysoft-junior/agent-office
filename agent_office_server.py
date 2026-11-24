@@ -1712,6 +1712,25 @@ def raise_window(chain):
     return False, linux_hint()
 
 
+def tmux_pane(env, tty, chain):
+    """그 프로세스가 실제로 들어 있는 tmux 패널: (tmux 명령 앞부분, 패널 ID). tmux 안이 아니면 None.
+    환경 변수(TMUX_PANE)만으로는 알 수 없다: tmux 안에서 띄운 터미널(이어하기로 연 창 등)에서 켠 claude 도 그 값을 물려받고,
+    tmux 를 다시 켜면 같은 번호(%0)가 다른 패널이 된다. 그래서 패널의 tty 나 패널의 셸(조상 프로세스)이 맞는지 본다."""
+    if not shutil.which("tmux"):
+        return None
+    sock = env.get("TMUX", "").split(",")[0]
+    for base in ([["tmux", "-S", sock]] if sock else []) + [["tmux"]]:
+        rows = [ln.split() for ln in run(base + ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_tty}"]).splitlines()]
+        rows = [r for r in rows if len(r) == 3 and r[1].isdigit()]
+        for r in rows:
+            if tty and r[2] == tty:
+                return base, r[0]
+        for r in rows:
+            if int(r[1]) in chain:
+                return base, r[0]
+    return None
+
+
 def focus_linux(p):
     pid = p["pid"]
     env = proc_env(pid)
@@ -1719,10 +1738,11 @@ def focus_linux(p):
     tty = "/dev/" + p["tty"] if p.get("tty") else ""
     picked = ""
     # 1) tmux: 그 세션이 있는 창·패널로 전환. 그다음은 tmux를 띄운 쪽(클라이언트)의 터미널을 찾는다
-    if env.get("TMUX_PANE") and shutil.which("tmux"):
-        sock = env.get("TMUX", "").split(",")[0]
-        base = ["tmux"] + (["-S", sock] if sock else [])
-        pane = env["TMUX_PANE"]
+    tp = tmux_pane(env, tty, chain)
+    if env.get("TMUX_PANE") or tp:
+        print(f"[터미널로 이동] tmux: 환경 변수 {env.get('TMUX_PANE') or '없음'} · 실제 패널 {tp[1] if tp else '없음 (tmux 밖)'}")
+    if tp:
+        base, pane = tp
         if run_ok(base + ["select-window", "-t", pane]):
             run_ok(base + ["select-pane", "-t", pane])
             picked = "tmux에서 그 창을"
@@ -1925,11 +1945,9 @@ def do_focus(m):
                 or (False, "실행 중인 Codex를 찾지 못했어요. 끝난 세션 같아요."))
     if not p:
         return resume_ended(m)
-    if SYSTEM == "Darwin":
-        return focus_mac(p, m)
-    if SYSTEM == "Windows":
-        return focus_windows(p)
-    return focus_linux(p)
+    r = focus_mac(p, m) if SYSTEM == "Darwin" else focus_windows(p) if SYSTEM == "Windows" else focus_linux(p)
+    print(f"[터미널로 이동] {m.get('key') or m['id'][:8]} → {r[1]}")
+    return r
 
 
 def do_resume(m):

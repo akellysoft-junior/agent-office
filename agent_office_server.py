@@ -3011,7 +3011,7 @@ def get_team(repo, fresh_chars=False):
 WIDGET_JS = r"""(function(){
   "use strict";
   var me = document.currentScript, base = new URL(".", me ? me.src : location.href), ORIGIN = base.origin;
-  var KEYS = ["repo", "theme", "tod", "team", "follow", "demo", "layout", "view", "cam"];
+  var KEYS = ["repo", "theme", "tod", "team", "follow", "demo", "layout", "view", "cam", "controls", "wheel"];
   function mount(el, opts){
     if (!el || el.__agentOffice) return el && el.__agentOffice;
     opts = opts || {};

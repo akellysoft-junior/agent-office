@@ -1670,11 +1670,12 @@ const overviewZ = () => scene !== "campus" ? 1 : ROOM ? VW / ((176 + 130) * ISX 
 let LW = 1.05;
 const SCENE_ORIGIN = {office:[360,168], campus:[250,75]};
 const perfNow = () => performance.now() / 1000;
+const showZoomCtl = () => { $("#zoomCtl").hidden = scene !== "campus" || !OPT.controls; };
 function setScene(s){
   scene = s; [OX, OY] = SCENE_ORIGIN[s];
   cam.focus = null; cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1];
   $("#btnBack").hidden = true;
-  $("#zoomCtl").hidden = s !== "campus" || !OPT.controls;
+  showZoomCtl();
 }
 
 const LOT_W = 224, LOT_D = 130, WALL = 26, DESK_W = 30, DESK_D = 13, MAX_DESKS = 9;
@@ -3337,6 +3338,8 @@ addEventListener("message", e => {
   if (HOST_ORIGIN !== "*" && e.origin !== HOST_ORIGIN) return;
   if (d.type === "close") closeTalk();
   else if (d.type === "theme" && THEMES.includes(d.value)){ theme = d.value; applyTheme(); }
+  else if (d.type === "controls"){ OPT.controls = ![false, 0, "0"].includes(d.value); showZoomCtl(); }   // 확대 버튼을 그때그때 보이거나 숨김
+  else if (d.type === "wheel") OPT.wheelCtrl = d.value === "ctrl";       // "ctrl": 그냥 휠은 바깥 페이지에 양보, 그 밖(예: "zoom"): 휠로 확대
   else if (d.type === "select" && d.login && team){
     const m = team.members.find(x => x.login === d.login);
     if (m && m.present) openTalk(m.cat);

@@ -163,11 +163,12 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 | `data-team="0"` | 깃허브 팀 끄기 |
 | `data-follow="0"` | 자동 따라가기 끄기 |
 | `data-controls="0"` | 왼쪽 위 ＋/－/⤢ 확대 버튼 숨기기 (기본은 보임. 숨겨도 휠·핀치로는 확대돼요) |
-| `data-wheel="ctrl"` | Ctrl(⌘)+휠일 때만 확대. 기본은 그냥 휠로 확대라서 위젯 위에서는 바깥 페이지가 스크롤되지 않아요. 긴 페이지 중간에 넣을 때 쓰세요 |
+| `data-wheel="ctrl"` | 그냥 휠은 바깥 페이지 스크롤에 양보하고 Ctrl(⌘)+휠·핀치일 때만 확대. 기본은 위젯 위에서 그냥 휠로 확대 |
 | `data-demo="1"` | 가짜 세션·가짜 팀으로 보기 |
 | `data-height="360px"` | 상자에 높이가 없을 때 쓸 높이 (기본 420px) |
 
 - React·Vue처럼 화면을 나중에 그리는 앱도 괜찮아요. `data-agent-office`가 붙은 요소가 생기면 알아서 채워요. 직접 넣으려면 `AgentOffice.mount(요소, {repo:"owner/name"})`.
+- 휠과 확대 버튼은 쓰는 중에도 바꿀 수 있어요. 예를 들어 평소엔 버튼을 숨기고 휠로 확대하다가, 페이지 스크롤이 필요한 상황에선 `send("wheel", {value:"ctrl"})` 로 휠을 양보하고 `send("controls", {value:true})` 로 버튼을 꺼내 주세요.
 - iframe 한 줄로 넣어도 돼요: `<iframe src="http://localhost:8765/?embed=1&repo=owner/name" style="width:100%;height:420px;border:0"></iframe>`
 - 기본으로 `localhost`에서 도는 웹 툴만 끼워 넣을 수 있어요. 다른 주소의 사이트라면 서버를 `--allow-embed https://tool.example.com`으로 켜 주세요.
 
@@ -180,6 +181,8 @@ box.addEventListener("agent-office:close", () => {});                       // �
 box.addEventListener("agent-office:attention", e => e.detail);             // 확인 안 한 것 {count, questions, done, items:[{session, kind:"question"|"plan"|"approval"|"done"}]}
 box.addEventListener("agent-office:team", e => e.detail);                   // 팀 정보를 불러왔을 때 {repo, members}
 box.__agentOffice.send("select", {login:"octocat"});                         // 바깥에서 그 사람에게 말 걸기
+box.__agentOffice.send("wheel", {value:"ctrl"});                             // 지금부터 휠을 바깥 페이지 스크롤에 양보 ("zoom" 이면 다시 휠로 확대)
+box.__agentOffice.send("controls", {value:true});                            // 확대 버튼 보이기 (false 면 숨기기)
 ```
 
 ### 깃허브 팀 (본사)

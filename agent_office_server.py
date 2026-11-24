@@ -31,6 +31,7 @@ git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 �
 import argparse
 import atexit
 import base64
+import calendar
 import collections
 import hashlib
 import json
@@ -1144,12 +1145,23 @@ def claude_processes(rx=CLAUDE_RE, word="claude"):
                 if ln.startswith("n"):
                     cwd = ln[1:]
         out.append({"pid": int(pid), "ppid": int(ppid), "tty": None if tty in ("?", "??") else tty,
-                    "start": start, "args": args, "cwd": cwd})
+                    "start": start, "lstart": _lstart(" ".join(parts[3:8])), "args": args, "cwd": cwd})
     return out
 
 
-def session_pids():
-    """Claude Code가 적어 둔 ~/.claude/sessions/<pid>.json 을 읽는다: {pid: 세션 ID}"""
+def _lstart(text):
+    """ps 의 lstart ("Sun Nov 15 15:00:29 2026") → 그 글자 그대로의 시각 (어느 시간대인지는 모름)."""
+    try:
+        return calendar.timegm(time.strptime(" ".join(str(text).split()), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, TypeError):
+        return None
+
+
+def session_pids(procs=None):
+    """Claude Code가 적어 둔 ~/.claude/sessions/<pid>.json 을 읽는다: {pid: 세션 ID}
+    procs(지금 도는 프로세스)를 주면, 죽은 프로세스가 남긴 파일의 PID 를 다른 프로세스가 다시 쓰는 경우를 걸러 낸다:
+    파일에 적힌 시작 시각(procStart)이 실제와 다르면 뺌 (시간대만 다를 수 있어 15분 단위 차이는 같은 것으로 봄)."""
+    real = {p["pid"]: p.get("lstart") for p in procs or []}
     out = {}
     try:
         names = os.listdir(SESS_DIR)
@@ -1160,7 +1172,11 @@ def session_pids():
             continue
         try:
             with open(os.path.join(SESS_DIR, fn), encoding="utf-8") as fh:
-                out[int(fn[:-5])] = str(json.load(fh).get("sessionId") or "")
+                d = json.load(fh)
+            pid, a, b = int(fn[:-5]), _lstart(d.get("procStart")), real.get(int(fn[:-5]))
+            if a is not None and b is not None and min((a - b) % 900, (b - a) % 900) > 3:
+                continue
+            out[pid] = str(d.get("sessionId") or "")
         except (OSError, ValueError, AttributeError):
             pass
     return out
@@ -1240,18 +1256,50 @@ def alive_sessions(root):
     return sorted(set(guess_alive(root)) | {k for k, h in hook_pids.items() if h.get("pid")})
 
 
+def hook_owners():
+    """{pid: 세션 키} — hook 으로 아는, 그 프로세스가 지금 돌리는 Claude 세션.
+    한 프로세스가 /clear·/resume 으로 다른 세션으로 넘어가면 가장 나중에 알린 세션이 주인."""
+    own = {}
+    for k, h in list(hook_pids.items()):
+        pid = h.get("pid")
+        if not pid or h.get("src", "claude") != "claude":      # Codex 앱은 프로세스 하나가 여러 세션을 돌림
+            continue
+        if pid not in own or float(h.get("at") or 0) > float(hook_pids[own[pid]].get("at") or 0):
+            own[pid] = k
+    return own
+
+
 def find_process(m):
-    """세션에 해당하는 프로세스를 고른다: Claude Code가 적어 둔 pid 파일이나 명령줄의 세션 ID로 확정,
-    아니면 같은 폴더(cwd)에서 돌고 있는 것 중 시작 시각이 가장 가까운 것 (다른 세션의 것으로 확인된 건 제외)."""
+    """세션에 해당하는 프로세스를 고른다. 확실한 것부터:
+    1) hook 이나 Claude Code 의 pid 파일이 '이 프로세스가 지금 이 세션'이라고 알려 주는 것
+    2) 명령줄에 세션 ID 가 있는 것(--resume) — 단, 지금은 다른 세션을 돌리는 프로세스는 아님
+    3) 같은 폴더(cwd)에서 도는 것 중 시작 시각이 가장 가까운 것 (짐작). 끝난 걸 아는 세션, 다른 세션의 프로세스,
+       claude 가 띄운 자식, 이 세션의 마지막 기록보다 나중에 켜진 프로세스는 고르지 않는다 (엉뚱한 터미널로 가지 않게)."""
+    key = m.get("key") or ""
     if m.get("src") == "codex":            # Codex: 터미널에서 도는 CLI만 (같은 폴더)
         procs = [p for p in claude_processes(CODEX_RE, "codex") if p["tty"] or SYSTEM == "Windows"]
-        known = {}
+        known, own = {}, {}
     else:
-        procs, known = claude_processes(), session_pids()
+        procs = claude_processes()
+        known, own = session_pids(procs), hook_owners()
+        for p in procs:                    # 기억한 뒤에 켜진 프로세스 = 같은 번호를 다시 받은 남
+            if p["pid"] in own and p["start"] and p["start"] > float(hook_pids[own[p["pid"]]].get("at") or 0) + 5:
+                del own[p["pid"]]
+    for p in procs:                        # hook 이 pid 파일보다 먼저 (더 최근 소식)
+        if own.get(p["pid"]) == key if p["pid"] in own else known.get(p["pid"]) == m["id"]:
+            return {**p, "how": "hook" if p["pid"] in own else "pid 파일"}
+    pids = {p["pid"] for p in procs}
+    procs = [p for p in procs if p["pid"] not in own and not known.get(p["pid"])]
     for p in procs:
-        if known.get(p["pid"]) == m["id"] or m["id"] in p["args"]:
-            return p
-    procs = [p for p in procs if not known.get(p["pid"])]
+        if m["id"] in p["args"]:
+            return {**p, "how": "명령줄의 세션 ID"}
+    if key in hook_ended:
+        return None
+    try:
+        last = os.path.getmtime(m.get("file") or "")
+    except OSError:
+        last = None
+    procs = [p for p in procs if p["ppid"] not in pids and not (last and p["start"] and p["start"] > last + 5)]
     cands = [p for p in procs if p["cwd"] and m["cwd"] and same_dir(p["cwd"], m["cwd"])]
     if not cands and SYSTEM == "Windows":
         cands = procs            # 윈도우는 cwd를 못 읽으니 시작 시각으로만 고름
@@ -1259,7 +1307,7 @@ def find_process(m):
         return None
     if m["started"]:
         cands.sort(key=lambda p: abs((p["start"] or 0) - m["started"]))
-    return cands[0]
+    return {**cands[0], "how": "같은 폴더 (짐작)"}
 
 
 OSA_DENIED = False            # 마지막 osascript 가 자동화 권한(-1743)에 막혔는지
@@ -1822,8 +1870,28 @@ def proc_info(pid):
     parts = run(["ps", "-o", fmt, "-p", str(pid)], env={**os.environ, "LC_ALL": "C"}).split(None, 8)
     if len(parts) < 9:
         return None
+    try:
+        start = time.mktime(time.strptime(" ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
+    except ValueError:
+        start = None
     return {"pid": pid, "ppid": int(parts[1]), "tty": None if parts[2] in ("?", "??") else parts[2],
-            "start": None, "args": parts[8], "cwd": None}
+            "start": start, "args": parts[8], "cwd": None}
+
+
+def hook_process(m):
+    """hook 으로 기억한 PID 가 지금도 이 세션의 프로세스일 때만 돌려준다.
+    그 프로세스가 죽고 같은 번호를 다른 프로세스가 받았거나(기억한 뒤에 켜짐), 다른 세션으로 넘어갔으면 아님."""
+    key = m.get("key") or ""
+    h = hook_pids.get(key) or {}
+    pid = h.get("pid")
+    if not pid or not pid_alive(pid, h.get("src")):
+        return None
+    p = proc_info(pid)
+    if not p or (p["start"] and h.get("at") and p["start"] > float(h["at"]) + 5):
+        return None
+    if hook_owners().get(pid, key) != key:
+        return None
+    return {**p, "how": "hook"}
 
 
 _resumed = {}                 # 세션 → '터미널로 이동'으로 이어서 연 시각 (연달아 눌러도 한 번만 열리게)
@@ -1850,10 +1918,8 @@ def resume_ended(m):
 def do_focus(m):
     """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 Claude Code 가 적어 둔 pid 파일·폴더·시작 시각으로 찾는다.
     도는 프로세스가 없으면(끝난 세션) 새 터미널에서 이어서 연다."""
-    h = hook_pids.get(m.get("key") or "") or {}
-    p = proc_info(h["pid"]) if h.get("pid") and pid_alive(h["pid"]) else None
-    if not p:
-        p = find_process(m)
+    p = hook_process(m) or find_process(m)
+    print(f"[터미널로 이동] {m.get('key') or m['id'][:8]} → " + (f"pid {p['pid']} ({p.get('how')}, {p.get('tty') or 'tty 없음'})" if p else "도는 프로세스 없음"))
     if not p and m.get("src") == "codex":
         return (("desktop" in (m.get("app") or "") and focus_codex_app())
                 or (False, "실행 중인 Codex를 찾지 못했어요. 끝난 세션 같아요."))

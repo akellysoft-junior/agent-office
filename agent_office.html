@@ -502,7 +502,7 @@ const repoOf = v => {
   return m ? m[1] + "/" + m[2] : null;
 };
 const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
-             tod:QS.get("tod"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
+             tod:QS.get("tod"), sun:QS.get("sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
              controls:!(EMBED && QS.get("controls") === "0"),      // 위젯: ＋/－/⤢ 버튼을 보일지 (넣는 쪽이 고름)
              wheelCtrl:EMBED && QS.get("wheel") === "ctrl"};       // 위젯: Ctrl(⌘)+휠일 때만 확대 (바깥 페이지 스크롤을 안 막게)
 const cv = $("#office");
@@ -1314,11 +1314,53 @@ const PAL = {
 };
 for (const k in PAL) for (const c in PAL[k])
   if (typeof PAL[k][c] === "string") PAL[k][c] = hex2rgb(PAL[k][c]);
-const TOD_KEYS = [[0,[0,0,1]],[5,[0,0,1]],[6.5,[0,1,0]],[8,[1,0,0]],
-                  [16.5,[1,0,0]],[18,[0,1,0]],[19.5,[0,0,1]],[24,[0,0,1]]];
-function weightsAt(h){
-  for (let i=1; i<TOD_KEYS.length; i++){
-    const [h0,w0] = TOD_KEYS[i-1], [h1,w1] = TOD_KEYS[i];
+/* 자동: 그날 실제 해 뜨고 지는 시각에 맞춤 (겨울엔 일찍 노을).
+   위치는 밖으로 묻지 않고 PC의 시간대로 짐작 (서울·도쿄·뉴욕 같은 대표 도시), ?sun=위도,경도 로 직접 정할 수 있음.
+   노을은 해 지기 1시간 15분 전부터 짙어져 해 질 때 가장 붉고, 1시간 뒤 밤. 아침은 해 뜨기 1시간 전 → 해 뜰 때 노을 → 1시간 뒤 낮 */
+const TOD_FIXED = [[0,[0,0,1]],[5,[0,0,1]],[6.5,[0,1,0]],[8,[1,0,0]],
+                   [16.5,[1,0,0]],[18,[0,1,0]],[19.5,[0,0,1]],[24,[0,0,1]]];   // 해 시각을 못 구하면(백야·극야)
+const TZ_AT = {"Asia/Seoul":[37.57,126.98], "Asia/Pyongyang":[39.04,125.76], "Asia/Tokyo":[35.68,139.69],
+  "Asia/Shanghai":[31.23,121.47], "Asia/Hong_Kong":[22.32,114.17], "Asia/Taipei":[25.03,121.57], "Asia/Singapore":[1.35,103.82],
+  "Asia/Bangkok":[13.75,100.5], "Asia/Ho_Chi_Minh":[10.82,106.63], "Asia/Jakarta":[-6.2,106.85], "Asia/Manila":[14.6,120.98],
+  "Asia/Kolkata":[28.61,77.21], "Asia/Dubai":[25.2,55.27], "Europe/London":[51.51,-0.13], "Europe/Paris":[48.86,2.35],
+  "Europe/Berlin":[52.52,13.4], "Europe/Madrid":[40.42,-3.7], "Europe/Rome":[41.9,12.5], "Europe/Amsterdam":[52.37,4.9],
+  "Europe/Stockholm":[59.33,18.07], "Europe/Moscow":[55.76,37.62], "America/New_York":[40.71,-74.01], "America/Chicago":[41.88,-87.63],
+  "America/Denver":[39.74,-104.99], "America/Los_Angeles":[34.05,-118.24], "America/Toronto":[43.65,-79.38],
+  "America/Vancouver":[49.28,-123.12], "America/Mexico_City":[19.43,-99.13], "America/Sao_Paulo":[-23.55,-46.63],
+  "Australia/Sydney":[-33.87,151.21], "Australia/Melbourne":[-37.81,144.96], "Pacific/Auckland":[-36.85,174.76]};
+const SUN_AT = (() => {
+  const m = String(OPT.sun || "").split(",").map(Number);
+  if (m.length === 2 && Math.abs(m[0]) <= 90 && Math.abs(m[1]) <= 180) return m;
+  let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
+  return TZ_AT[tz] || [37, -new Date().getTimezoneOffset() / 4];     // 모르는 시간대: 경도는 시차로, 위도는 중위도
+})();
+function sunTimes(d, lat, lon){        // 그날 [해 뜨는, 해 지는] 현지 시각(시간 단위). 백야·극야면 null
+  const r = Math.PI / 180, sin = x => Math.sin(x * r), cos = x => Math.cos(x * r);
+  const n = Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 12) - Date.UTC(2000, 0, 1, 12)) / 864e5);
+  const J = n - lon / 360;
+  const M = (357.5291 + 0.98560028 * J) % 360;
+  const L = (M + 1.9148 * sin(M) + 0.02 * sin(2 * M) + 0.0003 * sin(3 * M) + 282.9372) % 360;
+  const noon = 2451545 + J + 0.0053 * sin(M) - 0.0069 * sin(2 * L);   // 남중 (율리우스일)
+  const dec = Math.asin(sin(L) * sin(23.44)) / r;
+  const cosH = (sin(-0.833) - sin(lat) * sin(dec)) / (cos(lat) * cos(dec));
+  if (!(cosH > -1 && cosH < 1)) return null;
+  const H = Math.acos(cosH) / r / 360, mid = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const at = j => ((j - 2440587.5) * 864e5 - mid) / 36e5;
+  return [at(noon - H), at(noon + H)];
+}
+const todKeys = {day:"", keys:TOD_FIXED};
+function keysFor(d){
+  const day = d.toDateString();
+  if (todKeys.day === day) return todKeys.keys;
+  const t = sunTimes(d, SUN_AT[0], SUN_AT[1]), N = [0,0,1], D = [0,1,0], Y = [1,0,0];
+  let keys = t && [[0,N],[t[0]-1,N],[t[0],D],[t[0]+1,Y],[t[1]-1.25,Y],[t[1],D],[t[1]+1,N],[24,N]];
+  if (!keys || keys.some((k, i) => i && !(k[0] > keys[i-1][0]))) keys = TOD_FIXED;   // 시각이 꼬이면(극지방 근처) 고정 시각
+  Object.assign(todKeys, {day, keys});
+  return keys;
+}
+function weightsAt(h, keys = TOD_FIXED){
+  for (let i=1; i<keys.length; i++){
+    const [h0,w0] = keys[i-1], [h1,w1] = keys[i];
     if (h <= h1){ const t = (h-h0)/(h1-h0); return w0.map((v,j)=> v + (w1[j]-v)*t); }
   }
   return [0,0,1];
@@ -1334,7 +1376,7 @@ function targetW(){
   if (todMode === "dusk")  return [0,1,0];
   if (todMode === "night") return [0,0,1];
   const d = new Date();
-  return weightsAt(d.getHours() + d.getMinutes()/60);
+  return weightsAt(d.getHours() + d.getMinutes()/60, keysFor(d));
 }
 function updateTOD(rdt){
   const t = targetW();
@@ -5829,6 +5871,8 @@ $("#btnAuto").addEventListener("click", e => {
 const btnTod = $("#btnTod");
 function todText(){
   btnTod.textContent = "시간: " + (todMode === "auto" ? `자동 (${currentPhase()})` : TOD_LABEL[todMode]);
+  const t = sunTimes(new Date(), SUN_AT[0], SUN_AT[1]), hm = h => `${Math.floor(h)}:${String(Math.floor(h % 1 * 60)).padStart(2, "0")}`;
+  btnTod.title = t ? `자동: 오늘 해 뜸 ${hm(t[0])} · 해 짐 ${hm(t[1])}에 맞춰 바뀌어요` : "자동: 실제 시각에 맞춰 바뀌어요";
 }
 btnTod.addEventListener("click", () => {
   todMode = TOD_MODES[(TOD_MODES.indexOf(todMode) + 1) % TOD_MODES.length];

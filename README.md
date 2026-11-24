@@ -164,7 +164,8 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 | --- | --- |
 | `data-repo="owner/name"` | 본사에 보여줄 깃허브 저장소. 깃 주소(`https://github.com/owner/name.git`, `git@github.com:…`)도 돼요. 없으면 서버가 정한 저장소(`--repo` 또는 자동) |
 | `data-theme="light\|dark\|auto"` | 페이지 테마 |
-| `data-tod="day\|dusk\|night\|auto"` | 동네 그림의 낮·밤 |
+| `data-tod="day\|dusk\|night\|auto"` | 동네 그림의 낮·밤. auto(기본)는 그날 실제 해 뜨고 지는 시각에 맞춰 바뀌어요 |
+| `data-sun="37.57,126.98"` | 해 시각을 계산할 위도,경도. 없으면 PC 시간대의 대표 도시로 짐작해요 (서울, 도쿄, 뉴욕…) |
 | `data-team="0"` | 깃허브 팀 끄기 |
 | `data-follow="0"` | 자동 따라가기 끄기 |
 | `data-controls="0"` | 왼쪽 위 ＋/－/⤢ 확대 버튼 숨기기 (기본은 보임. 숨겨도 휠·핀치로는 확대돼요) |

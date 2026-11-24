@@ -114,9 +114,10 @@ def learn_meta(path, sess):
         pass
 
 
-def tail(path, sess, proj, agent=None, conv=None, src=None):
+def tail(path, sess, proj, agent=None, conv=None, src=None, owner=None):
     """파일에서 새로 추가된 줄만 읽어 events 에 넣는다.
-    conv: 다른 도구(Codex 등)의 로그 한 줄을 Claude 형식 줄 목록으로 바꾸는 함수, src: 그 도구 이름."""
+    conv: 다른 도구(Codex 등)의 로그 한 줄을 Claude 형식 줄 목록으로 바꾸는 함수, src: 그 도구 이름,
+    owner: 서브에이전트 로그면 그 세션의 로그 파일."""
     global seq
     try:
         st = os.stat(path)
@@ -124,6 +125,8 @@ def tail(path, sess, proj, agent=None, conv=None, src=None):
         return
     if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets and path not in force_paths:
         return                        # 하루 넘게 조용한 파일은 건너뜀 (프로세스가 살아 있는 세션은 예외)
+    if not HEADLESS_ON and conv is None and is_headless(owner or path):
+        return                        # --no-headless: 터미널 없이 한 번 도는 세션(claude -p)은 보여주지 않음
     if agent is None and conv is None:
         learn_meta(path, sess)
     if agent is None:
@@ -201,13 +204,14 @@ def scan(root):
                     continue
                 for sf in subs:
                     if sf.endswith(".jsonl"):
-                        tail(os.path.join(sub, sf), f[:8], proj, sf[:-6])
+                        tail(os.path.join(sub, sf), f[:8], proj, sf[:-6], owner=os.path.join(pdir, f + ".jsonl"))
 
 
 # ───────── Codex 세션: ~/.codex/sessions/연/월/일/rollout-<시각>-<세션ID>.jsonl ─────────
 # 줄마다 Claude Code 로그 형식으로 바꿔 같은 흐름에 넣는다 (페이지는 Claude 로그처럼 읽음).
 CODEX_ROOT = os.path.expanduser("~/.codex/sessions")
 CODEX_ON = True                # --no-codex 로 끔
+HEADLESS_ON = True             # --no-headless 로 끔 (claude -p 처럼 터미널 없이 한 번 도는 세션)
 CODEX_SHELL = {"shell", "exec_command", "local_shell", "container.exec", "shell_command"}
 CODEX_STATUS = {"pending": "pending", "in_progress": "in_progress", "completed": "completed"}
 
@@ -983,9 +987,14 @@ def hook_main(src, port=None):
 def hook_event(src, sess, proj, kind, reason="", at=None):
     """화면에 보낼 hook 이벤트 (로그 줄과 같은 흐름에 'h' 필드로 섞어 보냄)."""
     global seq
+    hl = bool((hook_pids.get(sess) or hook_ended.get(sess) or {}).get("hl"))
+    if hl and not HEADLESS_ON:
+        return
     seq += 1
-    events.append({"q": seq, "s": sess, "p": proj, "src": src,
-                   "h": {"e": kind, "r": reason or "", "t": int((at or time.time()) * 1000)}})
+    h = {"e": kind, "r": reason or "", "t": int((at or time.time()) * 1000)}
+    if hl:
+        h["hl"] = 1                          # 터미널 없이 한 번 도는 세션(claude -p): 화면은 도는 동안만 조용히 보여 줌
+    events.append({"q": seq, "s": sess, "p": proj, "src": src, "h": h})
 
 
 def take_hook(b):
@@ -1010,16 +1019,17 @@ def take_hook(b):
         else:
             proj = (hook_pids.get(sess) or {}).get("proj") or os.path.basename(str(cwd).rstrip("/\\")) or src
         pid = b.get("pid") if isinstance(b.get("pid"), int) and b.get("pid") > 1 else None
+        hl = src == "claude" and (bool((hook_pids.get(sess) or {}).get("hl")) or is_headless(tp) or pid_is_print(pid))
         if ev == "SessionEnd":
             hook_pids.pop(sess, None)
-            hook_ended[sess] = {"at": time.time(), "src": src, "proj": proj}
+            hook_ended[sess] = {"at": time.time(), "src": src, "proj": proj, **({"hl": True} if hl else {})}
             hook_event(src, sess, proj, "end", reason)
             save_hook_state()
             return True
         h = hook_pids.get(sess)
         if ev == "SessionStart" or not h or (pid and h.get("pid") != pid):   # 처음 보거나 PID 를 새로 알게 됨
             hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid, "at": time.time(),
-                               **{k: h[k] for k in ("model", "mat") if h and k in h}}
+                               **{k: h[k] for k in ("model", "mat") if h and k in h}, **({"hl": True} if hl else {})}
             model = b.get("model")
             if ev == "SessionStart" and isinstance(model, str) and 0 < len(model) < 80:
                 hook_pids[sess].update(model=model, mat=time.time())     # 지금 켜진 모델 (이어서 열면 로그의 옛 모델과 다를 수 있음)
@@ -1050,7 +1060,7 @@ def check_alive():
     for sess, h in list(hook_pids.items()):
         if h.get("pid") and not pid_alive(h["pid"], h.get("src")):
             hook_pids.pop(sess, None)
-            hook_ended[sess] = {"at": now, "src": h.get("src", "claude"), "proj": h.get("proj", "")}
+            hook_ended[sess] = {"at": now, "src": h.get("src", "claude"), "proj": h.get("proj", ""), **({"hl": True} if h.get("hl") else {})}
             hook_event(h.get("src", "claude"), sess, h.get("proj", ""), "end", "process_gone")
             changed = True
     if changed:
@@ -1277,9 +1287,32 @@ def is_headless(path):
         except OSError:
             return False
         if not m:
-            return False                    # 아직 안 적혔을 수 있으니 기억하지 않음
+            try:
+                if time.time() - os.path.getmtime(path) > 120:
+                    _headless[path] = False     # 예전 형식이라 entrypoint 가 없는 기록
+            except OSError:
+                pass
+            return False                    # 방금 생긴 파일은 아직 안 적혔을 수 있으니 기억하지 않음
         _headless[path] = m.group(1).startswith(b"sdk")
     return _headless[path]
+
+
+def is_print_cmd(args):
+    """claude -p / --print 로 켠 명령줄인가 (대화창 없이 한 번 답하고 끝나는 실행)."""
+    return is_claude_cmd(args) and bool({"-p", "--print"} & set((args or "").split()))
+
+
+_print_pids = {}                            # pid -> claude -p 인가 (hook 이 알려 준 PID 확인용)
+
+
+def pid_is_print(pid):
+    if not pid or SYSTEM == "Windows":
+        return False
+    if pid not in _print_pids:
+        if len(_print_pids) > 500:
+            _print_pids.clear()
+        _print_pids[pid] = is_print_cmd(run(["ps", "-o", "args=", "-p", str(pid)]))
+    return _print_pids[pid]
 
 
 def project_dir_for(root, cwd):
@@ -1347,7 +1380,7 @@ def guess_alive(root):
                     try:
                         files = [os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jsonl") and f[:8] not in claimed]
                         files.sort(key=lambda f: -os.path.getmtime(f))
-                        bare = not p["tty"] or bool({"-p", "--print"} & set((p["args"] or "").split()))   # 터미널 없이 도는 claude -p
+                        bare = not p["tty"] or is_print_cmd(p["args"])   # 터미널 없이 도는 claude -p
                         path = next((f for f in files if is_headless(f) == bare), None)      # 터미널 세션은 터미널에서 도는 것끼리만
                     except OSError:
                         path = None
@@ -1388,7 +1421,11 @@ def alive_sessions(root):
         if f:
             paths.add(f)
     force_paths = paths                     # 통째로 바꿔 끼움 (사용량 스레드가 읽는 중에 비지 않게)
-    return sorted(set(guessed) | set(hooked))
+    keys = set(guessed) | set(hooked)
+    if not HEADLESS_ON:
+        keys -= {k for k, f in guessed.items() if is_headless(f)}
+        keys -= {k for k, h in hooked.items() if h.get("hl") or is_headless(session_file(root, h.get("id")))}
+    return sorted(keys)
 
 
 def hook_owners():
@@ -3842,6 +3879,8 @@ def main():
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--no-update", action="store_true", help="자동 업데이트 끄기")
     ap.add_argument("--no-codex", action="store_true", help="Codex 세션(~/.codex/sessions)은 보여주지 않기")
+    ap.add_argument("--no-headless", action="store_true",
+                    help="claude -p 처럼 터미널 없이 한 번 도는 세션은 보여주지 않기 (다른 도구가 자동으로 돌리는 세션을 숨길 때)")
     ap.add_argument("--install", action="store_true", help="로그인할 때 서버 자동 시작 (지금도 켬)")
     ap.add_argument("--uninstall", action="store_true", help="자동 시작 해제")
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
@@ -3869,12 +3908,13 @@ def main():
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
             (["--no-update"] if args.no_update else []) + \
             (["--no-codex"] if args.no_codex else []) + \
+            (["--no-headless"] if args.no_headless else []) + \
             (["--no-hooks"] if args.no_hooks else []) + \
             (["--characters", os.path.abspath(os.path.expanduser(args.characters))] if args.characters else []) + \
             (["--repo", args.repo] if args.repo else []) + \
             (["--github-host", args.github_host] if args.github_host else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
-    global DEFAULT_REPO, CODEX_ON, GH_HOST
+    global DEFAULT_REPO, CODEX_ON, GH_HOST, HEADLESS_ON
     if args.github_host:
         h = re.sub(r"^https?://", "", args.github_host.strip(), flags=re.I).strip("/").lower()
         if not re.fullmatch(r"[a-z0-9.-]+(:\d+)?", h):
@@ -3882,6 +3922,7 @@ def main():
             return
         GH_HOST = args.github_host = h
     CODEX_ON = not args.no_codex
+    HEADLESS_ON = not args.no_headless
     if args.repo:
         if not REPO_RE.match(args.repo):
             print("[!] --repo 는 owner/repo 형식으로 적어 주세요 (예: square/okhttp).")

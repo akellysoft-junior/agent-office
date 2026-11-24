@@ -3088,33 +3088,24 @@ function ago(ms){
   return `${Math.round(s / 86400 / 365)}년 전`;
 }
 const SRC_LABEL = {claude:"Claude", codex:"Codex"};   // 세션을 만든 도구 (서버가 이벤트에 src 로 알려 줌)
-/* 모델·컨텍스트·토큰·요금 대사: 서버가 세션 로그의 usage 를 처음부터 더해서 알려 줌 (요금은 공개 API 정가로 환산한 값) */
+/* 모델·요금·컨텍스트 대사 한 줄: 서버가 세션 로그의 usage 를 처음부터 더해서 알려 줌 (요금은 공개 API 정가로 환산한 값) */
 function modelName(id){                           // "claude-opus-5-5-20260901" → "Opus 5.5" (Claude 가 아니면 ID 그대로)
   const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{6,})?(?:\[.*\])?$/.exec(id || "");
   return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "") : String(id || "").replace(/^claude-/, "");
 }
-function tokText(n){                              // 281234 → "28.1만", 320000000 → "3.2억"
-  const f = v => v < 100 ? String(+v.toFixed(1)) : Math.round(v).toLocaleString("en-US");
-  return n < 1e4 ? Math.round(n).toLocaleString("en-US") : n < 9.9995e7 ? f(n / 1e4) + "만" : f(n / 1e8) + "억";
-}
 const usdText = v => "$" + (v < 100 ? v.toFixed(2) : Math.round(v).toLocaleString("en-US"));
-function usageLines(u){
-  const out = [];
-  if (!u) return out;
-  if (u.model){
-    const pct = u.win && u.ctx ? Math.min(100, Math.round(u.ctx / u.win * 100)) : 0;
-    out.push(`저는 ${modelName(u.model)} 모델로 일해요.` + (!u.ctx ? ""
-      : !u.win ? ` 기억 공간(컨텍스트)에는 지금 ${tokText(u.ctx)} 토큰쯤 들어 있어요.`
-      : ` 기억 공간(컨텍스트)은 ${tokText(u.win)} 토큰 중 ${tokText(u.ctx)}쯤 써서 ${pct}% 찼어요.`
-        + (pct >= 85 ? " 거의 다 찼어요. 곧 대화를 한번 정리해야 할 것 같아요." : pct >= 60 ? " 슬슬 차오르고 있어요." : pct < 15 ? " 아직 넉넉해요." : "")));
-  }
-  if (u.in || u.out){
-    const price = !u.usd ? (u.unp ? " 이 모델은 요금표를 몰라서 값은 못 매겼어요." : "")
-      : u.usd < 0.01 ? " API 정가로 치면 1센트도 안 돼요."
-      : ` ${u.unp ? "요금표를 아는 모델만 " : ""}API 정가로 치면 ${usdText(u.usd)}쯤 돼요` + (u.sub >= 0.01 ? ` (새끼냥들 몫 ${usdText(u.sub)} 포함).` : ".");
-    out.push(`지금까지 ${tokText(u.in)} 토큰을 읽고 ${tokText(u.out)} 토큰을 썼어요.` + price);
-  }
-  return out;
+function usageLine(u, kitten){                    // 고양이 말투: 요금 = 츄르값, 컨텍스트 = 머릿속
+  if (!u || !u.model) return "";
+  const head = `두뇌는 ${modelName(u.model)}!`;
+  if (kitten) return head + (u.usd == null ? "" : u.usd < 0.01 ? " 츄르값은 아직 한 푼도 안 들었어요." : ` 츄르값은 ${usdText(u.usd)}어치 썼어요.`);
+  const pct = u.win && u.ctx ? Math.min(100, Math.round(u.ctx / u.win * 100)) : -1;
+  const ctx = pct < 0 ? "" : pct < 15 ? `머릿속은 아직 널널해요 (${pct}%).` : pct < 60 ? `머릿속은 ${pct}% 찼어요.`
+            : pct < 85 ? `머릿속이 ${pct}%나 차서 슬슬 묵직해요.` : `머릿속이 ${pct}%나 찼어요. 곧 한번 비워야겠어요!`;
+  const more = u.unp ? " 넘게" : "";              // 요금표에 없는 모델이 섞여 있으면 아는 몫만 더한 값
+  if (!u.usd && u.unp) return head + (ctx && " " + ctx);
+  if (u.usd >= 100) return `${head} 츄르값이 벌써 ${usdText(u.usd)}어치${more}… 좀 많이 먹었죠?` + (ctx && " " + ctx);
+  const cost = u.usd < 0.01 ? "츄르값은 아직 한 푼도 안 들었" : `지금까지 츄르값 ${usdText(u.usd)}어치${more} 썼`;
+  return `${head} ${cost}${ctx ? "고, " + ctx : "어요."}`;
 }
 function talkInfo(c){
   if (c.human){
@@ -3135,6 +3126,8 @@ function talkInfo(c){
   if (c === s.boss){
     const look = phaseLook(s), lines = [];
     lines.push(`안녕하세요! 저는 ${c.name}, ‘${sessName(s)}’ 사무실을 맡은 AI 팀장냥이에요.` + (s.src === "codex" ? " Codex로 일해요." : "") + (s.branch ? ` 지금은 ${s.branch} 브랜치에서 일해요.` : ""));
+    const ul = usageLine(live.usage[s.sid]);
+    if (ul) lines.push(ul);
     if (s.longRest) lines.push(Date.now() - s.lastTs > STALE_MS
       ? "하루 넘게 쉬고 있어요. 터미널은 아직 켜져 있어서 남아 있어요. 다시 일을 주면 자리로 돌아갈게요."
       : "12시간 넘게 쉬고 있어요. 다시 일을 주면 자리로 돌아갈게요.");
@@ -3154,7 +3147,6 @@ function talkInfo(c){
     const bg = [...s.bg.values()].filter(t => t.status === "running");
     if (bg.length) lines.push(`뒤에서 돌리는 작업도 있어요: ${bg.map(t => t.label).join(", ")}`);
     if (s.phase === "waiting" && s.result) lines.push(`방금 끝낸 일: ${s.result}`);
-    lines.push(...usageLines(live.usage[s.sid]));
     return {name:c.name, tag:`${SRC_LABEL[s.src] || "AI"} 메인 에이전트 · ${sessName(s)}`, lines, session:s,
             ref:{kind:"ai-main", name:c.name, session:sessName(s), phase:s.phase, src:s.src}};
   }
@@ -3162,9 +3154,9 @@ function talkInfo(c){
                  `팀장 ${s.boss.name}의 부탁으로 “${clip(c.role, 40)}” 일을 맡았어요.`,
                  `지금 상태: ${c.stateText}`,
                  c.leaving ? "일 다 끝나서 이제 퇴근해요!" : c.inLounge ? "잠깐 쉬는 중이에요. 금방 다시 일해요." : "끝나면 팀장한테 결과를 보고할 거예요."];
-  const key = ([...s.kittens].find(([, k]) => k === c) || [])[0], ku = ((live.usage[s.sid] || {}).agents || {})[key];
-  if (ku) lines.splice(3, 0, `${modelName(ku.model)} 모델로 일하고, 지금까지 ${tokText(ku.in)} 토큰을 읽고 ${tokText(ku.out)} 토큰을 썼어요`
-                             + (ku.usd >= 0.01 ? ` (API 정가로 ${usdText(ku.usd)}쯤).` : "."));
+  const key = ([...s.kittens].find(([, k]) => k === c) || [])[0];
+  const kl = usageLine(((live.usage[s.sid] || {}).agents || {})[key], true);
+  if (kl) lines.splice(2, 0, kl);
   return {name:c.name, tag:"AI 서브에이전트", lines, session:s, ref:{kind:"ai-sub", name:c.name, session:sessName(s), role:c.role}};
 }
 function talkButton(text, fn, cls = "mini"){

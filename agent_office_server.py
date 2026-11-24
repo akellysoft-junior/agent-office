@@ -864,6 +864,8 @@ def claude_processes(rx=CLAUDE_RE, word="claude"):
         args = parts[8]
         if not rx.search(args) or "agent_office_server" in args:
             continue
+        if os.path.basename(args.split()[0]) == "tmux":       # 'tmux new -s x claude' 같은 tmux 자신
+            continue
         try:
             start = time.mktime(time.strptime(" ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
         except ValueError:
@@ -1173,8 +1175,9 @@ def gnome_window_calls():
 def linux_hint():
     st, de = linux_session()
     if st == "wayland" and "GNOME" in de.upper():
-        return ("GNOME(Wayland)에서는 'Window Calls' 확장을 설치하면 터미널 창을 가져올 수 있어요 "
-                "(extensions.gnome.org에서 Window Calls 검색). tmux 안에서 claude를 쓰면 설치 없이도 돼요.")
+        return ("GNOME(Wayland)은 다른 프로그램이 창을 앞으로 꺼내지 못하게 막아 둬요. 'Window Calls'라는 "
+                "GNOME 확장(작은 추가 기능)을 깔면 풀려요: 터미널에서 서버를 켜면 설치할지 물어봐요. "
+                "(직접 하려면 '확장 관리자' 앱에서 Window Calls 검색)")
     if st == "wayland":
         return (f"{de or '이 데스크톱'}(Wayland)에서는 바깥 프로그램이 창을 앞으로 가져올 수 없어요. "
                 "tmux·kitty·WezTerm 안에서 claude를 쓰면 돼요. 지금은 '이어하기'를 써 주세요.")
@@ -1218,7 +1221,8 @@ def wc_activate(wid):
 def title_finder():
     """창 제목으로 창을 찾는 함수와 그 창을 앞으로 가져오는 함수 (find, activate). 방법이 없으면 None.
     GNOME 'Window Calls' 확장(Wayland도 가능) → X11이면 xdotool → wmctrl 순서."""
-    if gnome_window_calls() is not None:
+    wins = gnome_window_calls()
+    if wins is not None and all("title" in w for w in wins):
         return (lambda t: next((w.get("id") for w in gnome_window_calls() or [] if w.get("title") == t), None),
                 wc_activate)
     if linux_session()[0] == "wayland":
@@ -1263,20 +1267,21 @@ def gnome_terminal_pick(tty):
                 break
         if not hit:
             for path in gt_windows():
-                # 방법 A: active-tab 상태를 0, 1, 2… 로 바꿔 본다
-                orig = re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
-                if gt_action(path, "SetState", "active-tab", "<int32 0>", "{}") == "()":
+                # 방법 A: active-tab 을 0, 1, 2… 로 불러 본다 (탭 개수를 넘는 번호는 무시돼서 상태가 안 바뀜)
+                def active():
+                    return re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
+
+                orig = active()
+                if orig:
                     for i in range(0, 40):
-                        if i:
-                            gt_action(path, "SetState", "active-tab", f"<int32 {i}>", "{}")
-                        state = re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
-                        if state and int(state[-1]) != i:
-                            break              # 탭 개수를 넘어감
+                        gt_action(path, "Activate", "active-tab", f"[<int32 {i}>]", "{}")
+                        if active()[-1:] != [str(i)]:
+                            break              # 탭 개수를 넘어감 (탭이 하나뿐인 창은 0에서 그대로)
                         hit = find()
                         if hit:
                             break
-                    if not hit and orig:           # 이 창엔 없었으면 원래 보던 탭으로 되돌림
-                        gt_action(path, "SetState", "active-tab", f"<int32 {orig[-1]}>", "{}")
+                    if not hit:                    # 이 창엔 없었으면 원래 보던 탭으로 되돌림
+                        gt_action(path, "Activate", "active-tab", f"[<int32 {orig[-1]}>]", "{}")
                 else:
                     # 방법 B: 오른쪽 탭으로 넘기기를 한 바퀴
                     for _ in range(40):
@@ -1323,19 +1328,47 @@ def check_terminal():
         print(f"  {tool:8s} {'있음' if shutil.which(tool) else '-'}")
     wins = gnome_window_calls()
     print(f"Window Calls 확장: {'동작함 (창 ' + str(len(wins)) + '개)' if wins is not None else '없음'}")
+    if wins and not all("title" in w for w in wins):
+        print("  창 목록에 제목이 없어요 (오래된 판). 확장을 업데이트해 주세요.")
     print(f"창 제목 읽기(탭 찾기에 필요): {'됨' if title_finder() else '안 됨'}")
     gws = gt_windows()
     print(f"gnome-terminal 창: {len(gws)}개 {gws[:3]}")
     if gws:
         print("  active-tab:", gt_action(gws[0], "Describe", "active-tab") or "(지원 안 함)")
         print("  tab-switch-right:", gt_action(gws[0], "Describe", "tab-switch-right") or "(지원 안 함)")
+    # 이 점검을 돌린 탭을 실제로 찾아 본다 (제목에 표식 걸기 → 창 제목에서 찾기 → 앞으로 가져오기)
+    tty = ""
+    if os.environ.get("TMUX"):
+        tty = run(["tmux", "display-message", "-p", "#{client_tty}"])
+    elif sys.stdout.isatty():
+        tty = os.ttyname(sys.stdout.fileno())
+    if gws and tty and os.environ.get("GNOME_TERMINAL_SCREEN"):
+        t0 = time.time()
+        print(f"이 탭 찾기 시험 ({tty}): {'됨' if gnome_terminal_pick(tty) else '안 됨'} ({time.time() - t0:.1f}초)")
+    if shutil.which("tmux"):
+        rows = run(["tmux", "list-clients", "-F", "#{session_name} ← pid #{client_pid} #{client_tty}"]).splitlines()
+        print(f"tmux를 띄워 둔 터미널: {len(rows)}개 {rows[:6]}")
     procs = claude_processes()
     print(f"실행 중인 claude: {len(procs)}개")
-    for pr in procs[:8]:
+    for pr in procs[:20]:
         env = proc_env(pr["pid"])
         keys = [k for k in ("TMUX_PANE", "GNOME_TERMINAL_SCREEN", "KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "WEZTERM_PANE",
                             "PTYXIS_VERSION", "TILIX_ID", "VTE_VERSION", "TERM_PROGRAM") if env.get(k)]
-        print(f"  pid {pr['pid']}  tty {pr['tty']}  cwd {pr['cwd']}  {' '.join(k + '=' + env[k] for k in keys)}")
+        print(f"  pid {pr['pid']}  tty {pr['tty']}  cwd {pr['cwd']}  {' '.join(k + '=' + env[k] for k in keys)}  [{pr['args'][:50]}]")
+
+
+def open_terminal(argv, cwd=None):
+    """(리눅스) 새 터미널 창에서 argv 를 실행한다. 열 수 있는 터미널 프로그램이 없으면 False."""
+    line = (f"cd {shlex.quote(cwd)} && " if cwd else "") + " ".join(shlex.quote(a) for a in argv)
+    for term, args in (("gnome-terminal", (["--working-directory", cwd] if cwd else []) + ["--"] + argv),
+                       ("konsole", (["--workdir", cwd] if cwd else []) + ["-e"] + argv),
+                       ("x-terminal-emulator", ["-e", "bash", "-lc", line]),
+                       ("xterm", ["-e", "bash", "-lc", line])):
+        if shutil.which(term):
+            # tmux 안에서 켠 서버라도 새 터미널은 tmux 바깥으로 (안 그러면 tmux attach 가 거절됨)
+            subprocess.Popen([term] + args, env={k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")})
+            return True
+    return False
 
 
 def raise_window(chain):
@@ -1363,6 +1396,8 @@ def raise_window(chain):
                     if len(cols) >= 3 and cols[2] == str(pid):
                         run(["wmctrl", "-ia", cols[0]])
                         return True, "터미널 창을 앞으로 가져왔어요."
+    if wins is not None or (st != "wayland" and (shutil.which("xdotool") or shutil.which("wmctrl"))):
+        return False, "그 세션을 띄운 터미널 창은 찾지 못했어요."
     return False, linux_hint()
 
 
@@ -1376,17 +1411,24 @@ def focus_linux(p):
     if env.get("TMUX_PANE") and shutil.which("tmux"):
         sock = env.get("TMUX", "").split(",")[0]
         base = ["tmux"] + (["-S", sock] if sock else [])
-        if run_ok(base + ["select-window", "-t", env["TMUX_PANE"]]):
-            run_ok(base + ["select-pane", "-t", env["TMUX_PANE"]])
+        pane = env["TMUX_PANE"]
+        if run_ok(base + ["select-window", "-t", pane]):
+            run_ok(base + ["select-pane", "-t", pane])
             picked = "tmux에서 그 창을"
-            fmt = ["-F", "#{client_pid} #{client_tty}"]
-            clients = (run(base + ["list-clients", "-t", env["TMUX_PANE"]] + fmt)
-                       or run(base + ["list-clients"] + fmt)).split()
-            env, tty = {}, ""                  # 패널 안의 값은 tmux 서버를 켠 때 것이라 믿을 수 없다
-            if clients and clients[0].isdigit():
-                cpid = int(clients[0])
-                chain, env = ancestors(cpid), proc_env(cpid)
-                tty = clients[1] if len(clients) > 1 else ""
+            # 그 tmux 세션을 지금 띄워 둔 터미널(클라이언트) 중 가장 최근에 쓴 것
+            sess = run(base + ["display-message", "-p", "-t", pane, "#{session_id}"])
+            rows = [ln.split(None, 2) for ln in run(base + ["list-clients"] + (["-t", sess] if sess else []) +
+                                                    ["-F", "#{client_activity} #{client_pid} #{client_tty}"]).splitlines()]
+            rows = sorted((r for r in rows if len(r) == 3 and r[1].isdigit()), key=lambda r: r[0], reverse=True)
+            env, tty, chain = {}, "", []       # 패널 안의 값은 tmux 서버를 켠 때 것이라 믿을 수 없다
+            if rows:
+                cpid = int(rows[0][1])
+                chain, env, tty = ancestors(cpid), proc_env(cpid), rows[0][2]
+            elif sess and open_terminal(base + ["attach-session", "-t", sess]):
+                return True, "이 tmux 세션을 띄워 둔 터미널이 없어서, 새 터미널 창에 열었어요."
+            else:
+                return False, ("이 세션은 tmux 안에서 도는데, 그 tmux를 띄워 둔 터미널이 없어요. "
+                               "터미널에서 tmux attach 로 열어 주세요.")
     # 2) kitty (원격 제어가 켜져 있을 때)
     if env.get("KITTY_WINDOW_ID") and env.get("KITTY_LISTEN_ON") and shutil.which("kitty"):
         if run_ok(["kitty", "@", "--to", env["KITTY_LISTEN_ON"], "focus-window",
@@ -1554,13 +1596,8 @@ def do_resume(m):
         else:
             subprocess.Popen(f'start "" /D "{cwd}" cmd /k claude --resume {sid}', shell=True)
         return True, "새 터미널에서 이 세션을 이어서 열었어요."
-    for term, args in (("gnome-terminal", ["--working-directory", cwd, "--", "claude", "--resume", sid]),
-                       ("konsole", ["--workdir", cwd, "-e", "claude", "--resume", sid]),
-                       ("x-terminal-emulator", ["-e", "bash", "-lc", f"cd {shlex.quote(cwd)} && claude --resume {sid}"]),
-                       ("xterm", ["-e", "bash", "-lc", f"cd {shlex.quote(cwd)} && claude --resume {sid}"])):
-        if shutil.which(term):
-            subprocess.Popen([term] + args)
-            return True, "새 터미널에서 이 세션을 이어서 열었어요."
+    if open_terminal(["claude", "--resume", sid], cwd):
+        return True, "새 터미널에서 이 세션을 이어서 열었어요."
     return False, "열 수 있는 터미널 프로그램을 찾지 못했어요."
 
 

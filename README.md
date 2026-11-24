@@ -216,7 +216,7 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 
 리눅스는 화면 방식(X11 / Wayland)과 터미널 프로그램에 따라 되는 방법이 달라서, 아래 순서로 시도해요.
 
-1. **tmux 안에서 claude를 실행 중이면**: 그 tmux 창·패널로 바로 전환해요. 설치할 것 없이, X11·Wayland 모두 돼요. 그다음 tmux가 붙어 있는 터미널의 탭·창을 아래 방법으로 찾아요.
+1. **tmux 안에서 claude를 실행 중이면**: 그 tmux 창·패널로 바로 전환해요. 설치할 것 없이, X11·Wayland 모두 돼요. 그다음 tmux가 붙어 있는 터미널의 탭·창을 아래 방법으로 찾아요. 그 tmux 세션을 띄워 둔 터미널이 없으면(`tmux new -d` 로 켜 둔 세션 등) 새 터미널 창을 열어 `tmux attach` 해요.
 2. **kitty**: 원격 제어(`allow_remote_control yes`, `listen_on unix:/tmp/kitty`)를 켜 두면 그 창을 앞으로 가져와요.
 3. **WezTerm**: 그 패널을 앞으로 가져와요.
 4. **GNOME + [Window Calls](https://extensions.gnome.org/extension/4724/window-calls/) 확장**: Wayland에서도 창을 앞으로 가져와요.

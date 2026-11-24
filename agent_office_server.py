@@ -1149,12 +1149,28 @@ def same_dir(a, b):
         return False
 
 
-CLAUDE_RE = re.compile(r"(^|[\\/\s])claude(\.exe|\.cmd)?(\s|$)|claude-code", re.I)
+CLI_EXT_RE = re.compile(r"\.(exe|cmd|js|mjs|cjs)$", re.I)
 CODEX_RE = re.compile(r"(^|[\\/])codex(\.exe|\.cmd)?(\s|$)", re.I)
 SESS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")   # Claude Code가 남기는 <pid>.json (세션 ID·폴더)
 
 
-def claude_processes(rx=CLAUDE_RE, word="claude"):
+def is_claude_cmd(args):
+    """명령줄이 Claude Code 자신인가 — 실행 파일(또는 node 가 돌리는 스크립트)의 이름만 본다.
+    'python3 lens_session.py --runtime claude' 처럼 인자에 claude 가 들어간 남의 프로그램을 claude 로 세면,
+    그 프로세스에 같은 폴더의 엉뚱한 세션을 짝지어 끝난 세션이 살아 있는 것처럼 보인다."""
+    words = (args or "").split()
+    if not words or "--chrome-native-host" in words:         # 브라우저 확장과 이야기하는 도우미 (세션이 아님)
+        return False
+    name = lambda w: CLI_EXT_RE.sub("", re.split(r"[\\/]", w)[-1]).lower()
+    if name(words[0]) == "claude":
+        return True
+    if name(words[0]) in ("node", "bun", "deno"):            # node .../claude-code/cli.js
+        script = next((w for w in words[1:] if not w.startswith("-")), "")
+        return name(script) == "claude" or bool(re.search(r"[\\/]claude-code[\\/]", script, re.I))
+    return False
+
+
+def claude_processes(rx=None, word="claude"):
     """실행 중인 Claude Code(또는 rx 에 맞는 프로그램) 프로세스 목록: [{pid, ppid, tty, start, args, cwd}]"""
     out = []
     if SYSTEM == "Windows":
@@ -1181,7 +1197,7 @@ def claude_processes(rx=CLAUDE_RE, word="claude"):
             continue
         pid, ppid, tty = parts[0], parts[1], parts[2]
         args = parts[8]
-        if not rx.search(args) or "agent_office_server" in args:
+        if not (rx.search(args) if rx else is_claude_cmd(args)) or "agent_office_server" in args:
             continue
         if os.path.basename(args.split()[0]) == "tmux":       # 'tmux new -s x claude' 같은 tmux 자신
             continue
@@ -1244,6 +1260,26 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 force_paths = set()                         # 하루가 지났어도 읽을 세션 파일 (프로세스가 살아 있음)
 _session_files = {}                         # 전체 세션 ID -> 로그 파일 (session_file)
 _alive_guess = {"at": 0.0, "sess": {}}
+
+
+_headless = {}                              # 로그 파일 -> 터미널 없이 돈 세션인가 (is_headless)
+
+
+def is_headless(path):
+    """터미널 없이 돈 세션(claude -p, SDK)인가 — 기록의 entrypoint 가 sdk-cli 같은 sdk-* 다.
+    붙일 터미널이 없으니 같은 폴더의 터미널에서 도는 프로세스와는 짐작으로 짝짓지 않는다."""
+    if not path:
+        return False
+    if path not in _headless:
+        try:
+            with open(path, "rb") as fh:
+                m = re.search(rb'"entrypoint"\s*:\s*"([^"]*)"', fh.read(65536))
+        except OSError:
+            return False
+        if not m:
+            return False                    # 아직 안 적혔을 수 있으니 기억하지 않음
+        _headless[path] = m.group(1).startswith(b"sdk")
+    return _headless[path]
 
 
 def project_dir_for(root, cwd):
@@ -1311,7 +1347,8 @@ def guess_alive(root):
                     try:
                         files = [os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jsonl") and f[:8] not in claimed]
                         files.sort(key=lambda f: -os.path.getmtime(f))
-                        path = files[0] if files else None
+                        bare = not p["tty"] or bool({"-p", "--print"} & set((p["args"] or "").split()))   # 터미널 없이 도는 claude -p
+                        path = next((f for f in files if is_headless(f) == bare), None)      # 터미널 세션은 터미널에서 도는 것끼리만
                     except OSError:
                         path = None
             if path:
@@ -1372,7 +1409,8 @@ def find_process(m):
     1) hook 이나 Claude Code 의 pid 파일이 '이 프로세스가 지금 이 세션'이라고 알려 주는 것
     2) 명령줄에 세션 ID 가 있는 것(--resume) — 단, 지금은 다른 세션을 돌리는 프로세스는 아님
     3) 같은 폴더(cwd)에서 도는 것 중 시작 시각이 가장 가까운 것 (짐작). 끝난 걸 아는 세션, 다른 세션의 프로세스,
-       claude 가 띄운 자식, 이 세션의 마지막 기록보다 나중에 켜진 프로세스는 고르지 않는다 (엉뚱한 터미널로 가지 않게)."""
+       claude 가 띄운 자식, 이 세션의 마지막 기록보다 나중에 켜진 프로세스는 고르지 않는다 (엉뚱한 터미널로 가지 않게).
+       터미널 없이 돈 세션(claude -p)도 짐작으로는 짝짓지 않는다."""
     key = m.get("key") or ""
     if m.get("src") == "codex":            # Codex: 터미널에서 도는 CLI만 (같은 폴더)
         procs = [p for p in claude_processes(CODEX_RE, "codex") if p["tty"] or SYSTEM == "Windows"]
@@ -1390,7 +1428,7 @@ def find_process(m):
     sure += [{**p, "how": "명령줄의 세션 ID"} for p in procs if m["id"] in p["args"]]
     if sure:                               # 같은 세션을 두 군데서 열어 뒀으면(tmux 에 둔 채 다른 터미널에서 이어 엶) 나중에 켠 쪽
         return max(sure, key=lambda p: p["start"] or 0)
-    if key in hook_ended:
+    if key in hook_ended or is_headless(m.get("file")):
         return None
     try:
         last = os.path.getmtime(m.get("file") or "")

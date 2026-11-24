@@ -1,0 +1,27 @@
+# 냥오피스 기여자 캐릭터 설정 (GitHub 아이디별)
+#
+# 기본은 아이디로 정해지는 모습이고, 여기에 적은 아이디만 적은 값으로 바뀌어요. 적지 않은 항목은 기본 그대로예요.
+#
+# 둘 곳 (위가 우선):
+#   1. 내 컴퓨터:   ~/.config/agent-office/characters.yml   (또는 서버를 --characters 경로 로 켜기)
+#   2. 팀 저장소:   저장소 맨 위의 .nyang-office.yml        (팀 모두에게 같은 모습, 30분마다 다시 받음)
+#   그다음이 본인 gist(nyang-office.json), 마지막이 아이디로 정한 기본 모습이에요.
+#
+# art (그림 종류)
+#   여성: wavy(웨이브·가디건) longglasses(긴머리·안경·후드) ponytail(포니테일)
+#         ponyglasses(포니테일·안경·니트) bunhood(똥머리·후드) bob(단발)
+#   남성: short(짧은 머리·니트) fringe(앞머리·후드) curly(곱슬·가디건) beanie(비니)
+# gender: f / m (여 / 남 도 됨) — art 없이 gender 만 적으면 그 안에서 아이디로 골라요
+# 색 (#rrggbb): hair 머리, skin 피부, shirt 겉옷, inner 안쪽 옷, pants 바지, hat 모자
+#   색은 "#3b2a22" 처럼 따옴표로 감싸는 걸 권해요 (따옴표 없이 #3b2a22 나 3b2a22 도 읽어요)
+
+characters:
+  octocat:
+    art: curly
+    gender: m
+    hair: "#3b2a22"
+    shirt: "#5b8bd9"
+    pants: "#4b5d7a"
+
+  # 한 줄로 써도 돼요
+  hubot: {art: bob, gender: f, skin: "#f2c4a0"}

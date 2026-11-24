@@ -29,6 +29,7 @@ git 저장소에서 실행하면 시작할 때와 3시간마다 새 버전을 �
     --github-host HOST  회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net)
 """
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -36,6 +37,7 @@ import json
 import os
 import platform
 import re
+import signal
 import shlex
 import shutil
 import subprocess
@@ -51,7 +53,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ACTIVE_WINDOW = 6 * 3600      # 최근 6시간 내에 움직인 세션만 감시
+ACTIVE_WINDOW = 24 * 3600     # 최근 하루 안에 움직인 세션만 감시 (화면도 하루 넘게 조용한 세션은 뺌)
 BACKLOG_BYTES = 16 * 1024     # 처음 발견한 파일은 마지막 16KB만 소급
 SYSTEM = platform.system()    # "Darwin" | "Windows" | "Linux"
 
@@ -63,6 +65,7 @@ seq = 0
 lock = threading.Lock()
 last_client = 0.0              # 페이지가 마지막으로 서버에 연결한 시각
 BOOT_ID = uuid.uuid4().hex[:8] # 서버가 다시 켜졌는지 페이지가 알아차리게
+_code_watch = {"hash": None, "at": 0.0, "on": False}   # 서버 코드가 디스크에서 바뀌었는지 (git pull 등) 지켜봄
 
 
 def html_version():
@@ -118,8 +121,8 @@ def tail(path, sess, proj, agent=None, conv=None, src=None):
         st = os.stat(path)
     except OSError:
         return
-    if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets:
-        return
+    if time.time() - st.st_mtime > ACTIVE_WINDOW and path not in offsets and path not in force_paths:
+        return                        # 하루 넘게 조용한 파일은 건너뜀 (프로세스가 살아 있는 세션은 예외)
     if agent is None and conv is None:
         learn_meta(path, sess)
     first = path not in offsets
@@ -317,7 +320,7 @@ def codex_conv(o, sess):
 
 
 def scan_codex(root=CODEX_ROOT):
-    """최근 사흘 치 날짜 폴더의 rollout 파일만 본다 (오래된 건 tail 이 6시간 기준으로 거름)."""
+    """최근 사흘 치 날짜 폴더의 rollout 파일만 본다 (오래된 건 tail 이 하루 기준으로 거름)."""
     days = []
     try:
         for y in sorted(os.listdir(root))[-2:]:
@@ -345,6 +348,469 @@ def scan_codex(root=CODEX_ROOT):
                 m = codex_learn(path, sess)
                 proj = os.path.basename((m.get("cwd") or "").rstrip("/")) or "codex"
                 tail(path, sess, proj, conv=codex_conv, src="codex")
+
+
+# ───────── hook: Claude Code·Codex가 세션 시작/끝/승인 대기를 직접 알려 줌 ─────────
+# 로그 파일엔 '세션이 꺼졌다'는 기록도, 프로세스 번호(PID)도 없어서 화면이 세션을 지울 때를 몰랐다.
+# hook 을 등록하면 각 도구가 이벤트마다 이 파일을 `--hook claude|codex` 로 실행하고, 그게 서버에 알려 준다.
+#   Claude Code: SessionStart · SessionEnd · Stop · Notification(권한 승인 대기)
+#   Codex:       SessionStart · Stop · PermissionRequest   (세션 끝 이벤트가 없어서 PID 가 사라지면 끝으로 봄)
+# SessionStart 때 hook 을 실행한 claude/codex 프로세스의 PID 를 기억해 두고, 그 프로세스가 사라지면
+# (터미널을 그냥 닫은 경우 등) 세션이 끝난 걸로 본다.
+HOOK_TAG = "agent_office_server.py"         # 우리가 넣은 hook 인지 알아보는 표시 (명령줄에 들어 있음)
+CLAUDE_HOOK_EVENTS = ["SessionStart", "SessionEnd", "Stop", "Notification"]
+CODEX_HOOK_EVENTS = ["SessionStart", "Stop", "PermissionRequest"]
+AGENT_RE = {"claude": re.compile(r"(^|[\\/\s])claude(\.exe|\.cmd)?(\s|$)|claude-code", re.I),
+            "codex": re.compile(r"(^|[\\/\s])codex(\.exe|\.cmd|\.js)?(\s|$)|@openai[\\/]codex", re.I)}
+hook_pids = {}                              # 세션 키 -> {"pid", "src", "proj", "id"}
+hook_ended = {}                             # 세션 키 -> 끝난 시각 (서버를 다시 켜도 다시 안 나오게)
+HOOK_STATE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office", "hook_sessions.json")
+_restored_ends = []                         # 다시 켰을 때 화면에 다시 알려 줄 '끝난 세션'
+
+
+def _state_lock():
+    """여러 서버가 '읽고-합치고-쓰기'를 동시에 하지 않게 잠금 파일로 차례를 맞춘다 (최대 약 1초 기다림)."""
+    path = HOOK_STATE + ".lock"
+    for _ in range(50):
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return path
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(path) > 5:   # 꺼진 서버가 남긴 잠금
+                    os.remove(path)
+                    continue
+            except OSError:
+                pass
+            time.sleep(0.02)
+        except OSError:
+            return None
+    return None
+
+
+def _read_state():
+    try:
+        with open(HOOK_STATE, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {}, {}
+    if not isinstance(d, dict):
+        return {}, {}
+    pick = lambda x: {k: v for k, v in (x or {}).items() if isinstance(k, str) and isinstance(v, dict)}
+    return pick(d.get("pids")), pick(d.get("ended"))
+
+
+def merge_state(pids_a, ended_a, pids_b, ended_b):
+    """세션마다 가장 최근 기록 하나만 남긴다: 살아 있음(pid, at) 과 끝남(at) 중 더 늦은 쪽. 같으면 끝남."""
+    pids, ended = {}, {}
+    for k in set(pids_a) | set(ended_a) | set(pids_b) | set(ended_b):
+        best = None
+        for kind, rec in (("pid", pids_a.get(k)), ("pid", pids_b.get(k)), ("end", ended_a.get(k)), ("end", ended_b.get(k))):
+            if not rec:
+                continue
+            key = (float(rec.get("at") or 0), kind == "end")
+            if best is None or key > best[0]:
+                best = (key, kind, rec)
+        if best:
+            (pids if best[1] == "pid" else ended)[k] = best[2]
+    return pids, ended
+
+
+def save_hook_state():
+    """파일에 이미 있는 다른 서버의 기록과 합쳐서 쓴다 (통째로 덮어써서 남의 기록을 지우지 않게).
+    합친 결과로 이 서버의 기억도 맞춘다: 다른 서버가 끝을 본 세션은 여기서도 퇴근, 모르던 PID 는 배움."""
+    tmp = f"{HOOK_STATE}.{os.getpid()}.tmp"     # 서버마다 다른 임시 파일 (여러 서버가 동시에 써도 안 섞이게)
+    lk = None
+    try:
+        os.makedirs(os.path.dirname(HOOK_STATE), exist_ok=True)
+        lk = _state_lock()
+        fp, fe = _read_state()
+        pids, ended = merge_state(hook_pids, hook_ended, fp, fe)
+        cut = time.time() - ACTIVE_WINDOW
+        ended = {k: v for k, v in ended.items() if float(v.get("at") or 0) > cut}
+        for k in list(hook_pids):
+            if k not in pids:
+                h = hook_pids.pop(k)
+                if k in ended:              # 다른 서버가 먼저 끝을 봤음
+                    hook_event(h.get("src", "claude"), k, h.get("proj", ""), "end", "other_server", ended[k].get("at"))
+        for k, v in pids.items():
+            hook_pids.setdefault(k, v)
+        hook_ended.clear()
+        hook_ended.update(ended)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"pids": pids, "ended": ended}, fh)
+        os.replace(tmp, HOOK_STATE)
+    except OSError:
+        try:
+            os.remove(tmp)                  # 바꿔치기에 실패하면 임시 파일은 치움
+        except OSError:
+            pass
+    finally:
+        if lk:
+            try:
+                os.remove(lk)
+            except OSError:
+                pass
+
+
+def load_hook_state():
+    try:
+        with open(HOOK_STATE, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return
+    hook_pids.update({k: v for k, v in (d.get("pids") or {}).items() if isinstance(v, dict)})
+    hook_ended.update({k: v for k, v in (d.get("ended") or {}).items() if isinstance(v, dict)})
+    _restored_ends.extend(hook_ended.items())
+hook_seen = set()                           # hook 을 한 번이라도 보낸 도구 ("claude", "codex")
+_last_alive_check = 0.0
+
+
+def hook_sources():
+    """hook 이 동작 중인 도구: 이 도구의 세션 중 hook 신호가 한 번도 없던 건 'hook 이전 세션'으로 본다."""
+    return sorted(hook_seen | {h.get("src", "claude") for h in hook_pids.values()}
+                  | {e.get("src", "claude") for e in hook_ended.values()})
+
+
+def hook_sess(src, sid):
+    sid = str(sid or "")
+    return ("cx" + re.sub(r"[^0-9a-f]", "", sid.lower())[-6:]) if src == "codex" else sid[:8]
+
+
+SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "env", "cmd", "cmd.exe", "powershell", "powershell.exe",
+          "pwsh", "pwsh.exe", "bash.exe", "sh.exe"}
+
+
+def _win_procs():
+    """윈도우: {pid: (부모 pid, 실행 파일 이름)} (추가 설치 없이 ctypes 로)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PE(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k.CreateToolhelp32Snapshot(2, 0)
+    out, e = {}, PE()
+    e.dwSize = ctypes.sizeof(PE)
+    ok = k.Process32FirstW(snap, ctypes.byref(e))
+    while ok:
+        out[e.th32ProcessID] = (e.th32ParentProcessID, e.szExeFile)
+        ok = k.Process32NextW(snap, ctypes.byref(e))
+    k.CloseHandle(snap)
+    return out
+
+
+def _cmdline(pid):
+    if SYSTEM == "Windows":
+        try:
+            return (_win_procs().get(pid) or (0, ""))[1]
+        except Exception:
+            return ""
+    if SYSTEM == "Linux":
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                return fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            return ""
+    return run(["ps", "-o", "command=", "-p", str(pid)], timeout=3)
+
+
+def _parent(pid):
+    if SYSTEM == "Windows":
+        try:
+            return (_win_procs().get(pid) or (0, ""))[0]
+        except Exception:
+            return 0
+    if SYSTEM == "Linux":
+        return proc_ppid(pid)
+    try:
+        return int(run(["ps", "-o", "ppid=", "-p", str(pid)], timeout=3) or 0)
+    except ValueError:
+        return 0
+
+
+def _is_shell(cmd):
+    first = (shlex.split(cmd, posix=SYSTEM != "Windows")[:1] or [""])[0] if cmd else ""
+    return os.path.basename(first.strip('"')).lower() in SHELLS
+
+
+def agent_pid(src):
+    """이 hook 을 실행한 claude/codex 프로세스: 부모를 따라 올라가며 hook 을 띄운 셸을 건너뛴 첫 프로세스.
+    (설치 방식마다 프로그램 이름·경로가 달라서 이름으로 찾지 않는다)"""
+    pid = os.getppid()
+    for _ in range(6):
+        if pid <= 1:
+            return None
+        try:
+            cmd = _cmdline(pid)
+        except Exception:
+            cmd = ""
+        if cmd and HOOK_TAG not in cmd and not _is_shell(cmd):
+            return pid
+        pid = _parent(pid)
+    return None
+
+
+def pid_alive(pid, src=None):
+    if SYSTEM == "Windows":
+        try:
+            return pid in _win_procs()
+        except Exception:
+            return True                         # 확인할 수 없으면 살아 있다고 봄 (잘못 지우지 않게)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        pass
+    if SYSTEM == "Linux":                   # 끝났지만 아직 거둬지지 않은(좀비) 프로세스는 죽은 걸로
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+        except (OSError, IndexError):
+            return False
+    return True
+
+
+# 켜져 있는 서버 목록: 서버마다 자기 포트를 이 폴더에 파일 하나로 적어 두고(<포트>.json), 끌 때 지운다.
+# hook 은 이 목록 전체에 이벤트를 보낸다 (포트를 hook 명령에 박아 두면 마지막에 켠 서버 하나만 받았음).
+SERVERS_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "agent-office", "servers")
+
+
+def register_server(port):
+    try:
+        os.makedirs(SERVERS_DIR, exist_ok=True)
+        path = os.path.join(SERVERS_DIR, f"{port}.json")
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"port": port, "pid": os.getpid(), "started": int(time.time())}, fh)
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"[!] 서버 목록에 적지 못했어요 ({e}). hook 은 {port}번으로만 보내져요.")
+
+
+def unregister_server(port):
+    path = os.path.join(SERVERS_DIR, f"{port}.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if json.load(fh).get("pid") != os.getpid():   # 그 사이 같은 포트로 다른 서버가 켜졌으면 두기
+                return
+        os.remove(path)
+    except (OSError, ValueError):
+        pass
+
+
+def listed_servers():
+    """[(포트, pid, 파일)] — 프로세스가 사라진 항목은 지운다."""
+    out = []
+    try:
+        names = os.listdir(SERVERS_DIR)
+    except OSError:
+        return out
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        path = os.path.join(SERVERS_DIR, n)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            port, pid = int(d["port"]), int(d.get("pid") or 0)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if pid and not pid_alive(pid):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        out.append((port, pid, path))
+    return out
+
+
+def hook_main(src, port=None):
+    """`--hook claude|codex`: 도구가 넘겨준 JSON(stdin)을 켜져 있는 서버 모두에게 전달하고 조용히 끝난다.
+    아무것도 출력하지 않는다 (SessionStart 출력은 대화에 끼어들고, PermissionRequest 출력은 승인 결정이 되기 때문)."""
+    try:
+        raw = sys.stdin.read()
+        d = json.loads(raw) if raw.strip() else {}
+        body = json.dumps({"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
+                           "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
+                           "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
+                           "pid": agent_pid(src)}).encode()
+        ports = {p for p, _, _ in listed_servers()}
+        if port:
+            ports.add(port)                 # 예전 방식 (--port 를 붙인 hook) 도 계속 받게
+        if not ports:
+            ports = {8765}
+
+        def send(p):
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{p}/api/hook", data=body,
+                                             headers={"Content-Type": "application/json", "X-Agent-Office": "1"})
+                urllib.request.urlopen(req, timeout=1.5).read()
+            except Exception:
+                pass                        # 꺼진 서버는 건너뜀
+
+        ts = [threading.Thread(target=send, args=(p,), daemon=True) for p in sorted(ports)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(2)
+    except Exception:
+        pass                                # 서버가 꺼져 있어도 도구 쪽 작업은 막지 않는다
+    return 0
+
+
+def hook_event(src, sess, proj, kind, reason="", at=None):
+    """화면에 보낼 hook 이벤트 (로그 줄과 같은 흐름에 'h' 필드로 섞어 보냄)."""
+    global seq
+    seq += 1
+    events.append({"q": seq, "s": sess, "p": proj, "src": src,
+                   "h": {"e": kind, "r": reason or "", "t": int((at or time.time()) * 1000)}})
+
+
+def take_hook(b):
+    src = "codex" if b.get("src") == "codex" else "claude"
+    sid = str(b.get("session_id") or "")
+    if not re.fullmatch(r"[0-9A-Za-z_-]{6,80}", sid):
+        return False
+    sess = hook_sess(src, sid)
+    ev = str(b.get("event") or "")
+    reason = str(b.get("reason") or "")[:40]
+    tp, cwd = b.get("transcript_path") or "", b.get("cwd") or ""
+    with lock:
+        try:                                # 그 사이 쌓인 로그 줄을 먼저 읽어 순서를 맞춤 (도구 호출 → 승인 대기)
+            scan(Handler.root)
+            if CODEX_ON:
+                scan_codex()
+        except Exception:
+            pass
+        hook_seen.add(src)
+        if src == "claude" and tp:
+            proj = proj_label(os.path.basename(os.path.dirname(tp)))
+        else:
+            proj = (hook_pids.get(sess) or {}).get("proj") or os.path.basename(str(cwd).rstrip("/\\")) or src
+        pid = b.get("pid") if isinstance(b.get("pid"), int) and b.get("pid") > 1 else None
+        if ev == "SessionEnd":
+            hook_pids.pop(sess, None)
+            hook_ended[sess] = {"at": time.time(), "src": src, "proj": proj}
+            hook_event(src, sess, proj, "end", reason)
+            save_hook_state()
+            return True
+        h = hook_pids.get(sess)
+        if ev == "SessionStart" or not h or (pid and h.get("pid") != pid):   # 처음 보거나 PID 를 새로 알게 됨
+            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid, "at": time.time()}
+            hook_ended.pop(sess, None)
+            save_hook_state()
+        if ev == "SessionStart":
+            hook_event(src, sess, proj, "start", reason)
+        elif ev == "Stop":
+            hook_event(src, sess, proj, "stop")
+        elif ev == "Notification" and reason == "permission_prompt" or ev == "PermissionRequest":
+            hook_event(src, sess, proj, "ask", reason)
+        else:
+            return True
+    return True
+
+
+def check_alive():
+    """SessionStart 때 기억한 프로세스가 사라졌으면 세션 끝으로 알린다 (5초에 한 번)."""
+    global _last_alive_check
+    now = time.time()
+    if now - _last_alive_check < 5:
+        return
+    _last_alive_check = now
+    changed = False
+    while _restored_ends:                   # 다시 켠 직후: 전에 끝난 세션을 화면에 다시 알려 줌 (로그 줄보다 뒤에)
+        sess, e = _restored_ends.pop()
+        hook_event(e.get("src", "claude"), sess, e.get("proj", ""), "end", "restored", e.get("at"))   # 원래 끝난 시각 → 화면은 걷지 않고 바로 뺌
+    for sess, h in list(hook_pids.items()):
+        if h.get("pid") and not pid_alive(h["pid"], h.get("src")):
+            hook_pids.pop(sess, None)
+            hook_ended[sess] = {"at": now, "src": h.get("src", "claude"), "proj": h.get("proj", "")}
+            hook_event(h.get("src", "claude"), sess, h.get("proj", ""), "end", "process_gone")
+            changed = True
+    if changed:
+        save_hook_state()
+
+
+def hook_command(src, port=None):
+    """포트를 넣지 않음: 어느 서버가 등록해도 같은 명령이고, hook 이 서버 목록을 보고 모두에게 보낸다."""
+    py = sys.executable.replace("\\", "/")
+    me = os.path.abspath(__file__).replace("\\", "/")
+    return f'"{py}" "{me}" --hook {src}'
+
+
+def _edit_hooks(path, events_, cmd):
+    """settings.json / hooks.json 의 hooks 에 우리 명령을 넣거나(cmd) 빼고(None), 원래 파일은 .bak 으로 남긴다."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        data = json.loads(text) if text.strip() else {}
+    except FileNotFoundError:
+        text, data = None, {}
+    except (OSError, ValueError) as e:
+        return f"[!] {path} 를 읽지 못해서 건드리지 않았어요 ({e})"
+    if not isinstance(data, dict):
+        return f"[!] {path} 형식이 예상과 달라서 건드리지 않았어요"
+    orig = json.loads(json.dumps(data))
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return f"[!] {path} 의 hooks 형식이 예상과 달라서 건드리지 않았어요"
+    for ev in set(events_) | set(k for k in hooks):
+        groups = hooks.get(ev)
+        if not isinstance(groups, list):
+            continue
+        keep = []
+        for g in groups:
+            hs = [h for h in (g.get("hooks") or []) if HOOK_TAG not in str(h.get("command", ""))] if isinstance(g, dict) else None
+            if hs is None:
+                keep.append(g)
+            elif hs:
+                keep.append({**g, "hooks": hs})
+        hooks[ev] = keep
+        if not keep:
+            hooks.pop(ev)
+    if cmd:
+        for ev in events_:
+            hooks.setdefault(ev, []).append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+    if not hooks:
+        data.pop("hooks", None)
+    if data == orig:                        # 이미 그대로면 파일을 건드리지 않음
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not data and text is not None and not cmd:       # 우리 것만 있던 파일이면 지움
+        os.replace(path, path + ".agent-office.bak")
+        return path
+    if text is not None:
+        with open(path + ".agent-office.bak", "w", encoding="utf-8") as fh:
+            fh.write(text)
+    tmp = f"{path}.{os.getpid()}.tmp"       # 서버 여러 개가 동시에 켜져도 임시 파일이 겹치지 않게
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+CLAUDE_SETTINGS = os.path.expanduser("~/.claude/settings.json")
+CODEX_HOOKS = os.path.expanduser("~/.codex/hooks.json")
+
+
+def install_hooks(port, codex=True):
+    out = [_edit_hooks(CLAUDE_SETTINGS, CLAUDE_HOOK_EVENTS, hook_command("claude", port))]
+    if codex and os.path.isdir(os.path.expanduser("~/.codex")):
+        out.append(_edit_hooks(CODEX_HOOKS, CODEX_HOOK_EVENTS, hook_command("codex", port)))
+    return [x for x in out if x]
+
+
+def uninstall_hooks():
+    return [x for x in (_edit_hooks(CLAUDE_SETTINGS, CLAUDE_HOOK_EVENTS, None),
+                        _edit_hooks(CODEX_HOOKS, CODEX_HOOK_EVENTS, None)) if x]
 
 
 # ───────── 터미널 열기 ─────────
@@ -433,6 +899,80 @@ def session_pids():
         except (OSError, ValueError, AttributeError):
             pass
     return out
+
+
+# hook 신호가 없는 세션도 실행 중인지 짐작: 돌고 있는 claude 프로세스를 세션 파일과 짝지음 (30초마다)
+#   명령줄에 세션 ID 가 있으면(--resume) 그 파일, 아니면 같은 폴더의 프로젝트 기록 중 가장 최근 것
+#   hook 으로 PID 를 아는 세션·프로세스는 빼고 짝지음. 윈도우는 작업 폴더를 못 읽어서 하지 않음.
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+force_paths = set()                         # 하루가 지났어도 읽을 세션 파일 (프로세스가 살아 있음)
+_alive_guess = {"at": 0.0, "sess": {}}
+
+
+def project_dir_for(root, cwd):
+    """Claude Code 가 작업 폴더별로 쓰는 기록 폴더 (/a/b.c → -a-b-c)."""
+    name = re.sub(r"[^A-Za-z0-9]", "-", cwd)
+    path = os.path.join(root, name)
+    if os.path.isdir(path):
+        return path
+    try:
+        for d in os.listdir(root):
+            if d.lower() == name.lower():
+                return os.path.join(root, d)
+    except OSError:
+        pass
+    return None
+
+
+def guess_alive(root):
+    """{세션 키: 파일} — hook 없이도 프로세스가 살아 있다고 짐작되는 세션."""
+    now = time.time()
+    if now - _alive_guess["at"] < 30:
+        return _alive_guess["sess"]
+    _alive_guess["at"] = now
+    out = {}
+    if SYSTEM != "Windows":
+        try:
+            procs = claude_processes()
+        except Exception:
+            procs = []
+        pids = {p["pid"] for p in procs}
+        hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
+        claimed = set(hook_pids)
+        for p in sorted(procs, key=lambda p: -(p["start"] or 0)):
+            if p["pid"] in hooked or p["ppid"] in pids:      # hook 으로 아는 프로세스, claude 가 띄운 자식은 빼고
+                continue
+            path = None
+            m = UUID_RE.search(p["args"] or "")
+            if m:
+                for d in (os.listdir(root) if os.path.isdir(root) else []):
+                    f = os.path.join(root, d, m.group(0) + ".jsonl")
+                    if os.path.isfile(f):
+                        path = f
+                        break
+            if not path and p["cwd"]:
+                pdir = project_dir_for(root, p["cwd"])
+                if pdir:
+                    try:
+                        files = [os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jsonl") and f[:8] not in claimed]
+                        files.sort(key=lambda f: -os.path.getmtime(f))
+                        path = files[0] if files else None
+                    except OSError:
+                        path = None
+            if path:
+                key = os.path.basename(path)[:8]
+                if key not in claimed:
+                    out[key] = path
+                    claimed.add(key)
+    force_paths.clear()
+    force_paths.update(out.values())
+    _alive_guess["sess"] = out
+    return out
+
+
+def alive_sessions(root):
+    """화면에 알려 줄 '실행 중' 세션: hook 으로 PID 를 아는 것 + 짐작한 것."""
+    return sorted(set(guess_alive(root)) | {k for k, h in hook_pids.items() if h.get("pid")})
 
 
 def find_process(m):
@@ -969,8 +1509,24 @@ def focus_codex_app():
     return (True, "Codex 앱을 앞으로 가져왔어요. (대화까지는 고를 수 없어요)") if ok else None
 
 
+def proc_info(pid):
+    """PID 하나의 정보 (claude_processes 항목과 같은 모양)."""
+    if SYSTEM == "Windows":
+        return {"pid": pid, "ppid": _parent(pid), "tty": None, "start": None, "args": _cmdline(pid), "cwd": None}
+    fmt = "pid=,ppid=,tty=,lstart=,command=" if SYSTEM == "Darwin" else "pid=,ppid=,tty=,lstart=,args="
+    parts = run(["ps", "-o", fmt, "-p", str(pid)], env={**os.environ, "LC_ALL": "C"}).split(None, 8)
+    if len(parts) < 9:
+        return None
+    return {"pid": pid, "ppid": int(parts[1]), "tty": None if parts[2] in ("?", "??") else parts[2],
+            "start": None, "args": parts[8], "cwd": None}
+
+
 def do_focus(m):
-    p = find_process(m)
+    """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 Claude Code 가 적어 둔 pid 파일·폴더·시작 시각으로 찾는다."""
+    h = hook_pids.get(m.get("key") or "") or {}
+    p = proc_info(h["pid"]) if h.get("pid") and pid_alive(h["pid"]) else None
+    if not p:
+        p = find_process(m)
     if not p and m.get("src") == "codex":
         return (("desktop" in (m.get("app") or "") and focus_codex_app())
                 or (False, "실행 중인 Codex를 찾지 못했어요. 끝난 세션 같아요."))
@@ -1692,7 +2248,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         global last_client
         u = urlparse(self.path)
-        if u.path in ("/", "/index.html"):
+        if u.path in ("/", "/index.html", "/characters"):   # /characters: 캐릭터 설정 페이지 (같은 파일)
             try:
                 with open(os.path.join(HERE, "agent_office.html"), "rb") as fh:
                     body = fh.read()
@@ -1729,18 +2285,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"repo": None, "members": [], "error": "저장소 이름 형식이 이상해요 (owner/repo)."}, 400)
                 return
             repo = repo or DEFAULT_REPO or detect_repo()
-            self._json(get_team(repo) if repo else {"repo": None, "members": []})
+            fresh = (parse_qs(u.query).get("fresh") or [""])[0] == "1"
+            out = with_yaml_looks(get_team(repo, fresh)) if repo else {"repo": None, "members": []}
+            self._json(dict(out, charsPath=local_chars_path(), localChars=local_chars()))   # 저장 위치, 그 파일에 적힌 아이디들
         elif u.path == "/api/me":
             self._json({"login": gh_me()})
         elif u.path == "/api/ping":
             last_client = time.time()
+            code_changed_restart()
             self._json({"ok": True, "dir": self.root, "os": SYSTEM, "open": True,
-                        "v": html_version(), "boot": BOOT_ID})
+                        "v": html_version(), "boot": BOOT_ID, "hooks": sorted(hook_seen)})
         elif u.path == "/api/events":
             with lock:
+                alive = alive_sessions(self.root)   # 먼저: 하루 지난 파일이라도 실행 중이면 읽도록
                 scan(self.root)
                 if CODEX_ON:
                     scan_codex()
+                check_alive()
                 try:
                     since = int(parse_qs(u.query).get("since", ["0"])[0])
                 except ValueError:
@@ -1748,11 +2309,65 @@ class Handler(BaseHTTPRequestHandler):
                 out = [e for e in events if e["q"] > since][:400]
                 cur = seq
             last_client = time.time()
-            self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID})
+            self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID,
+                        "tracked": sorted(hook_pids), "hookSrc": hook_sources(), "alive": alive})
         else:
             self.send_error(404)
 
     def do_POST(self):
+        path = urlparse(self.path).path
+        if path == "/api/restart":                      # 앱의 '서버 다시 켜기' 버튼: 최신 코드로 받고 다시 켬
+            if not self._trusted():
+                self._json({"ok": False, "msg": "이 페이지에서만 할 수 있어요."}, 403)
+                return
+            try:
+                updated = try_update()
+            except Exception:
+                updated = False
+            self._json({"ok": True, "msg": "새 버전을 받아서 다시 켜요…" if updated else "서버를 다시 켜요…"})
+            threading.Timer(0.6, restart_self).start()
+            return
+        if path in ("/api/characters", "/api/characters/open", "/api/team/refresh"):
+            if not self._trusted():
+                self._json({"ok": False, "msg": "이 페이지에서만 할 수 있어요."}, 403)
+                return
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 65536)
+                b = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                b = {}
+            try:
+                if path == "/api/characters":
+                    chars = b.get("chars") if isinstance(b, dict) else None
+                    if not isinstance(chars, dict):
+                        self._json({"ok": False, "msg": "저장할 내용이 없어요."}, 400)
+                        return
+                    where = save_local_chars(chars)
+                    self._json({"ok": True, "msg": f"내 컴퓨터에 저장했어요: {where}", "path": where})
+                elif path == "/api/characters/open":
+                    open_in_editor(local_chars_path())
+                    self._json({"ok": True, "msg": f"설정 파일을 열었어요: {local_chars_path()}", "path": local_chars_path()})
+                else:
+                    repo = norm_repo(str(b.get("repo") or "")) or DEFAULT_REPO or detect_repo()
+                    if not repo or not REPO_RE.match(repo):
+                        self._json({"ok": False, "msg": "팀 저장소를 모르겠어요."})
+                        return
+                    d = refresh_team(repo)
+                    self._json({"ok": not d.get("error"), "msg": f"{repo} 설정을 다시 받았어요." if not d.get("error") else f"다시 받지 못했어요 ({d.get('error')})"})
+            except OSError as e:
+                self._json({"ok": False, "msg": f"하지 못했어요 ({e})"})
+            return
+        if path == "/api/hook":
+            if not self._trusted():
+                self._json({"ok": False}, 403)
+                return
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 16384)
+                b = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                b = {}
+            self._json({"ok": isinstance(b, dict) and take_hook(b)})
+            return
         if urlparse(self.path).path == "/api/me/look":
             if not self._trusted():
                 self._json({"ok": False, "msg": "허용되지 않은 요청이에요."}, 403)
@@ -1788,6 +2403,7 @@ class Handler(BaseHTTPRequestHandler):
         if m.get("src") == "codex" and action == "resume":   # 이어하기는 Claude Code 전용
             self._json({"ok": False, "msg": "Codex 세션은 이어하기를 지원하지 않아요."})
             return
+        m["key"] = sid
         if not re.fullmatch(r"[0-9A-Za-z-]{8,64}", m["id"]):
             self._json({"ok": False, "msg": "세션 ID 형식이 이상해요."}, 400)
             return
@@ -1919,6 +2535,246 @@ def clean_look(d):
     return out or None
 
 
+# ───────── 기여자 캐릭터 설정 (YAML) ─────────
+# 기본은 아이디 해시로 정한 모습. YAML 에 아이디별 값을 적어 두면 그 값이 먼저다.
+#   우선순위: 내 컴퓨터 파일 > 저장소의 .nyang-office.yml > 본인 gist(nyang-office.json) > 아이디 해시
+# 내 컴퓨터 파일: --characters 경로, 없으면 ~/.config/agent-office/characters.yml
+# 저장소 파일: 팀 저장소 기본 브랜치 맨 위의 .nyang-office.yml (팀 정보와 같이 30분마다 받음)
+CHAR_REPO_FILES = (".nyang-office.yml", ".nyang-office.yaml")
+CHAR_LOCAL = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "agent-office", "characters.yml")
+GENDER_ALIAS = {"f": "f", "m": "m", "여": "f", "여자": "f", "여성": "f", "female": "f", "남": "m", "남자": "m", "남성": "m", "male": "m"}
+_char_local = {"path": None, "mtime": None, "data": {}}
+
+
+def _yaml_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    return v
+
+
+def _yaml_strip_comment(line):
+    """# 뒤는 주석. 다만 '키: #3b2a22' 처럼 색 값은 따옴표 없이 써도 받아 준다."""
+    out, q = [], None
+    for i, ch in enumerate(line):
+        if q:
+            q = None if ch == q else q
+        elif ch in "\"'":
+            q = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            if re.match(r"#[0-9a-fA-F]{6}\b", line[i:]) and line[:i].rstrip().endswith(":"):
+                out.append(line[i:i + 7])
+                rest = line[i + 7:]
+                j = rest.find(" #")
+                out.append(rest if j < 0 else rest[:j])
+                return "".join(out)
+            break
+        out.append(ch)
+    return "".join(out)
+
+
+def parse_simple_yaml(text):
+    """냥오피스 설정에 필요한 만큼만 읽는 YAML: 들여쓰기로 겹친 '키: 값' 과 한 줄 {키: 값, ...}."""
+    root = {}
+    stack = [(-1, root)]
+    for raw in text.splitlines():
+        line = _yaml_strip_comment(raw.rstrip())
+        if not line.strip() or line.strip() in ("---", "..."):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        key, sep, val = line.strip().partition(":")
+        if not sep:
+            continue
+        key, val = _yaml_scalar(key), val.strip()
+        while stack and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1] if stack else root
+        if not val:
+            parent[key] = {}
+            stack.append((indent, parent[key]))
+        elif val.startswith("{") and val.endswith("}"):
+            d = {}
+            for part in val[1:-1].split(","):
+                k, sp, v = part.partition(":")
+                if sp:
+                    d[_yaml_scalar(k)] = _yaml_scalar(v)
+            parent[key] = d
+        else:
+            parent[key] = _yaml_scalar(val)
+    return root
+
+
+def chars_from_yaml(text):
+    """{아이디(소문자): 모습}. 맨 위에 characters: (또는 members:) 로 한 번 감싸도 된다."""
+    data = parse_simple_yaml(text or "")
+    if isinstance(data.get("characters"), dict):
+        data = data["characters"]
+    elif isinstance(data.get("members"), dict):
+        data = data["members"]
+    out = {}
+    for login, d in data.items():
+        if not isinstance(d, dict) or not re.fullmatch(r"[A-Za-z0-9-]{1,39}", str(login)):
+            continue
+        d = dict(d)
+        if "gender" in d:
+            d["gender"] = GENDER_ALIAS.get(str(d["gender"]).strip().lower(), "")
+        for k in LOOK_COLORS:
+            v = d.get(k)
+            if isinstance(v, str) and re.fullmatch(r"[0-9a-fA-F]{6}", v.strip()):
+                d[k] = "#" + v.strip()
+        lk = clean_look(d)
+        if lk:
+            out[str(login).lower()] = lk
+    return out
+
+
+def local_chars():
+    """내 컴퓨터의 캐릭터 설정 (파일이 바뀌면 다시 읽음)."""
+    path = local_chars_path()
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _char_local.update(mtime=None, data={})
+        return {}
+    if mt != _char_local["mtime"] or path != _char_local.get("read"):
+        _char_local["read"] = path
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = chars_from_yaml(fh.read())
+        except (OSError, UnicodeDecodeError):
+            data = {}
+        _char_local.update(mtime=mt, data=data)
+    return _char_local["data"]
+
+
+CHAR_HEADER = """# 냥오피스 기여자 캐릭터 설정
+# 냥오피스의 "🎨 캐릭터 설정"에서 저장하면 여기에 써져요. GitHub 저장소의 .nyang-office.yml 보다 먼저예요.
+# 직접 고쳐도 돼요: 고치고 저장하면 몇 초 안에 반영돼요 (페이지 새로고침이면 바로).
+#   gender: f / m   art: wavy longglasses ponytail ponyglasses bunhood bob / short fringe curly beanie
+#   색(#rrggbb): hair skin shirt inner pants hat
+"""
+
+
+def project_chars_file():
+    """냥오피스 코드를 다른 프로젝트 안(예: vendor/agent-office)에 넣어 쓸 때: 그 프로젝트의 .nyang-office.yml.
+    서버 파일이 있는 폴더의 위쪽 폴더들을 차례로 찾고(프로젝트 맨 위까지), 없으면 그 폴더 안(스냅샷 안)도 봄.
+    냥오피스 저장소를 git 으로 받아 쓰는 경우엔 저장소 자체의 .nyang-office.yml 은 쓰지 않음 (고치면 자동 업데이트가 막힘)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    home = os.path.expanduser("~")
+    d = os.path.dirname(here)
+    for _ in range(6):
+        if not d or d == os.path.dirname(d) or d == home:
+            break
+        for n in CHAR_REPO_FILES:
+            f = os.path.join(d, n)
+            if os.path.isfile(f):
+                return f
+        if os.path.isdir(os.path.join(d, ".git")):   # 프로젝트 맨 위에서 멈춤
+            break
+        d = os.path.dirname(d)
+    if not os.path.isdir(os.path.join(here, ".git")):
+        for n in CHAR_REPO_FILES:
+            f = os.path.join(here, n)
+            if os.path.isfile(f):
+                return f
+    return None
+
+
+def local_chars_path():
+    """내 컴퓨터에서 읽고 '💾 저장'이 쓰는 파일: --characters(또는 NYANG_OFFICE_CHARACTERS) > 프로젝트의 .nyang-office.yml
+    > ~/.config/agent-office/characters.yml"""
+    return _char_local["path"] or os.environ.get("NYANG_OFFICE_CHARACTERS") or project_chars_file() or CHAR_LOCAL
+
+
+def dump_chars_yaml(chars):
+    keys = ("gender", "art") + LOOK_COLORS
+    lines = [CHAR_HEADER, "characters:"]
+    for login in sorted(chars, key=str.lower):
+        d = chars[login]
+        lines.append(f"  {login}:")
+        for k in keys:
+            if d.get(k):
+                lines.append(f"    {k}: " + (d[k] if k in ("gender", "art") else f'"{d[k]}"'))
+    return "\n".join(lines) + "\n"
+
+
+def save_local_chars(updates):
+    """{아이디: 모습(빈 값이면 지움)} 을 내 컴퓨터 파일에 합쳐 씀. 원래 파일은 .bak 으로 남김."""
+    path = local_chars_path()
+    cur = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            old = fh.read()
+        cur = chars_from_yaml(old)
+        with open(path + ".bak", "w", encoding="utf-8") as fh:
+            fh.write(old)
+    except OSError:
+        pass
+    for login, look in updates.items():
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", str(login)):
+            continue
+        lk = clean_look(look) if look else None
+        cur.pop(str(login).lower(), None)
+        if lk:
+            cur[str(login)] = lk
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(dump_chars_yaml(cur))
+    os.replace(tmp, path)
+    _char_local["mtime"] = None                 # 다음 요청에서 바로 다시 읽음
+    return path
+
+
+def open_in_editor(path):
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(CHAR_HEADER + "characters:\n")
+    if SYSTEM == "Darwin":
+        run(["open", "-t", path])
+    elif SYSTEM == "Windows":
+        os.startfile(path)  # noqa: 윈도우 전용
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+def refresh_team(repo):
+    """저장소 팀 정보와 .nyang-office.yml 을 지금 바로 다시 받음."""
+    _team_fresh.discard(repo)
+    _chars_at.pop(repo, None)
+    return get_team(repo)
+
+
+def fetch_repo_chars(repo):
+    for name in CHAR_REPO_FILES:
+        try:
+            f = gh_get(f"/repos/{repo}/contents/{name}")
+        except Exception:
+            continue
+        if isinstance(f, dict) and f.get("content"):
+            try:
+                return chars_from_yaml(base64.b64decode(f["content"]).decode("utf-8", "replace"))
+            except ValueError:
+                return {}
+    return {}
+
+
+def with_yaml_looks(data):
+    """팀 정보에 YAML 캐릭터 설정을 덮어씀 (받아 둔 팀 정보 자체는 건드리지 않음)."""
+    loc, rep_ = local_chars(), data.get("chars") or {}
+    if not data.get("members") or not (loc or rep_):
+        return {k: v for k, v in data.items() if k != "chars"}
+    members = []
+    for m in data["members"]:
+        key = (m.get("login") or "").lower()
+        y = loc.get(key) or rep_.get(key)
+        if y:
+            m = dict(m, look=dict(m.get("look") or {}, **y), lookFrom="local" if key in loc else "repo", yaml=y)
+        members.append(m)
+    return dict({k: v for k, v in data.items() if k != "chars"}, members=members)
+
+
 def gh_send(method, path, body):
     req = urllib.request.Request(api_base() + path, method=method, data=json.dumps(body).encode(), headers={
         "Accept": "application/vnd.github+json", "User-Agent": "agent-office", "Content-Type": "application/json",
@@ -2038,7 +2894,11 @@ def fetch_team(repo):
                 m["look"] = lk
         except Exception:
             pass
-    return {"repo": repo, "host": GH_HOST, "fetched": int(time.time() * 1000), "members": members}
+    try:
+        chars = fetch_repo_chars(repo)          # 저장소에 둔 팀 캐릭터 설정 (.nyang-office.yml)
+    except Exception:
+        chars = {}
+    return {"repo": repo, "host": GH_HOST, "fetched": int(time.time() * 1000), "members": members, "chars": chars}
 
 
 def team_cache_path(repo):
@@ -2047,7 +2907,12 @@ def team_cache_path(repo):
     return os.path.join(base, "team_" + host + repo.replace("/", "__") + ".json")
 
 
-def get_team(repo):
+_team_fresh = set()                             # 이번 서버 실행에서 새로 받은 저장소 (서버를 다시 켜면 처음엔 꼭 새로 받음)
+_chars_at = {}                                  # 저장소 → 캐릭터 설정(.nyang-office.yml)을 마지막으로 받은 시각
+
+
+def get_team(repo, fresh_chars=False):
+    """fresh_chars: 페이지를 새로 열었을 때 — 팀 정보는 받아 둔 걸 쓰더라도 캐릭터 설정 파일은 다시 받음 (1분에 한 번까지)."""
     with team_locks[repo]:                      # 같은 저장소를 동시에 두 번 받지 않게
         c = team_cache.get(repo)
         if not c:
@@ -2056,7 +2921,13 @@ def get_team(repo):
                     c = team_cache[repo] = json.load(fh)
             except (OSError, ValueError):
                 c = None
-        if c and time.time() - c["at"] < TEAM_TTL:
+        if c and time.time() - c["at"] < TEAM_TTL and repo in _team_fresh:
+            if fresh_chars and time.time() - _chars_at.get(repo, 0) > 60:
+                try:
+                    c["data"] = dict(c["data"], chars=fetch_repo_chars(repo))
+                    _chars_at[repo] = time.time()
+                except Exception:
+                    pass
             return c["data"]
         try:
             data = fetch_team(repo)
@@ -2066,6 +2937,8 @@ def get_team(repo):
                 return dict(c["data"], stale=True, error=msg)
             return {"repo": repo, "members": [], "error": msg}
         c = team_cache[repo] = {"at": time.time(), "data": data}
+        _team_fresh.add(repo)
+        _chars_at[repo] = time.time()
         try:
             os.makedirs(os.path.dirname(team_cache_path(repo)), exist_ok=True)
             with open(team_cache_path(repo), "w", encoding="utf-8") as fh:
@@ -2216,6 +3089,23 @@ def git(*a, timeout=60):
         return 1, str(e)
 
 
+def code_changed_restart():
+    """누가 git pull 등으로 서버 코드를 바꿨는데 서버는 예전 코드로 돌고 있으면 (화면은 새 것, 서버는 옛 것 → 404 등)
+    알아서 다시 켬. 30초에 한 번만 확인."""
+    w = _code_watch
+    if not w["on"] or time.time() - w["at"] < 30:
+        return
+    w["at"] = time.time()
+    try:
+        h = file_hash(os.path.abspath(__file__))
+    except OSError:
+        return
+    if w["hash"] and h != w["hash"]:
+        w["on"] = False
+        print("[업데이트] 서버 코드가 바뀌어서 새 코드로 다시 켤게요.")
+        threading.Timer(0.5, restart_self).start()
+
+
 def file_hash(p):
     try:
         with open(p, "rb") as fh:
@@ -2352,17 +3242,30 @@ def main():
     ap.add_argument("--check-terminal", action="store_true", help="'터미널로 이동' 환경 점검만 하고 종료 (리눅스)")
     ap.add_argument("--github-host", metavar="HOST",
                     help="회사 깃허브(GitHub Enterprise Server) 주소 (예: github.company.net, 기본: github.com)")
+    ap.add_argument("--characters", help=f"기여자 캐릭터 설정 YAML 파일 (기본: {CHAR_LOCAL})")
     ap.add_argument("--repo", help="위젯 본사에 보여줄 깃허브 저장소 (owner/repo, 기본: 세션 폴더에서 자동으로 찾음)")
     ap.add_argument("--allow-embed", action="append", default=[], metavar="ORIGIN",
                     help="위젯을 끼워 넣을 수 있는 바깥 사이트 (예: https://tool.example.com). localhost 는 기본 허용")
+    ap.add_argument("--no-hooks", action="store_true", help="Claude Code·Codex hook 을 등록하지 않기 (세션 끝을 로그로만 짐작)")
+    ap.add_argument("--uninstall-hooks", action="store_true", help="등록한 hook 을 빼고 종료")
+    ap.add_argument("--hook", choices=["claude", "codex"], help=argparse.SUPPRESS)   # 도구가 hook 으로 부를 때
     ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    if args.hook:
+        explicit = any(a == "--port" or a.startswith("--port=") for a in sys.argv[1:])
+        sys.exit(hook_main(args.hook, args.port if explicit else None))
+    if args.uninstall_hooks:
+        done = uninstall_hooks()
+        print("hook 을 뺐어요: " + ", ".join(done) if done else "등록된 hook 이 없어요.")
+        return
     if args.repo:
         args.repo = norm_repo(args.repo)
     url = f"http://localhost:{args.port}"
     extra = (["--dir", args.dir] if args.dir != os.path.expanduser("~/.claude/projects") else []) + \
             (["--no-update"] if args.no_update else []) + \
             (["--no-codex"] if args.no_codex else []) + \
+            (["--no-hooks"] if args.no_hooks else []) + \
+            (["--characters", os.path.abspath(os.path.expanduser(args.characters))] if args.characters else []) + \
             (["--repo", args.repo] if args.repo else []) + \
             (["--github-host", args.github_host] if args.github_host else []) + \
             [x for o in args.allow_embed for x in ("--allow-embed", o)]
@@ -2426,6 +3329,20 @@ def main():
 
     Handler.root = args.dir
     Handler.port = args.port
+    if not args.no_update:                      # 서버 코드가 바뀌면 다시 켜기 (자동 업데이트를 끈 경우는 그대로)
+        try:
+            _code_watch.update(hash=file_hash(os.path.abspath(__file__)), on=True, at=time.time())
+        except OSError:
+            pass
+    load_hook_state()
+    if args.characters:
+        _char_local["path"] = os.path.abspath(os.path.expanduser(args.characters))
+    if not args.no_hooks:
+        try:
+            for path in install_hooks(args.port, codex=CODEX_ON):
+                print(f"세션 시작·끝을 알려 주는 hook 을 등록했어요: {path}  (빼려면 --uninstall-hooks)")
+        except OSError as e:
+            print(f"[!] hook 을 등록하지 못했어요 ({e}). 세션 끝은 로그로만 짐작해요.")
     if not os.path.isdir(args.dir):
         print(f"[!] 로그 폴더가 없어요: {args.dir}")
         print("    Claude Code를 이 PC에서 한 번이라도 실행했는지 확인해 주세요.")
@@ -2437,16 +3354,22 @@ def main():
     except OSError as e:
         print(f"[!] {args.port}번 포트를 쓸 수 없어요 ({e}). --port 9000 처럼 다른 번호로 켜 주세요.")
         return
+    register_server(args.port)
+    atexit.register(unregister_server, args.port)
     print(f"에이전트 오피스 라이브 서버: {url}")
     print(f"감시 중: {args.dir}   (Ctrl+C 로 종료)")
     if not args.no_update:
         threading.Thread(target=update_loop, daemon=True).start()
     if not args.no_browser and not args.restarted:
         threading.Thread(target=open_when_needed, args=(url,), daemon=True).start()
+    if SYSTEM != "Windows":
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # kill 로 꺼도 서버 목록에서 지워지게
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\n종료")
+    finally:
+        unregister_server(args.port)
 
 
 if __name__ == "__main__":

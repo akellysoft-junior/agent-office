@@ -64,6 +64,7 @@ py agent_office_server.py
 | `--no-update` | 자동 업데이트 끄기 | 꺼짐 |
 | `--no-codex` | Codex 세션(`~/.codex/sessions`)은 보여주지 않기 | 꺼짐 (Codex 세션도 함께 보여줌) |
 | `--install` / `--uninstall` | 로그인 시 자동 시작 등록 / 해제 | |
+| `--no-hooks` / `--uninstall-hooks` | 세션 시작·끝을 알려 주는 hook 을 등록하지 않기 / 등록한 hook 빼기 | 켜짐 (서버를 켤 때 등록) |
 | `--check-terminal` | (리눅스) '터미널로 이동' 환경 점검 | |
 | `--repo owner/name` | 본사에 보여줄 깃허브 저장소 | 세션 폴더의 git origin에서 자동으로 찾음 |
 | `--github-host HOST` | 회사 깃허브(GitHub Enterprise Server) 주소 (예: `github.company.net`). 토큰은 `gh auth login --hostname HOST` 또는 `GH_ENTERPRISE_TOKEN` | github.com |
@@ -77,6 +78,44 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 ```
 
 윈도우는 같은 폴더에 `냥이오피스.bat`을 만들고 `py "%~dp0agent_office_server.py"` 한 줄을 넣으면 더블클릭으로 실행돼요.
+
+## 세션이 끝나면 퇴근 (hook)
+
+로그 파일에는 "세션이 꺼졌다"는 기록이 없어서, 서버를 켤 때 Claude Code와 Codex에 hook 을 등록해 두고 각 도구가 직접 알려 주게 해요.
+
+- Claude Code (`~/.claude/settings.json`): 세션 시작·끝, 턴 끝, 권한 승인 대기
+- Codex (`~/.codex/hooks.json`): 세션 시작, 턴 끝, 권한 승인 대기. 세션 끝 이벤트가 없어서, 시작할 때 기억한 Codex 프로세스가 사라지면 끝난 걸로 봐요. Codex는 새 hook 을 한 번 신뢰(승인)해 줘야 동작해요.
+- 터미널을 그냥 닫아서 끝 알림이 안 와도, 기억해 둔 프로세스가 사라지면 퇴근해요 (macOS·리눅스·윈도우).
+- 기억한 세션 정보는 `~/.cache/agent-office/hook_sessions.json` 에 저장해서, 서버가 업데이트로 다시 켜져도 이어서 지켜봐요.
+- 서버를 여러 개 켜 두면(포트가 달라도) 모두 같은 신호를 받아요. 켜진 서버는 `~/.cache/agent-office/servers/<포트>.json` 에 자기 포트를 적어 두고 끌 때 지우며, hook 은 이 목록 전체에 보내요.
+- 같은 정보로 '터미널로 이동'이 정확한 터미널을 찾아가요. Codex 세션에서도, 위젯에서도 쓸 수 있어요.
+- 원래 설정 파일은 `*.agent-office.bak` 으로 남기고, 이미 등록돼 있으면 건드리지 않아요. 빼려면 `--uninstall-hooks`.
+- hook 을 등록하기 전에 켠 세션은 예전처럼 로그로만 짐작해요.
+
+### 쉬기·퇴근 규칙
+- 명령을 15분 넘게 기다리면 휴게실에서 쉬어요. 질문·계획·승인을 기다릴 땐 자리에서 팻말을 들고 기다려요.
+- 마지막 기록 뒤 12시간이 지나면 휴게실, 24시간이 지나면 화면에서 빠져요. 다만 그 세션의 프로그램(터미널)이 아직 켜져 있으면 하루가 지나도 휴게실에 남아요.
+- hook 이 없는 세션도 실행 중인지 짐작해요: 돌고 있는 claude 프로세스를 30초마다 찾아서, 명령줄의 세션 ID나 같은 작업 폴더의 가장 최근 기록과 짝지어요 (macOS·리눅스).
+- hook 을 쓰기 전부터 남아 있던 세션(hook 신호가 한 번도 없던 세션)은 2개까지만(실행 중인 것 먼저, 그다음 최근 것), 그것도 hook 세션이 자리를 다 쓰지 않을 때만 보여요. 그 세션을 다시 쓰면 최근 순서대로 다시 골라요.
+
+## 기여자 캐릭터 정하기 (YAML)
+
+기본은 GitHub 아이디로 정해지는 모습이에요. YAML 파일에 아이디별로 그림 종류·성별·색을 적어 두면 그 값으로 바뀌어요. 적는 법은 `characters.example.yml` 을 보세요.
+
+가장 쉬운 방법은 캐릭터 설정 페이지예요: `http://localhost:8765/?page=characters` (또는 `/characters`) (상단 **🎨 캐릭터 설정** 버튼을 누르면 새 탭으로 열려요). 왼쪽에 기여자 목록, 가운데에 서 있는·일하는 모습 미리보기가 있어요. 위젯을 쓸 때도 이 페이지에서 정하면 위젯에 그대로 나와요. 기여자를 골라 성별·모양·색을 고르면 바로 미리 보여 주고, 아래 버튼으로 마무리해요.
+- **💾 내 컴퓨터에 저장 (바로 적용)**: `~/.config/agent-office/characters.yml` 에 써서 화면에 바로 반영돼요 (원래 파일은 `.bak` 으로 남김).
+- **📂 설정 파일 열기**: 그 파일을 편집기로 열어요. 직접 고치고 저장하면 몇 초 안에 반영돼요.
+- **🔄 저장소 설정 다시 받기**: 팀 저장소의 `.nyang-office.yml` 을 기다리지 않고 지금 다시 받아요.
+- **🎲 랜덤 조합**: 모양과 색을 새로 뽑아요 (성별을 골라 두면 그 성별 안에서). 마음에 들면 저장하세요.
+- **복사**: 팀 모두에게 보이게 하려면 복사해서 저장소 `.nyang-office.yml` 에 붙여 넣으세요.
+
+성별만 적으면 랜덤이 아니라 아이디로 정해진 모습이에요 (매번 같음). 매번 다른 조합을 보고 싶으면 🎲 랜덤 조합을 누르세요.
+
+- 내 컴퓨터: `~/.config/agent-office/characters.yml` (또는 `--characters 경로`). 파일을 고치면 5분 안에 반영돼요.
+- 팀 저장소: 저장소 맨 위에 `.nyang-office.yml` 을 두면 팀 모두에게 같은 모습으로 보여요. 30분마다 다시 받고, 서버를 다시 켜거나 페이지를 새로고침하면 바로 다시 받아요 (페이지 새로고침은 1분에 한 번까지).
+- 냥오피스 코드를 다른 프로젝트 안(예: `vendor/agent-office/`)에 넣어 쓴다면: 그 프로젝트 맨 위에 `.nyang-office.yml` 을 두세요. 서버가 자기 폴더 위쪽을 찾아 올라가서 읽고, 🎨 캐릭터 설정의 저장도 그 파일에 써요 (프로젝트와 같이 커밋하면 팀이 공유). `vendor/agent-office/` 안에 둬도 읽지만, 스냅샷을 새로 받으면 덮어써지니 프로젝트 맨 위를 권해요.
+- 내 컴퓨터에서 읽는 파일 고르는 순서: `--characters 경로`(또는 환경변수 `NYANG_OFFICE_CHARACTERS`) > 프로젝트의 `.nyang-office.yml` > `~/.config/agent-office/characters.yml`
+- 우선순위: 내 컴퓨터에서 읽은 파일 > GitHub 저장소 파일 > 본인 gist > 아이디 기본 모습
 
 ## 앱으로 설치 (웹앱)
 
@@ -136,7 +175,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 const box = document.querySelector("[data-agent-office]");
 box.addEventListener("agent-office:select", e => console.log(e.detail));    // 고양이를 눌렀을 때 {kind:"human"|"ai-main"|"ai-sub", name, login?, session?}
 box.addEventListener("agent-office:close", () => {});                       // 대화창을 닫았을 때
-box.addEventListener("agent-office:attention", e => e.detail);             // 확인 안 한 것 {count, questions, done, items:[{session, kind:"question"|"plan"|"done"}]}
+box.addEventListener("agent-office:attention", e => e.detail);             // 확인 안 한 것 {count, questions, done, items:[{session, kind:"question"|"plan"|"approval"|"done"}]}
 box.addEventListener("agent-office:team", e => e.detail);                   // 팀 정보를 불러왔을 때 {repo, members}
 box.__agentOffice.send("select", {login:"octocat"});                         // 바깥에서 그 사람에게 말 걸기
 ```
@@ -205,7 +244,7 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 
 ## 자주 생기는 상황
 
-- **사무실이 다 비어 있어요**: 최근 6시간 안에 활동한 세션만 보여줘요. Claude Code에서 아무 작업이나 시키면 바로 입주해요.
+- **사무실이 다 비어 있어요**: 최근 하루 안에 활동한 세션만 보여줘요. Claude Code에서 아무 작업이나 시키면 바로 입주해요.
 - **로그 폴더가 없다고 나와요**: 기본 위치는 맥·리눅스 `~/.claude/projects`, 윈도우 `C:\Users\<사용자>\.claude\projects`예요. 다르면 `--dir`로 지정해 주세요.
 - **포트가 이미 쓰이고 있어요**: `--port 9000`처럼 바꿔 주세요.
 - **글씨체가 기본 폰트로 나와요**: 폰트를 Google Fonts에서 받아와요. 오프라인이어도 기능은 같아요.

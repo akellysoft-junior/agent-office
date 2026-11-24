@@ -2332,7 +2332,7 @@ function hookHandle(rec){
   let s = live.sessions.get(rec.s);
   if (h.e === "start"){
     hookEnded.delete(rec.s);
-    if (!s && fresh && h.r !== "compact") s = liveSession(rec);    // 켜자마자 출근 (첫 요청 전이라도)
+    if (!s && (fresh || isAlive(rec.s)) && h.r !== "compact") s = liveSession(rec);    // 켜자마자 출근 (첫 요청 전이라도). 화면을 나중에 열었어도 아직 켜져 있으면 출근
     if (s) s.hooked = true;
     return;
   }

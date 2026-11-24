@@ -452,10 +452,43 @@ def usage_track(path, sess, kind, agent=None):
 
 def _usage_blank():
     return {"pos": 0, "rest": b"", "ids": {}, "usd": 0.0, "unp": 0, "read": 0, "out": 0,
-            "model": None, "ctx": 0, "win": 0, "cx": (0, 0, 0), "done": False, "mtime": 0.0}
+            "model": None, "ctx": 0, "win": 0, "cx": (0, 0, 0), "done": False, "mtime": 0.0,
+            "base": 0.0, "cut": 0.0, "mts": 0.0, "memo": None}
+
+
+def usage_since(f, cut):
+    """서브에이전트 파일에서 cut(초) 뒤에 생긴 응답만: (달러, 요금표에 없는 응답 수). cut 이 없으면 전부."""
+    if not cut:
+        return f["usd"], f["unp"]
+    key = (cut, len(f["ids"]), f["usd"], f["unp"])
+    if not f["memo"] or f["memo"][0] != key:
+        late = [v[0] for v in list(f["ids"].values()) if len(v) > 3 and v[3] > cut]
+        f["memo"] = (key, sum(x or 0 for x in late), sum(x is None for x in late))
+    return f["memo"][1], f["memo"][2]
+
+
+def usage_cost_state(f, o):
+    """Claude Code 가 끌 때 적어 두는 그때까지의 누적 요금 (다시 열면 터미널이 이 값에서 이어 셈).
+    로그에 안 남는 호출(제목 짓기 등)까지 들어 있어서, 있으면 우리가 더한 값 대신 이걸 기준으로 하고 그 뒤 것만 더한다."""
+    tot = o.get("totalCostUSD")
+    if f["kind"] != "main" or not isinstance(tot, (int, float)) or tot < 0:
+        return
+    f["base"] = tot if tot >= f["base"] else f["base"] + tot      # 줄었으면 누적이 아니라 새로 센 값 → 앞의 것에 더함
+    f["usd"], f["unp"] = 0.0, int(bool(o.get("hasUnknownModelCost")))
+    f["ids"] = {k: (0.0, v[1], v[2], 0, True) for k, v in f["ids"].items()}   # 이미 기준값에 든 응답 (다시 적혀도 또 세지 않음)
+    st, du = o.get("startTime"), o.get("totalDuration")
+    if isinstance(st, (int, float)) and isinstance(du, (int, float)):
+        f["cut"] = max(f["cut"], (st + du) / 1000)                 # 적은 시각: 서브에이전트 파일은 이 뒤 것만 더함
+    else:
+        f["cut"] = max(f["cut"], f["mts"])
 
 
 def usage_claude_line(f, raw):
+    if b'"cost-state"' in raw[:400]:
+        o = json.loads(raw)
+        if isinstance(o, dict) and o.get("type") == "cost-state":
+            usage_cost_state(f, o)
+        return
     if b'"usage"' not in raw or b'"assistant"' not in raw:
         return
     o = json.loads(raw)
@@ -467,19 +500,23 @@ def usage_claude_line(f, raw):
         return                                # '<synthetic>': Claude Code 가 지어낸 줄 (API 호출 아님)
     usd, read, out, prompt = claude_cost(model, u)
     mid = m.get("id") or o.get("uuid")
+    ts = parse_ts(o.get("timestamp")) or 0
     old = f["ids"].get(mid)                   # 응답 하나가 여러 줄로 나뉘어 적히므로(같은 id) 한 번만 셈
+    if old and len(old) > 4:
+        return
     if old:
         f["usd"] -= old[0] or 0
         f["unp"] -= old[0] is None
         f["read"] -= old[1]
         f["out"] -= old[2]
-    f["ids"][mid] = (usd, read, out)
+    f["ids"][mid] = (usd, read, out, ts)
     f["usd"] += usd or 0
     f["unp"] += usd is None
     f["read"] += read
     f["out"] += out
     if f["kind"] == "sub" or not o.get("isSidechain"):
         f["model"], f["ctx"] = model, prompt  # 지금 모델과 컨텍스트에 든 양 = 마지막 요청의 프롬프트 크기
+        f["mts"] = max(f["mts"], ts)
 
 
 def usage_codex_line(f, raw):
@@ -573,14 +610,19 @@ def usage_publish():
             if not all(f["done"] for _, f in fs):
                 continue
             usage_ready.add(sess)
-        d = {"model": mf["model"], "ctx": mf["ctx"],
-             "win": mf["win"] if mf["kind"] == "codex" else claude_window(mf["model"] or "", mf["ctx"]),
+        h = hook_pids.get(sess) or {}
+        model = mf["model"]
+        if mf["kind"] != "codex" and h.get("model") and float(h.get("mat") or 0) > mf["mts"]:
+            model = h["model"]                # 켠(이어서 연) 뒤로 아직 응답이 없음 → 로그의 옛 모델 말고 지금 켜진 모델
+        late = [usage_since(f, mf["cut"]) for _, f in fs if f["kind"] == "sub"]
+        d = {"model": model, "ctx": mf["ctx"],
+             "win": mf["win"] if mf["kind"] == "codex" else claude_window(model or "", mf["ctx"]),
              "in": sum(f["read"] for _, f in fs), "out": sum(f["out"] for _, f in fs),
-             "usd": round(sum(f["usd"] for _, f in fs), 4),
+             "usd": round(mf["base"] + mf["usd"] + sum(x[0] for x in late), 4),
              "sub": round(sum(f["usd"] for _, f in fs if f["kind"] == "sub"), 4)}
         if not d["model"] and not d["in"]:
             continue
-        if any(f["unp"] for _, f in fs):
+        if mf["unp"] or any(x[1] for x in late):
             d["unp"] = 1                      # 요금표에 없는 모델이 섞임 → usd 는 아는 모델 몫만
         subs = sorted((f for _, f in fs if f["kind"] == "sub" and f["model"] and now - f["mtime"] < ACTIVE_WINDOW),
                       key=lambda f: -f["mtime"])[:USAGE_AGENTS]
@@ -904,7 +946,7 @@ def hook_main(src, port=None):
         body = json.dumps({"src": src, "event": d.get("hook_event_name"), "session_id": d.get("session_id"),
                            "cwd": d.get("cwd"), "transcript_path": d.get("transcript_path"),
                            "reason": d.get("reason") or d.get("notification_type") or d.get("source") or d.get("tool_name"),
-                           "pid": agent_pid(src)}).encode()
+                           "model": d.get("model"), "pid": agent_pid(src)}).encode()
         ports = {p for p, _, _ in listed_servers()}
         if port:
             ports.add(port)                 # 예전 방식 (--port 를 붙인 hook) 도 계속 받게
@@ -967,7 +1009,11 @@ def take_hook(b):
             return True
         h = hook_pids.get(sess)
         if ev == "SessionStart" or not h or (pid and h.get("pid") != pid):   # 처음 보거나 PID 를 새로 알게 됨
-            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid, "at": time.time()}
+            hook_pids[sess] = {"pid": pid or (h or {}).get("pid"), "src": src, "proj": proj, "id": sid, "at": time.time(),
+                               **{k: h[k] for k in ("model", "mat") if h and k in h}}
+            model = b.get("model")
+            if ev == "SessionStart" and isinstance(model, str) and 0 < len(model) < 80:
+                hook_pids[sess].update(model=model, mat=time.time())     # 지금 켜진 모델 (이어서 열면 로그의 옛 모델과 다를 수 있음)
             hook_ended.pop(sess, None)
             save_hook_state()
         if ev == "SessionStart":
@@ -1187,6 +1233,7 @@ def session_pids(procs=None):
 #   hook 으로 PID 를 아는 세션·프로세스는 빼고 짝지음. 윈도우는 작업 폴더를 못 읽어서 하지 않음.
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 force_paths = set()                         # 하루가 지났어도 읽을 세션 파일 (프로세스가 살아 있음)
+_session_files = {}                         # 전체 세션 ID -> 로그 파일 (session_file)
 _alive_guess = {"at": 0.0, "sess": {}}
 
 
@@ -1218,19 +1265,14 @@ def guess_alive(root):
         except Exception:
             procs = []
         pids = {p["pid"] for p in procs}
+        known = session_pids(procs)
         hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
         claimed = set(hook_pids)
         for p in sorted(procs, key=lambda p: -(p["start"] or 0)):
             if p["pid"] in hooked or p["ppid"] in pids:      # hook 으로 아는 프로세스, claude 가 띄운 자식은 빼고
                 continue
-            path = None
             m = UUID_RE.search(p["args"] or "")
-            if m:
-                for d in (os.listdir(root) if os.path.isdir(root) else []):
-                    f = os.path.join(root, d, m.group(0) + ".jsonl")
-                    if os.path.isfile(f):
-                        path = f
-                        break
+            path = session_file(root, known.get(p["pid"])) or (session_file(root, m.group(0)) if m else None)   # pid 파일 → 명령줄의 세션 ID
             if not path and p["cwd"]:
                 pdir = project_dir_for(root, p["cwd"])
                 if pdir:
@@ -1245,15 +1287,39 @@ def guess_alive(root):
                 if key not in claimed:
                     out[key] = path
                     claimed.add(key)
-    force_paths.clear()
-    force_paths.update(out.values())
     _alive_guess["sess"] = out
     return out
 
 
+def session_file(root, sid):
+    """전체 세션 ID → 그 세션의 로그 파일 (어느 프로젝트 폴더에 있든). 없으면 None."""
+    if not sid:
+        return None
+    if sid not in _session_files:
+        try:
+            dirs = os.listdir(root)
+        except OSError:
+            return None
+        path = next((f for f in (os.path.join(root, d, sid + ".jsonl") for d in dirs) if os.path.isfile(f)), None)
+        if not path:
+            return None                     # 아직 파일이 없을 수 있으니 못 찾은 건 기억하지 않음
+        _session_files[sid] = path
+    return _session_files[sid]
+
+
 def alive_sessions(root):
-    """화면에 알려 줄 '실행 중' 세션: hook 으로 PID 를 아는 것 + 짐작한 것."""
-    return sorted(set(guess_alive(root)) | {k for k, h in hook_pids.items() if h.get("pid")})
+    """화면에 알려 줄 '실행 중' 세션: hook 으로 PID 를 아는 것 + 짐작한 것.
+    그 세션들의 파일은 하루 넘게 조용했어도 읽게 한다 (옛 세션을 이어서 열고 아직 아무것도 안 시킨 경우)."""
+    global force_paths
+    guessed = guess_alive(root)
+    hooked = {k: h for k, h in hook_pids.items() if h.get("pid")}
+    paths = set(guessed.values())
+    for h in hooked.values():
+        f = session_file(root, h.get("id")) if h.get("src", "claude") == "claude" else None
+        if f:
+            paths.add(f)
+    force_paths = paths                     # 통째로 바꿔 끼움 (사용량 스레드가 읽는 중에 비지 않게)
+    return sorted(set(guessed) | set(hooked))
 
 
 def hook_owners():

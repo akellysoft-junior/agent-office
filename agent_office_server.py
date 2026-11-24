@@ -1808,6 +1808,24 @@ def raise_window(chain, env=None):
     return False, linux_hint()
 
 
+def has_window(chain):
+    """그 프로세스 줄기(자신·조상) 중에 화면에 창을 가진 프로세스가 있나. 알 수 없으면 None.
+    tmux 클라이언트가 터미널 창 안에 있는지(조상에 gnome-terminal-server 등), 웹 화면의 내장 터미널처럼
+    창 없는 프로그램(node 등)이 띄운 것인지 가리는 데 쓴다."""
+    pids = set(chain)
+    wins = gnome_window_calls()
+    if wins is not None:
+        return any(w.get("pid") in pids for w in wins)
+    if linux_session()[0] == "wayland":
+        return None
+    if shutil.which("wmctrl"):
+        return any(len(c) >= 3 and c[2].isdigit() and int(c[2]) in pids
+                   for c in (ln.split(None, 4) for ln in run(["wmctrl", "-lp"]).splitlines()))
+    if shutil.which("xdotool"):
+        return any(run(["xdotool", "search", "--pid", str(p)]) for p in pids)
+    return None
+
+
 def tmux_pane(env, tty, chain):
     """그 프로세스가 실제로 들어 있는 tmux 패널: (tmux 명령 앞부분, 패널 ID). tmux 안이 아니면 None.
     환경 변수(TMUX_PANE)만으로는 알 수 없다: tmux 안에서 띄운 터미널(이어하기로 연 창 등)에서 켠 claude 도 그 값을 물려받고,
@@ -1847,6 +1865,12 @@ def focus_linux(p):
             rows = [ln.split(None, 2) for ln in run(base + ["list-clients"] + (["-t", sess] if sess else []) +
                                                     ["-F", "#{client_activity} #{client_pid} #{client_tty}"]).splitlines()]
             rows = sorted((r for r in rows if len(r) == 3 and r[1].isdigit()), key=lambda r: r[0], reverse=True)
+            # 창 없는 프로그램이 띄운 클라이언트(웹 화면의 내장 터미널 등)는 갈 곳이 없으니 뺀다.
+            # 창이 있는지 알 수 없는 환경(Wayland 에 Window Calls 없음 등)이면 예전처럼 다 남긴다
+            shown = [r for r in rows if has_window(ancestors(int(r[1]))) is not False]
+            if rows and not shown:
+                print(f"[터미널로 이동] tmux 클라이언트 {len(rows)}개가 모두 터미널 창 밖 (내장 터미널 등)")
+            embedded, rows = bool(rows) and not shown, shown
             env, tty, chain = {}, "", []       # 패널 안의 값은 tmux 서버를 켠 때 것이라 믿을 수 없다
             if rows:
                 cpid = int(rows[0][1])
@@ -1855,7 +1879,8 @@ def focus_linux(p):
                 tt = run(base + ["display-message", "-p", "-t", pane, "#{set-titles} #{E:set-titles-string}"]).split(None, 1)
                 title = tt[1].strip() if len(tt) == 2 and tt[0] in ("1", "on") else ""
             elif sess and open_terminal(base + ["attach-session", "-t", sess]):
-                return True, "이 tmux 세션을 띄워 둔 터미널이 없어서, 새 터미널 창에 열었어요."
+                return True, ("이 tmux 세션은 터미널 창 밖(내장 터미널 등)에서만 열려 있어서, 새 터미널 창에도 열었어요."
+                              if embedded else "이 tmux 세션을 띄워 둔 터미널이 없어서, 새 터미널 창에 열었어요.")
             else:
                 return False, ("이 세션은 tmux 안에서 도는데, 그 tmux를 띄워 둔 터미널이 없어요. "
                                "터미널에서 tmux attach 로 열어 주세요.")

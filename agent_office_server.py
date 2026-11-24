@@ -1351,14 +1351,13 @@ def find_process(m):
         for p in procs:                    # 기억한 뒤에 켜진 프로세스 = 같은 번호를 다시 받은 남
             if p["pid"] in own and p["start"] and p["start"] > float(hook_pids[own[p["pid"]]].get("at") or 0) + 5:
                 del own[p["pid"]]
-    for p in procs:                        # hook 이 pid 파일보다 먼저 (더 최근 소식)
-        if own.get(p["pid"]) == key if p["pid"] in own else known.get(p["pid"]) == m["id"]:
-            return {**p, "how": "hook" if p["pid"] in own else "pid 파일"}
+    sure = [{**p, "how": "hook" if p["pid"] in own else "pid 파일"} for p in procs    # hook 이 pid 파일보다 먼저 (더 최근 소식)
+            if (own.get(p["pid"]) == key if p["pid"] in own else known.get(p["pid"]) == m["id"])]
     pids = {p["pid"] for p in procs}
     procs = [p for p in procs if p["pid"] not in own and not known.get(p["pid"])]
-    for p in procs:
-        if m["id"] in p["args"]:
-            return {**p, "how": "명령줄의 세션 ID"}
+    sure += [{**p, "how": "명령줄의 세션 ID"} for p in procs if m["id"] in p["args"]]
+    if sure:                               # 같은 세션을 두 군데서 열어 뒀으면(tmux 에 둔 채 다른 터미널에서 이어 엶) 나중에 켠 쪽
+        return max(sure, key=lambda p: p["start"] or 0)
     if key in hook_ended:
         return None
     try:
@@ -1730,7 +1729,7 @@ def check_terminal():
     for pr in procs[:20]:
         env = proc_env(pr["pid"])
         keys = [k for k in ("TMUX_PANE", "GNOME_TERMINAL_SCREEN", "KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "WEZTERM_PANE",
-                            "PTYXIS_VERSION", "TILIX_ID", "VTE_VERSION", "TERM_PROGRAM") if env.get(k)]
+                            "WINDOWID", "PTYXIS_VERSION", "TILIX_ID", "VTE_VERSION", "TERM_PROGRAM") if env.get(k)]
         print(f"  pid {pr['pid']}  tty {pr['tty']}  cwd {pr['cwd']}  {' '.join(k + '=' + env[k] for k in keys)}  [{pr['args'][:50]}]")
 
 
@@ -1748,8 +1747,14 @@ def open_terminal(argv, cwd=None):
     return False
 
 
-def raise_window(chain):
+def raise_window(chain, env=None):
     pids = list(chain)
+    # X11: 터미널이 탭을 열 때 넣어 주는 창 번호(WINDOWID). gnome-terminal 은 창이 여러 개여도 프로세스가 하나라 PID 로는 못 가림
+    wid = (env or {}).get("WINDOWID", "")
+    if wid.isdigit() and linux_session()[0] == "x11":
+        if (shutil.which("xdotool") and run_ok(["xdotool", "windowactivate", wid])) or \
+                (shutil.which("wmctrl") and run_ok(["wmctrl", "-ia", wid])):
+            return True, "터미널 창을 앞으로 가져왔어요."
     wins = gnome_window_calls()
     if wins:
         for pid in pids:
@@ -1846,7 +1851,7 @@ def focus_linux(p):
     if env.get("KONSOLE_DBUS_SESSION") and konsole_pick(env):
         picked = "Konsole에서 그 탭을"
     # 6) 창 자체를 앞으로
-    ok, msg = raise_window(chain)
+    ok, msg = raise_window(chain, env)
     if ok:
         if picked:
             return True, picked + " 고르고 " + msg
@@ -2004,7 +2009,11 @@ def resume_ended(m):
 def do_focus(m):
     """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 Claude Code 가 적어 둔 pid 파일·폴더·시작 시각으로 찾는다.
     도는 프로세스가 없으면(끝난 세션) 새 터미널에서 이어서 연다."""
-    p = hook_process(m) or find_process(m)
+    h, f = hook_process(m), find_process(m)
+    p = h or f
+    if (h and f and m.get("src") != "codex" and f["pid"] != h["pid"] and f.get("how") != "같은 폴더 (짐작)"
+            and (f["start"] or 0) > (h["start"] or 0)):
+        p = f                              # hook 은 마지막으로 소식을 준 프로세스만 기억함: 같은 세션을 나중에 켠 프로세스가 있으면 그쪽
     print(f"[터미널로 이동] {m.get('key') or m['id'][:8]} → " + (f"pid {p['pid']} ({p.get('how')}, {p.get('tty') or 'tty 없음'})" if p else "도는 프로세스 없음"))
     if not p and m.get("src") == "codex":
         return (("desktop" in (m.get("app") or "") and focus_codex_app())

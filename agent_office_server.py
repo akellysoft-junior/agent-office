@@ -1567,15 +1567,37 @@ def linux_hint():
 # 창마다 탭을 하나씩 넘겨 보며(org.gtk.Actions 'active-tab' 또는 'tab-switch-right')
 # 창 제목이 표식이 되는 탭을 찾는다. 창 제목은 Window Calls 확장이나 X11 도구로 읽는다.
 
-def gt_windows():
+def gt_windows(service=""):
+    """탭을 넘겨 볼 gnome-terminal 창들: [(D-Bus 이름, 창 경로)].
+    service 는 그 탭의 GNOME_TERMINAL_SERVICE (그 탭을 띄운 터미널 서버의 버스 이름). --app-id 로 따로 띄운 터미널은
+    이름도 경로도 org.gnome.Terminal 이 아니라서, 그 서버를 통째로 훑어 .../window/N 을 찾는다 (엉뚱한 서버의 탭을 넘기지 않게)."""
+    if re.fullmatch(r"[A-Za-z0-9_.:-]+", service or ""):
+        out = run(["gdbus", "introspect", "--session", "--dest", service, "--object-path", "/", "--recurse"], timeout=10)
+        stack, found = [], []
+        for ln in out.splitlines():
+            ln = ln.strip()
+            m = re.fullmatch(r"node\s+(\S+)\s*\{", ln)
+            if m:                              # 하위 노드는 전체 경로로도, 이름만으로도 나올 수 있다
+                name = m.group(1)
+                up = next((x for x in reversed(stack) if x), "")
+                path = name if name.startswith("/") else up.rstrip("/") + "/" + name
+                stack.append(path)
+                if re.search(r"/window/\d+$", path) and path not in found:
+                    found.append(path)
+            elif ln.endswith("{"):
+                stack.append(None)
+            elif ln in ("}", "};") and stack:
+                stack.pop()
+        if found:
+            return [(service, x) for x in found]
     out = run(["gdbus", "introspect", "--session", "--dest", "org.gnome.Terminal",
                "--object-path", "/org/gnome/Terminal/window"])
     # 첫 줄 'node /org/gnome/Terminal/window {'(자기 자신)는 빼고 하위 노드(창)만
-    return ["/org/gnome/Terminal/window/" + n for n in re.findall(r"node\s+([^/\s]\S*)\s*\{", out)]
+    return [("org.gnome.Terminal", "/org/gnome/Terminal/window/" + n) for n in re.findall(r"node\s+([^/\s]\S*)\s*\{", out)]
 
 
-def gt_action(path, method, *args):
-    return run(["gdbus", "call", "--session", "--dest", "org.gnome.Terminal", "--object-path", path,
+def gt_action(win, method, *args):
+    return run(["gdbus", "call", "--session", "--dest", win[0], "--object-path", win[1],
                 "--method", "org.gtk.Actions." + method, *args]).strip()
 
 
@@ -1604,7 +1626,7 @@ def title_finder():
     if linux_session()[0] == "wayland":
         return None
     if shutil.which("xdotool"):
-        return (lambda t: (run(["xdotool", "search", "--name", "^" + t + "$"]).split() or [None])[-1],
+        return (lambda t: (run(["xdotool", "search", "--name", "^" + re.sub(r"([.\[\]{}()*+?^$|\\])", r"\\\1", t) + "$"]).split() or [None])[-1],
                 lambda wid: run(["xdotool", "windowactivate", wid]))
     if shutil.which("wmctrl"):
         def find(t):
@@ -1617,8 +1639,10 @@ def title_finder():
     return None
 
 
-def gnome_terminal_pick(tty):
-    """그 tty가 있는 탭을 띄우고 그 창을 앞으로 가져온다. 못 찾으면 False."""
+def gnome_terminal_pick(tty, service="", title=""):
+    """그 tty가 있는 탭을 띄우고 그 창을 앞으로 가져온다. 못 찾으면 False.
+    service: 그 탭의 GNOME_TERMINAL_SERVICE (gt_windows). title: 그 탭에 붙어 있을 제목 — tmux 가 제목을 직접 정하면(set-titles)
+    표식을 덮어쓸 수 있어서, 창 제목이 표식이거나 이 제목이면 찾은 것으로 본다."""
     if not re.fullmatch(r"/dev/pts/\d+", tty or "") or not shutil.which("gdbus"):
         return False
     finder = title_finder()
@@ -1633,7 +1657,7 @@ def gnome_terminal_pick(tty):
         # Claude Code는 일하는 동안 제목을 계속 다시 써서, 볼 때마다 표식을 다시 건다
         tty_write(tty, f"\033]0;{marker}\007")
         time.sleep(0.04)
-        return find_win(marker)
+        return find_win(marker) or (find_win(title) if title else None)
 
     hit = None
     try:
@@ -1642,7 +1666,7 @@ def gnome_terminal_pick(tty):
             if hit:
                 break
         if not hit:
-            for path in gt_windows():
+            for path in gt_windows(service):
                 # 방법 A: active-tab 을 0, 1, 2… 로 불러 본다 (탭 개수를 넘는 번호는 무시돼서 상태가 안 바뀜)
                 def active():
                     return re.findall(r"<(?:int32\s+)?(-?\d+)>", gt_action(path, "Describe", "active-tab"))
@@ -1707,8 +1731,9 @@ def check_terminal():
     if wins and not all("title" in w for w in wins):
         print("  창 목록에 제목이 없어요 (오래된 판). 확장을 업데이트해 주세요.")
     print(f"창 제목 읽기(탭 찾기에 필요): {'됨' if title_finder() else '안 됨'}")
-    gws = gt_windows()
-    print(f"gnome-terminal 창: {len(gws)}개 {gws[:3]}")
+    svc = os.environ.get("GNOME_TERMINAL_SERVICE", "")
+    gws = gt_windows(svc)
+    print(f"gnome-terminal 창: {len(gws)}개 ({gws[0][0] if gws else svc or '-'}) {[w[1] for w in gws[:6]]}")
     if gws:
         print("  active-tab:", gt_action(gws[0], "Describe", "active-tab") or "(지원 안 함)")
         print("  tab-switch-right:", gt_action(gws[0], "Describe", "tab-switch-right") or "(지원 안 함)")
@@ -1720,7 +1745,7 @@ def check_terminal():
         tty = os.ttyname(sys.stdout.fileno())
     if gws and tty and os.environ.get("GNOME_TERMINAL_SCREEN"):
         t0 = time.time()
-        print(f"이 탭 찾기 시험 ({tty}): {'됨' if gnome_terminal_pick(tty) else '안 됨'} ({time.time() - t0:.1f}초)")
+        print(f"이 탭 찾기 시험 ({tty}): {'됨' if gnome_terminal_pick(tty, svc) else '안 됨'} ({time.time() - t0:.1f}초)")
     if shutil.which("tmux"):
         rows = run(["tmux", "list-clients", "-F", "#{session_name} ← pid #{client_pid} #{client_tty}"]).splitlines()
         print(f"tmux를 띄워 둔 터미널: {len(rows)}개 {rows[:6]}")
@@ -1728,7 +1753,7 @@ def check_terminal():
     print(f"실행 중인 claude: {len(procs)}개")
     for pr in procs[:20]:
         env = proc_env(pr["pid"])
-        keys = [k for k in ("TMUX_PANE", "GNOME_TERMINAL_SCREEN", "KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "WEZTERM_PANE",
+        keys = [k for k in ("TMUX_PANE", "GNOME_TERMINAL_SCREEN", "GNOME_TERMINAL_SERVICE", "KONSOLE_DBUS_SESSION", "KITTY_WINDOW_ID", "WEZTERM_PANE",
                             "WINDOWID", "PTYXIS_VERSION", "TILIX_ID", "VTE_VERSION", "TERM_PROGRAM") if env.get(k)]
         print(f"  pid {pr['pid']}  tty {pr['tty']}  cwd {pr['cwd']}  {' '.join(k + '=' + env[k] for k in keys)}  [{pr['args'][:50]}]")
 
@@ -1807,7 +1832,7 @@ def focus_linux(p):
     env = proc_env(pid)
     chain = ancestors(pid)
     tty = "/dev/" + p["tty"] if p.get("tty") else ""
-    picked = ""
+    picked = title = ""
     # 1) tmux: 그 세션이 있는 창·패널로 전환. 그다음은 tmux를 띄운 쪽(클라이언트)의 터미널을 찾는다
     tp = tmux_pane(env, tty, chain)
     if env.get("TMUX_PANE") or tp:
@@ -1826,6 +1851,9 @@ def focus_linux(p):
             if rows:
                 cpid = int(rows[0][1])
                 chain, env, tty = ancestors(cpid), proc_env(cpid), rows[0][2]
+                # tmux 가 터미널 제목을 직접 정하고 있으면(set-titles) 그 제목 — 탭을 찾을 때 표식과 함께 씀
+                tt = run(base + ["display-message", "-p", "-t", pane, "#{set-titles} #{E:set-titles-string}"]).split(None, 1)
+                title = tt[1].strip() if len(tt) == 2 and tt[0] in ("1", "on") else ""
             elif sess and open_terminal(base + ["attach-session", "-t", sess]):
                 return True, "이 tmux 세션을 띄워 둔 터미널이 없어서, 새 터미널 창에 열었어요."
             else:
@@ -1845,7 +1873,7 @@ def focus_linux(p):
             return True, "WezTerm에서 그 패널을 앞으로 가져왔어요."
     # 4) gnome-terminal이면 그 세션의 탭을 찾아 띄운다 (창 제목을 읽을 수 있어야 함)
     gt = bool(env.get("GNOME_TERMINAL_SCREEN"))
-    if gt and gnome_terminal_pick(tty):
+    if gt and gnome_terminal_pick(tty, env.get("GNOME_TERMINAL_SERVICE", ""), title):
         return True, "gnome-terminal에서 그 탭을 띄우고 창을 앞으로 가져왔어요."
     # 5) Konsole이면 D-Bus로 그 탭을 고른다 (창은 그다음에 앞으로)
     if env.get("KONSOLE_DBUS_SESSION") and konsole_pick(env):

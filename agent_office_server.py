@@ -1563,8 +1563,30 @@ def proc_info(pid):
             "start": None, "args": parts[8], "cwd": None}
 
 
+_resumed = {}                 # 세션 → '터미널로 이동'으로 이어서 연 시각 (연달아 눌러도 한 번만 열리게)
+
+
+def resume_ended(m):
+    """'터미널로 이동'을 눌렀는데 도는 프로세스가 없을 때: 끝난 세션이니 새 터미널에서 이어서 연다."""
+    key, now = m.get("key") or m["id"], time.time()
+    if now - _resumed.get(key, 0) < 20:        # 방금 연 터미널에서 claude 가 뜨는 중
+        return True, "방금 새 터미널에서 열었어요. 잠깐만 기다려 주세요."
+    try:
+        busy = now - os.path.getmtime(m.get("file") or "") < 30
+    except OSError:
+        busy = False
+    if busy:                   # 기록이 방금까지 쓰였으면 어딘가에서 도는데 못 찾은 것 → 하나 더 열지 않는다
+        return False, "방금까지 일하던 세션인데 터미널을 찾지 못했어요. 끝난 세션이면 '이어하기'로 다시 열 수 있어요.", {"gone": True}
+    ok, msg = do_resume(m)
+    if not ok:
+        return False, "끝난 세션이에요. " + msg
+    _resumed[key] = now
+    return True, "끝난 세션이라 " + msg, {"resumed": True}
+
+
 def do_focus(m):
-    """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 Claude Code 가 적어 둔 pid 파일·폴더·시작 시각으로 찾는다."""
+    """hook 으로 알게 된 PID 가 있으면 그걸로 정확히, 없으면 Claude Code 가 적어 둔 pid 파일·폴더·시작 시각으로 찾는다.
+    도는 프로세스가 없으면(끝난 세션) 새 터미널에서 이어서 연다."""
     h = hook_pids.get(m.get("key") or "") or {}
     p = proc_info(h["pid"]) if h.get("pid") and pid_alive(h["pid"]) else None
     if not p:
@@ -1573,7 +1595,7 @@ def do_focus(m):
         return (("desktop" in (m.get("app") or "") and focus_codex_app())
                 or (False, "실행 중인 Codex를 찾지 못했어요. 끝난 세션 같아요."))
     if not p:
-        return False, "실행 중인 Claude Code를 찾지 못했어요. 끝난 세션이면 '이어하기'로 다시 열 수 있어요.", {"gone": True}
+        return resume_ended(m)
     if SYSTEM == "Darwin":
         return focus_mac(p, m)
     if SYSTEM == "Windows":

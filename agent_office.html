@@ -1762,6 +1762,29 @@ function visibleCats(){
   return out;
 }
 const deskBusy = key => visibleCats().some(a => a.desk === key && a.state === "working");
+function lotCats(slot){                           // 그 사무실에 자리가 있는 모두 (문밖에서 들어올 차례를 기다리는 고양이도 포함)
+  const out = [];
+  if (live) for (const s of live.sessions.values()) if (s.slot === slot){ out.push(s.boss); if (!ONE) out.push(...s.kittens.values()); }
+  if (team && team.slot === slot) for (const m of team.members) if (m.present && m.cat) out.push(m.cat);
+  return out;
+}
+/* 휴게공간 빈자리: 다른 고양이·사람이 있거나 가는 중인 자리와 화면에서 겹치는 곳은 뺌. 보이는지나 loungeIdx 가 아니라
+   화면 좌표로 따져서, 한꺼번에 여럿이 쉬러 가도 같은 자리에 겹치지 않고 소파 왼쪽과 그 앞 캣타워처럼 서로 가리는 자리도 함께 쓰지 않음.
+   책상이 없어 휴게 자리가 제자리인 고양이는 그 자리도 맡아 둠. roomy: 빈자리 중 다른 고양이와 가장 멀리 떨어진 곳만 */
+function loungeFree(L, slot, me, spots = lotLounge(L), roomy){
+  const at = (p, lift) => ({x: isoX(p.x, p.y), y: isoY(p.x, p.y) - (lift || 0)});
+  const pts = [];
+  for (const x of lotCats(slot)){
+    if (x === me || x.leaving) continue;
+    pts.push(at(x.seat, x.lift ?? x.seatLift));
+    if (x.deskIdx < 0) pts.push(at(x.home, 7));
+  }
+  const gap = spots.map(sp => { const q = at(sp, sp.lift); return Math.min(Infinity, ...pts.map(p => Math.hypot(p.x - q.x, p.y - q.y))); });
+  const free = spots.map((_, i) => i).filter(i => gap[i] >= 12);       // 12: 고양이를 누르는 반경 (catAt)
+  if (!roomy) return free;
+  const best = Math.min(30, ...free.map(i => gap[i]).sort((a, b) => b - a).slice(0, 1));   // 30 넘게 떨어졌으면 다 넉넉한 자리 (그중에서 아무 데나)
+  return free.filter(i => gap[i] >= best - 4);
+}
 function slotSession(i){
   if (mode !== "live" || !live || ONE) return null;
   for (const s of live.sessions.values()) if (s.slot === i) return s;
@@ -2071,10 +2094,12 @@ function oneSeatBoss(boss, want){                 // one: 대장 고양이를 �
   if (want != null && want >= 0 && want < lotMax(L) && !used.has(want)) idx = want;
   else for (let i=0; i<lotMax(L); i++) if (!used.has(i)){ idx = i; break; }
   if (idx < 0 && team){
-    const m = team.members.filter(x => x.present && !x.leaving && x.cat && talkSel.cat !== x.cat).sort((a, b) => b.rank - a.rank)[0];
+    const given = new Set([...live.sessions.values()].map(v => v.boss.deskIdx));     // 이미 다른 고양이한테 내준 책상은 또 내주지 않음
+    const m = team.members.filter(x => x.present && !x.leaving && x.cat && talkSel.cat !== x.cat && !given.has(x.cat.deskIdx)).sort((a, b) => b.rank - a.rank)[0];
     if (m){ idx = m.cat.deskIdx; m.leaveAt = 0; }
   }
-  const seat = idx >= 0 ? lotSeat(L, idx) : lotLounge(L)[3];
+  const floor = idx >= 0 ? [] : loungeFree(L, H, boss).filter(i => i >= 3);        // 책상이 없으면 휴게공간 바닥 빈자리에
+  const seat = idx >= 0 ? lotSeat(L, idx) : lotLounge(L)[floor.length ? floor[0] : 3];
   Object.assign(boss, {lot:H, router:lotRouter(L), deskIdx:idx, home:{...seat}, seat:{...seat}});
 }
 function liveSession(rec){
@@ -2292,9 +2317,7 @@ function pruneLegacy(){
 }
 function sendToRest(s){              // 오래 쉰 세션: 휴게실 빈자리 중 아무 데나
   const L = SLOTS[s.slot], b = s.boss, spots = lotLounge(L);
-  const sharing = ONE ? visibleCats().filter(x => x.lot === s.slot) : [b, ...s.kittens.values()];
-  const taken = new Set(sharing.filter(x => x.inLounge && x !== b).map(x => x.loungeIdx));
-  const free = spots.map((_, i) => i).filter(i => !taken.has(i));
+  const free = loungeFree(L, s.slot, b, spots, true);
   Object.assign(s, {longRest:true, phase:"idle", activity:"12시간 넘게 쉬는 중", pendingEndAt:0, hookStopAt:0, pendingTool:null});
   Object.assign(b, {waiting:false, sign:null, busy:false, stateText:"12시간 넘게 쉬는 중"});
   if (!free.length) return;                                    // 빈자리가 없으면 자리에서 쉼
@@ -2465,9 +2488,8 @@ function liveTick(dt){
       if (nowMs - c.lastMs < 9000) continue;
       if (c === s.boss && s.phase === "working") continue;     // 세션이 일하는 동안 대장은 책상을 지킨다
       const spots = lotLounge(L);
-      const sharing = ONE ? visibleCats().filter(x => x.lot === s.slot) : cats;   // one: 다른 세션 고양이·사람과 자리 나눔
-      const taken = new Set(sharing.filter(x => x.inLounge).map(x => x.loungeIdx));
-      const free = spots.map((_, i) => i).filter(i => !taken.has(i) && !(ONE && charArt.ready && [3, 4].includes(i) && sharing.some(x => x.human && x.inLounge)));
+      const human = ONE && charArt.ready && lotCats(s.slot).some(x => x.human && x.inLounge);   // one: 다른 세션 고양이·사람과 자리 나눔
+      const free = loungeFree(L, s.slot, c, spots, true).filter(i => !(human && [3, 4].includes(i)));
       if (!free.length) continue;
       const i = free[(c.deskIdx * 7 + Math.floor(nowMs / 60000)) % free.length];
       Object.assign(c, {inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,
@@ -2625,9 +2647,8 @@ function teamTick(){
       const spots = lotLounge(L);
       if (L.big) spots.push({x: lotAisle(L) - 6, y: L.y + 22, lift:0, nap:999},      // 6: 정수기 앞
                             {x: L.x + 98, y: L.y + 150, lift:0, nap:999});            // 7: 회의 테이블 옆
-      const taken = new Set((ONE ? visibleCats().filter(x => x.lot === team.slot) : team.members.filter(x => x.present).map(x => x.cat))
-                              .filter(x => x.inLounge).map(x => x.loungeIdx));
-      const free = (charArt.ready ? (L.big ? [3, 4, 6, 7] : [3, 4]) : [0, 1, 3, 4]).filter(i => !taken.has(i));   // 사람은 러그(그림)·소파(선화)만, 캣타워·밥그릇은 고양이 자리
+      const open = new Set(loungeFree(L, team.slot, c, spots));
+      const free = (charArt.ready ? (L.big ? [3, 4, 6, 7] : [3, 4]) : [0, 1, 3, 4]).filter(i => open.has(i));   // 사람은 러그(그림)·소파(선화)만, 캣타워·밥그릇은 고양이 자리
       if (free.length){
         const i = pick(free);
         Object.assign(c, {busy:false, inLounge:true, loungeIdx:i, seat:{x:spots[i].x, y:spots[i].y}, seatLift:spots[i].lift,

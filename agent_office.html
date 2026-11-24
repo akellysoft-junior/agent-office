@@ -2310,18 +2310,21 @@ function trackMain(s, o, fresh){
 const STALE_MS = 24 * 3600 * 1000;   // 하루 넘게 새 기록이 없는 세션은 화면에서 뺌
 const REST_MS = 12 * 3600 * 1000;    // 12시간 넘게 새 기록이 없으면 책상 대신 휴게실에서 쉼
 const WAIT_REST_MS = 15 * 60000;     // 명령을 15분 넘게 기다리면 휴게실로 (질문·계획·승인 대기는 자리에서 팻말 들고 기다림)
-const LEGACY_KEEP = 2;               // hook 이전부터 남은 세션은 최근 것 2개까지만, 그것도 자리에 여유가 있을 때만
+const LEGACY_KEEP = 2;               // hook 이전부터 남은 꺼진 세션은 최근 것 2개까지만 (켜져 있는 것은 자리가 남는 만큼), 그것도 자리에 여유가 있을 때만
 const legacyDropped = new Map();     // 정리한 옛 세션 → 그때 마지막 기록 시각 (같은 옛 기록으로 다시 나오지 않게)
 const isAlive = sid => !!(live && live.alive && live.alive.has(sid));   // 프로세스가 살아 있으면 하루가 지나도 보여 줌
 const isLegacy = s => !s.headless && !s.hooked && !(live.tracked && live.tracked.has(s.sid)) && !!(live.hookSrc && live.hookSrc.has(s.src));
 function pruneLegacy(){
   const all = [...live.sessions.values()].filter(s => !s.ending);
-  const old = all.filter(isLegacy).sort((a, b) => (isAlive(b.sid) - isAlive(a.sid)) || (b.lastTs - a.lastTs));   // 살아 있는 것 먼저, 그다음 최근 것
+  const old = all.filter(isLegacy).sort((a, b) => b.lastTs - a.lastTs);   // 최근 것 먼저
   if (!old.length) return;
   const seats = ONE ? Math.min(BOSSES.length, SLOTS[hqSlot()].maxDesks || BOSSES.length)
                     : SLOTS.length - (teamSlot() >= 0 ? 1 : 0);
-  const keep = Math.max(0, Math.min(LEGACY_KEEP, seats - (all.length - old.length)));
-  for (const s of old.slice(keep)){ legacyDropped.set(s.sid, s.lastTs); dropSession(s); }
+  const room = Math.max(0, seats - (all.length - old.length));
+  const on = old.filter(s => isAlive(s.sid)), off = old.filter(s => !isAlive(s.sid));
+  const keepOn = Math.min(on.length, room);                            // 터미널이 켜져 있으면 자리가 남는 만큼 다
+  const keepOff = Math.max(0, Math.min(LEGACY_KEEP, room - keepOn));   // 꺼진 옛 세션은 남은 자리에서 2개까지
+  for (const s of [...on.slice(keepOn), ...off.slice(keepOff)]){ legacyDropped.set(s.sid, s.lastTs); dropSession(s); }
 }
 function sendToRest(s){              // 오래 쉰 세션: 휴게실 빈자리 중 아무 데나
   const L = SLOTS[s.slot], b = s.boss, spots = lotLounge(L);

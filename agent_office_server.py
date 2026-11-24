@@ -125,6 +125,8 @@ def tail(path, sess, proj, agent=None, conv=None, src=None):
         return                        # 하루 넘게 조용한 파일은 건너뜀 (프로세스가 살아 있는 세션은 예외)
     if agent is None and conv is None:
         learn_meta(path, sess)
+    if agent is None:
+        usage_track(path, sess, "codex" if src == "codex" else "main")
     first = path not in offsets
     pos = offsets.get(path, max(0, st.st_size - BACKLOG_BYTES))
     if st.st_size < pos:              # 파일이 교체/축소됨
@@ -348,6 +350,267 @@ def scan_codex(root=CODEX_ROOT):
                 m = codex_learn(path, sess)
                 proj = os.path.basename((m.get("cwd") or "").rstrip("/")) or "codex"
                 tail(path, sess, proj, conv=codex_conv, src="codex")
+
+
+# ───────── 세션별 토큰 사용량·요금: 대화창에서 팀장냥이 알려 줌 ─────────
+# 로그의 응답 줄마다 붙은 usage 를 세션 파일 처음부터 끝까지 더한다 (서브에이전트 파일 포함).
+# 파일이 수백 MB 일 수 있어서 화면 요청과는 따로, 뒤에서 조금씩 읽는다 (usage_loop).
+# 요금은 공개 API 정가로 환산한 값이다 (2026-11-24 확인). 구독 요금제로 쓰면 실제로 내는 돈과 다르다.
+#   Claude: https://platform.claude.com/docs/en/about-claude/pricing   OpenAI: https://developers.openai.com/api/docs/pricing
+# (모델 이름 조각, 입력, 캐시 읽기, 출력) $/100만 토큰 — 위에서부터 먼저 맞는 것을 쓴다.
+# 캐시 쓰기는 입력가의 1.25배(5분)·2배(1시간). 표에 없는 모델은 요금을 지어내지 않고 토큰 수만 알려 준다.
+CLAUDE_PRICES = [
+    ("fable-5-2", 8, 0.20, 40), ("mythos-5-2", 8, 0.20, 40),
+    ("fable-5-1", 10, 0.25, 50), ("mythos-5-1", 10, 0.25, 50),
+    ("fable-5", 10, 1.00, 50), ("mythos-5", 10, 1.00, 50),
+    ("opus-5-5", 4, 0.20, 20),
+    ("opus-5", 5, 0.50, 25), ("opus-4-8", 5, 0.50, 25), ("opus-4-7", 5, 0.50, 25),
+    ("opus-4-6", 5, 0.50, 25), ("opus-4-5", 5, 0.50, 25),
+    ("opus-4-1", 15, 1.50, 75), ("opus-4", 15, 1.50, 75),
+    ("sonnet-5-5", 2, 0.10, 10), ("sonnet-5", 2, 0.20, 10),
+    ("sonnet-4-6", 3, 0.30, 15), ("sonnet-4-5", 3, 0.30, 15), ("sonnet-4", 3, 0.30, 15),
+    ("haiku-5-5", 0.10, 0.01, 0.50),          # 프롬프트가 10만 토큰을 넘는 요청은 5배 (claude_cost)
+    ("haiku-4-5", 1, 0.10, 5),
+]
+CLAUDE_WIN_200K = {"haiku-4-5", "opus-4-5", "opus-4-1", "opus-4", "sonnet-4-5", "sonnet-4"}   # 나머지는 100만 토큰
+# Codex: 모델 ID → (입력, 캐시된 입력, 출력) $/100만 토큰 (표준 요금)
+CODEX_PRICES = {
+    "gpt-6.2-astra": (8, 0.40, 40), "gpt-6.2-sol": (2, 0.10, 10), "gpt-6.1-sol": (2, 0.10, 10), "gpt-6.1-terra": (1, 0.05, 5),
+    "gpt-6-astra": (10, 1.00, 50), "gpt-6-sol": (2, 0.20, 10), "gpt-6-luna": (0.10, 0.01, 0.50),
+    "gpt-5.6-sol": (4, 0.40, 20), "gpt-5.6-terra": (2, 0.20, 12), "gpt-5.6-luna": (0.20, 0.02, 1.20),
+    "gpt-5.5": (5, 0.50, 30), "gpt-5.4": (2.50, 0.25, 15), "gpt-5.4-mini": (0.75, 0.075, 4.50),
+    "gpt-5.3-codex": (1.75, 0.175, 14), "gpt-5.2": (1.75, 0.175, 14), "gpt-5.1": (1.25, 0.125, 10), "gpt-5": (1.25, 0.125, 10),
+}
+USAGE_CHUNK = 4 * 1024 * 1024   # 한 번에 읽는 양 (큰 파일도 화면 응답을 오래 막지 않게)
+USAGE_AGENTS = 40               # 새끼냥(서브에이전트)별 사용량은 세션마다 최근 것 40개까지만 보냄
+usage_files = {}                # 파일 경로 -> 그 파일의 누적 상태 (usage_track 이 등록, usage_loop 만 고침)
+usage_ready = set()             # 파일을 처음부터 끝까지 한 번 다 읽은 세션 (그 전엔 반쪽 숫자를 내보내지 않음)
+usage_out = {}                  # 세션 앞 8글자 -> 화면에 보낼 요약 (usage_loop 이 통째로 바꿔 끼움)
+usage_lock = threading.Lock()
+_price_memo = {}
+
+
+def _n(v):
+    return int(v) if isinstance(v, (int, float)) and v > 0 else 0
+
+
+def claude_price(model):
+    """모델 ID → (이름 조각, 입력, 캐시 읽기, 출력) 또는 None.
+    'opus-5' 가 'opus-5-5' 나 아직 모르는 'opus-5-9' 에 맞지 않게, 뒤에 한 자리 숫자가 더 붙으면 다른 모델로 본다
+    (날짜 꼬리 '-20251101' 은 괜찮음)."""
+    if model not in _price_memo:
+        _price_memo[model] = next((p for p in CLAUDE_PRICES if re.search(re.escape(p[0]) + r"(?!-\d(?!\d))", model)), None)
+    return _price_memo[model]
+
+
+def claude_cost(model, u):
+    """응답 한 번의 usage → (달러 또는 None, 읽은 토큰, 쓴 토큰, 그 요청의 프롬프트 크기)."""
+    # iterations(요청 한 번을 서버가 몇 차례에 걸쳐 처리했는지)가 있으면 그쪽이 기준: 재시도·압축이 끼면 맨 위 usage 는
+    # 마지막 것만 담고, 중간에 끊긴 응답은 맨 위가 0 인 채로 남기도 한다
+    its = [i for i in u.get("iterations") or [] if isinstance(i, dict)] if isinstance(u.get("iterations"), list) else []
+    parts = [{**u, **i} for i in its] or [u]
+    usd, read, out, prompt = 0.0, 0, 0, 0
+    for d in parts:
+        p = claude_price(d.get("model") if isinstance(d.get("model"), str) else model)
+        tin, cr, cw = _n(d.get("input_tokens")), _n(d.get("cache_read_input_tokens")), _n(d.get("cache_creation_input_tokens"))
+        o = _n(d.get("output_tokens"))
+        prompt = tin + cr + cw
+        read, out = read + prompt, out + o
+        if not p or usd is None:
+            usd = None
+            continue
+        cc = d.get("cache_creation") if isinstance(d.get("cache_creation"), dict) else {}
+        cw1h = min(cw, _n(cc.get("ephemeral_1h_input_tokens")))
+        c = (tin * p[1] + (cw - cw1h) * p[1] * 1.25 + cw1h * p[1] * 2 + cr * p[2] + o * p[3]) / 1e6
+        if p[0] == "haiku-5-5" and prompt > 100_000:
+            c *= 5
+        if d.get("speed") == "fast":
+            c *= 2
+        if d.get("inference_geo") == "us":
+            c *= 1.1
+        usd += c
+    if usd is not None:
+        stu = u.get("server_tool_use") if isinstance(u.get("server_tool_use"), dict) else {}
+        usd += _n(stu.get("web_search_requests")) * 0.01      # 웹 검색 1,000번에 $10
+    return usd, read, out, prompt
+
+
+def claude_window(model, ctx):
+    p = claude_price(model)
+    if not p:
+        return 0
+    return 200_000 if p[0] in CLAUDE_WIN_200K and ctx <= 200_000 else 1_000_000
+
+
+def usage_track(path, sess, kind, agent=None):
+    """사용량을 셀 파일로 등록 (kind: main | sub | codex)."""
+    with usage_lock:
+        if path not in usage_files:
+            usage_files[path] = dict(_usage_blank(), sess=sess, kind=kind, agent=agent)
+
+
+def _usage_blank():
+    return {"pos": 0, "rest": b"", "ids": {}, "usd": 0.0, "unp": 0, "read": 0, "out": 0,
+            "model": None, "ctx": 0, "win": 0, "cx": (0, 0, 0), "done": False, "mtime": 0.0}
+
+
+def usage_claude_line(f, raw):
+    if b'"usage"' not in raw or b'"assistant"' not in raw:
+        return
+    o = json.loads(raw)
+    m = o.get("message") if isinstance(o, dict) and o.get("type") == "assistant" else None
+    if not isinstance(m, dict):
+        return
+    u, model = m.get("usage"), m.get("model")
+    if not isinstance(u, dict) or not isinstance(model, str) or model.startswith("<"):
+        return                                # '<synthetic>': Claude Code 가 지어낸 줄 (API 호출 아님)
+    usd, read, out, prompt = claude_cost(model, u)
+    mid = m.get("id") or o.get("uuid")
+    old = f["ids"].get(mid)                   # 응답 하나가 여러 줄로 나뉘어 적히므로(같은 id) 한 번만 셈
+    if old:
+        f["usd"] -= old[0] or 0
+        f["unp"] -= old[0] is None
+        f["read"] -= old[1]
+        f["out"] -= old[2]
+    f["ids"][mid] = (usd, read, out)
+    f["usd"] += usd or 0
+    f["unp"] += usd is None
+    f["read"] += read
+    f["out"] += out
+    if f["kind"] == "sub" or not o.get("isSidechain"):
+        f["model"], f["ctx"] = model, prompt  # 지금 모델과 컨텍스트에 든 양 = 마지막 요청의 프롬프트 크기
+
+
+def usage_codex_line(f, raw):
+    if b'"turn_context"' in raw:
+        o = json.loads(raw)
+        p = o.get("payload") if isinstance(o, dict) and o.get("type") == "turn_context" else None
+        if isinstance(p, dict) and isinstance(p.get("model"), str):
+            f["model"] = p["model"]
+    if b'"token_count"' not in raw:
+        return
+    o = json.loads(raw)
+    p = o.get("payload") if isinstance(o, dict) else None
+    info = p.get("info") if isinstance(p, dict) and p.get("type") == "token_count" else None
+    if not isinstance(info, dict):
+        return
+    tot, last = info.get("total_token_usage"), info.get("last_token_usage")
+    if isinstance(tot, dict):                 # 누적값이라 지난번과의 차이만 그때 모델 값으로 셈
+        cur = (_n(tot.get("input_tokens")), _n(tot.get("cached_input_tokens")), _n(tot.get("output_tokens")))
+        prev = f["cx"] if all(c >= q for c, q in zip(cur, f["cx"])) else (0, 0, 0)
+        tin, cached, out = (c - q for c, q in zip(cur, prev))
+        price = CODEX_PRICES.get(f["model"])
+        if price:
+            f["usd"] += (max(0, tin - cached) * price[0] + cached * price[1] + out * price[2]) / 1e6
+        elif tin or out:
+            f["unp"] += 1
+        f["cx"], f["read"], f["out"] = cur, cur[0], cur[2]
+    if isinstance(last, dict):
+        f["ctx"] = _n(last.get("total_tokens")) or _n(last.get("input_tokens")) + _n(last.get("output_tokens"))
+    f["win"] = _n(info.get("model_context_window")) or f["win"]
+
+
+def usage_read(path, f):
+    """아직 안 읽은 부분을 한 덩어리만 읽어 더한다. 더 남았으면 True."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    f["mtime"] = st.st_mtime
+    if st.st_size < f["pos"]:                 # 파일이 교체/축소됨 → 처음부터 다시
+        f.update(_usage_blank(), mtime=st.st_mtime)
+    if st.st_size == f["pos"]:
+        f["done"] = True
+        return False
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(f["pos"])
+            chunk = fh.read(USAGE_CHUNK)
+    except OSError:
+        return False
+    f["pos"] += len(chunk)
+    lines = (f["rest"] + chunk).split(b"\n")
+    f["rest"] = lines.pop()                   # 줄바꿈 전 미완성 조각
+    line_fn = usage_codex_line if f["kind"] == "codex" else usage_claude_line
+    for raw in lines:
+        try:
+            line_fn(f, raw)
+        except (ValueError, TypeError, AttributeError):
+            pass
+    f["done"] = f["pos"] >= st.st_size
+    return not f["done"]
+
+
+def usage_find_subs():
+    """<세션>/subagents/*.jsonl 을 모두 등록 (오래된 것도: 세션이 지금까지 쓴 값을 다 더해야 하므로)."""
+    with usage_lock:
+        mains = [(p, f["sess"]) for p, f in usage_files.items() if f["kind"] == "main"]
+    for path, sess in mains:
+        sub = os.path.join(path[:-6], "subagents")
+        try:
+            names = os.listdir(sub)
+        except OSError:
+            continue
+        for sf in names:
+            if sf.endswith(".jsonl"):
+                usage_track(os.path.join(sub, sf), sess, "sub", sf[:-6])
+
+
+def usage_publish():
+    global usage_out
+    with usage_lock:
+        items = list(usage_files.items())
+    by = {}
+    for path, f in items:
+        by.setdefault(f["sess"], []).append((path, f))
+    out, now = {}, time.time()
+    for sess, fs in by.items():
+        mp, mf = next(((p, f) for p, f in fs if f["kind"] != "sub"), (None, None))
+        if not mf or (now - mf["mtime"] > ACTIVE_WINDOW and mp not in force_paths):
+            continue
+        if sess not in usage_ready:
+            if not all(f["done"] for _, f in fs):
+                continue
+            usage_ready.add(sess)
+        d = {"model": mf["model"], "ctx": mf["ctx"],
+             "win": mf["win"] if mf["kind"] == "codex" else claude_window(mf["model"] or "", mf["ctx"]),
+             "in": sum(f["read"] for _, f in fs), "out": sum(f["out"] for _, f in fs),
+             "usd": round(sum(f["usd"] for _, f in fs), 4),
+             "sub": round(sum(f["usd"] for _, f in fs if f["kind"] == "sub"), 4)}
+        if not d["model"] and not d["in"]:
+            continue
+        if any(f["unp"] for _, f in fs):
+            d["unp"] = 1                      # 요금표에 없는 모델이 섞임 → usd 는 아는 모델 몫만
+        subs = sorted((f for _, f in fs if f["kind"] == "sub" and f["model"] and now - f["mtime"] < ACTIVE_WINDOW),
+                      key=lambda f: -f["mtime"])[:USAGE_AGENTS]
+        agents = {f["agent"]: {"model": f["model"], "in": f["read"], "out": f["out"],
+                               "usd": None if f["unp"] else round(f["usd"], 4)} for f in subs}
+        if agents:
+            d["agents"] = agents
+        out[sess] = d
+    usage_out = out
+
+
+def usage_loop():
+    """보는 화면이 있을 때만, 등록된 파일을 조금씩 읽어 usage_out 을 새로 만든다."""
+    found = 0.0
+    while True:
+        more = False
+        if time.time() - last_client < 90:
+            try:
+                if time.time() - found > 5:
+                    usage_find_subs()
+                    found = time.time()
+                with usage_lock:
+                    items = list(usage_files.items())
+                for path, f in items:
+                    if usage_read(path, f):
+                        more = True
+                        time.sleep(0.005)     # 큰 파일을 읽는 동안에도 화면 요청이 끼어들 틈을 줌
+                usage_publish()
+            except Exception:
+                pass
+        time.sleep(0.05 if more else 2)
 
 
 # ───────── hook: Claude Code·Codex가 세션 시작/끝/승인 대기를 직접 알려 줌 ─────────
@@ -2369,7 +2632,8 @@ class Handler(BaseHTTPRequestHandler):
                 cur = seq
             last_client = time.time()
             self._json({"seq": cur, "events": out, "v": html_version(), "boot": BOOT_ID,
-                        "tracked": sorted(hook_pids), "hookSrc": hook_sources(), "alive": alive})
+                        "tracked": sorted(hook_pids), "hookSrc": hook_sources(), "alive": alive,
+                        "usage": usage_out})
         else:
             self.send_error(404)
 
@@ -3417,6 +3681,7 @@ def main():
     atexit.register(unregister_server, args.port)
     print(f"에이전트 오피스 라이브 서버: {url}")
     print(f"감시 중: {args.dir}   (Ctrl+C 로 종료)")
+    threading.Thread(target=usage_loop, daemon=True).start()
     if not args.no_update:
         threading.Thread(target=update_loop, daemon=True).start()
     if not args.no_browser and not args.restarted:

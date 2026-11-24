@@ -1994,7 +1994,7 @@ function lineItems(o){                // 로그 한 줄 → 말풍선/기록용 
 function enterLive(source = "server"){
   mode = "live";
   setScene("campus");
-  live = {source, seq:0, sessions:new Map(), errors:0, count:0, done:0, ver:1, fail:0};
+  live = {source, seq:0, sessions:new Map(), errors:0, count:0, done:0, ver:1, fail:0, usage:{}};
   resetAgents();
   for (const L of SLOTS) L.appear = [];
   $("#btnAuto").disabled = true; $("#btnAdd").disabled = true;
@@ -2046,6 +2046,7 @@ function startPoll(){
       live.tracked = new Set(d.tracked || []);          // hook 으로 지켜보는 세션
       live.hookSrc = new Set(d.hookSrc || []);          // hook 이 동작 중인 도구 (claude / codex)
       live.alive = new Set(d.alive || []);              // 프로세스가 살아 있는 세션 (hook PID 또는 짐작)
+      live.usage = d.usage || {};                       // 세션별 모델·컨텍스트·토큰·요금 (대화창 대사용)
       for (const rec of d.events) liveHandle(rec);
       live.fail = 0;
     }catch{
@@ -3087,6 +3088,34 @@ function ago(ms){
   return `${Math.round(s / 86400 / 365)}년 전`;
 }
 const SRC_LABEL = {claude:"Claude", codex:"Codex"};   // 세션을 만든 도구 (서버가 이벤트에 src 로 알려 줌)
+/* 모델·컨텍스트·토큰·요금 대사: 서버가 세션 로그의 usage 를 처음부터 더해서 알려 줌 (요금은 공개 API 정가로 환산한 값) */
+function modelName(id){                           // "claude-opus-5-5-20260901" → "Opus 5.5" (Claude 가 아니면 ID 그대로)
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{6,})?(?:\[.*\])?$/.exec(id || "");
+  return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "") : String(id || "").replace(/^claude-/, "");
+}
+function tokText(n){                              // 281234 → "28.1만", 320000000 → "3.2억"
+  const f = v => v < 100 ? String(+v.toFixed(1)) : Math.round(v).toLocaleString("en-US");
+  return n < 1e4 ? Math.round(n).toLocaleString("en-US") : n < 9.9995e7 ? f(n / 1e4) + "만" : f(n / 1e8) + "억";
+}
+const usdText = v => "$" + (v < 100 ? v.toFixed(2) : Math.round(v).toLocaleString("en-US"));
+function usageLines(u){
+  const out = [];
+  if (!u) return out;
+  if (u.model){
+    const pct = u.win && u.ctx ? Math.min(100, Math.round(u.ctx / u.win * 100)) : 0;
+    out.push(`저는 ${modelName(u.model)} 모델로 일해요.` + (!u.ctx ? ""
+      : !u.win ? ` 기억 공간(컨텍스트)에는 지금 ${tokText(u.ctx)} 토큰쯤 들어 있어요.`
+      : ` 기억 공간(컨텍스트)은 ${tokText(u.win)} 토큰 중 ${tokText(u.ctx)}쯤 써서 ${pct}% 찼어요.`
+        + (pct >= 85 ? " 거의 다 찼어요. 곧 대화를 한번 정리해야 할 것 같아요." : pct >= 60 ? " 슬슬 차오르고 있어요." : pct < 15 ? " 아직 넉넉해요." : "")));
+  }
+  if (u.in || u.out){
+    const price = !u.usd ? (u.unp ? " 이 모델은 요금표를 몰라서 값은 못 매겼어요." : "")
+      : u.usd < 0.01 ? " API 정가로 치면 1센트도 안 돼요."
+      : ` ${u.unp ? "요금표를 아는 모델만 " : ""}API 정가로 치면 ${usdText(u.usd)}쯤 돼요` + (u.sub >= 0.01 ? ` (새끼냥들 몫 ${usdText(u.sub)} 포함).` : ".");
+    out.push(`지금까지 ${tokText(u.in)} 토큰을 읽고 ${tokText(u.out)} 토큰을 썼어요.` + price);
+  }
+  return out;
+}
 function talkInfo(c){
   if (c.human){
     const m = c.human, d = m.info, who = d.name ? `${d.name}(@${m.login})` : `@${m.login}`;
@@ -3125,6 +3154,7 @@ function talkInfo(c){
     const bg = [...s.bg.values()].filter(t => t.status === "running");
     if (bg.length) lines.push(`뒤에서 돌리는 작업도 있어요: ${bg.map(t => t.label).join(", ")}`);
     if (s.phase === "waiting" && s.result) lines.push(`방금 끝낸 일: ${s.result}`);
+    lines.push(...usageLines(live.usage[s.sid]));
     return {name:c.name, tag:`${SRC_LABEL[s.src] || "AI"} 메인 에이전트 · ${sessName(s)}`, lines, session:s,
             ref:{kind:"ai-main", name:c.name, session:sessName(s), phase:s.phase, src:s.src}};
   }
@@ -3132,6 +3162,9 @@ function talkInfo(c){
                  `팀장 ${s.boss.name}의 부탁으로 “${clip(c.role, 40)}” 일을 맡았어요.`,
                  `지금 상태: ${c.stateText}`,
                  c.leaving ? "일 다 끝나서 이제 퇴근해요!" : c.inLounge ? "잠깐 쉬는 중이에요. 금방 다시 일해요." : "끝나면 팀장한테 결과를 보고할 거예요."];
+  const key = ([...s.kittens].find(([, k]) => k === c) || [])[0], ku = ((live.usage[s.sid] || {}).agents || {})[key];
+  if (ku) lines.splice(3, 0, `${modelName(ku.model)} 모델로 일하고, 지금까지 ${tokText(ku.in)} 토큰을 읽고 ${tokText(ku.out)} 토큰을 썼어요`
+                             + (ku.usd >= 0.01 ? ` (API 정가로 ${usdText(ku.usd)}쯤).` : "."));
   return {name:c.name, tag:"AI 서브에이전트", lines, session:s, ref:{kind:"ai-sub", name:c.name, session:sessName(s), role:c.role}};
 }
 function talkButton(text, fn, cls = "mini"){
@@ -4026,6 +4059,7 @@ function startDemo(){
   const id = ++liveLoop;
   const st = DEMO_SESS.map((_, i) => ({phase:"off", at:1 + i*3, req:0, todos:[], cur:0, step:0, subs:[], cap:[3,2,3,2][i], asked:false, done:0}));
   const hook = (d, e, r) => liveHandle({s:d.s, p:d.p, h:{e, r:r || "", t:Date.now()}});     // hook 신호 흉내
+  const models = ["claude-opus-5-5","claude-sonnet-5-5","claude-fable-5-2","claude-haiku-5-5"];   // 가짜 사용량 (모델·토큰·요금 대사용)
   const hold = (S, wait, result) => { S.phase = "hold"; S.at = t + wait; S.result = result; };   // 사용자 답을 기다림
   const full = d => d.s + "-0000-4000-8000-" + d.s + "abcd";
   const emit = (d, o) => liveHandle({s:d.s, p:d.p, a:o.agentId,
@@ -4062,6 +4096,12 @@ function startDemo(){
     t++;
     DEMO_SESS.forEach((d, i) => {
       const S = st[i];
+      if (S.phase === "work"){                              // 일하는 동안 컨텍스트가 차고 토큰이 쌓임
+        const u = live.usage[d.s] ||= {model:models[i], ctx:18000 + i*9000, win:1e6, in:0, out:0, usd:0, sub:0};
+        const o = 150 + Math.random()*500;
+        u.ctx = Math.min(u.win * 0.9, u.ctx + 600 + Math.random()*2400);
+        u.in += u.ctx; u.out += o; u.usd += (u.ctx*0.2 + o*20) / 1e6;
+      }
       if ((S.phase === "off" || S.phase === "wait") && t >= S.at) startTask(d, S, i);
       if (S.phase === "hold" && t >= S.at){                 // 답·승인을 받고 다시 일함
         S.phase = "work";

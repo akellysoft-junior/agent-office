@@ -177,17 +177,19 @@ box.__agentOffice.send("select", {login:"octocat"});                         // 
 
 리눅스는 화면 방식(X11 / Wayland)과 터미널 프로그램에 따라 되는 방법이 달라서, 아래 순서로 시도해요.
 
-1. **tmux 안에서 claude를 실행 중이면**: 그 tmux 창·패널로 바로 전환해요. 설치할 것 없이, X11·Wayland 모두 돼요.
+1. **tmux 안에서 claude를 실행 중이면**: 그 tmux 창·패널로 바로 전환해요. 설치할 것 없이, X11·Wayland 모두 돼요. 그다음 tmux가 붙어 있는 터미널의 탭·창을 아래 방법으로 찾아요.
 2. **kitty**: 원격 제어(`allow_remote_control yes`, `listen_on unix:/tmp/kitty`)를 켜 두면 그 창을 앞으로 가져와요.
 3. **WezTerm**: 그 패널을 앞으로 가져와요.
 4. **GNOME + [Window Calls](https://extensions.gnome.org/extension/4724/window-calls/) 확장**: Wayland에서도 창을 앞으로 가져와요.
    서버를 켤 때 GNOME(Wayland)인데 확장이 없으면 설치할지 물어봐요. y를 누르면 GNOME 설치 창이 뜨고, '설치'만 누르면 로그아웃 없이 바로 켜져요.
    직접 설치하려면 Extension Manager 앱(`sudo apt install gnome-shell-extension-manager`)에서 'Window Calls'를 찾으면 돼요.
-5. **X11**: `wmctrl` 또는 `xdotool`로 가져와요. 둘 다 없으면 서버를 켤 때 설치할지 한 번 물어봐요. 대답은 `.agent_office_setup` 파일에 기억하고, 이 파일을 지우면 다시 물어봐요.
+5. **Konsole**: Konsole이 제공하는 D-Bus로 그 세션의 탭을 골라요. 창을 앞으로 가져오는 건 X11에서만 돼요.
+6. **X11**: `wmctrl` 또는 `xdotool`로 가져와요. 둘 다 없으면 서버를 켤 때 설치할지 한 번 물어봐요. 대답은 `.agent_office_setup` 파일에 기억하고, 이 파일을 지우면 다시 물어봐요.
 
 - Wayland에서는 보안 때문에 `wmctrl`·`xdotool`이 동작하지 않아요. 우분투 기본 화면은 Wayland예요.
 - 서버를 켜면 터미널에 이 PC에서 무엇이 되는지("터미널로 이동: 준비됨" 또는 필요한 것)가 한 줄로 나와요.
-- **gnome-terminal 탭**: gnome-terminal에는 탭을 고르는 기능이 바깥에 열려 있지 않아요. 그래서 그 세션 탭의 제목을 잠깐 표식으로 바꾸고, 탭을 하나씩 넘기며 찾아서 띄워요. Window Calls 확장이 필요해요. 찾는 동안 탭이 잠깐 넘어가는 게 보일 수 있고, 다른 창의 탭은 원래대로 되돌려요. 탭 제목은 Claude Code가 곧 다시 써요.
+- **gnome-terminal 탭**: gnome-terminal에는 탭을 고르는 기능이 바깥에 열려 있지 않아요. 그래서 그 세션 탭의 제목을 잠깐 표식으로 바꾸고, 탭을 하나씩 넘기며 찾아서 띄워요. 창 제목을 읽을 수 있어야 해서 Wayland에서는 Window Calls 확장이, X11에서는 `xdotool`이나 `wmctrl`이 필요해요. 찾는 동안 탭이 잠깐 넘어가는 게 보일 수 있고, 다른 창의 탭과 탭 제목은 원래대로 되돌려요.
+- **탭까지 가는 터미널**: tmux, kitty, WezTerm, gnome-terminal, Konsole. 그 밖의 터미널(Ptyxis, Tilix, xfce4-terminal, VS Code 안의 터미널 등)은 바깥에서 탭을 고르는 방법이 없어서 창만 앞으로 와요. 이런 터미널에서는 tmux 안에서 claude를 쓰면 그 세션 화면까지 가요.
 - 잘 안 되면 `python3 agent_office_server.py --check-terminal`을 실행해 보세요. 이 PC에서 무엇이 되는지 점검 결과를 보여줘요.
 
 - 어느 터미널인지는 Claude Code가 남기는 `~/.claude/sessions/<pid>.json`으로 찾아요. 같은 폴더에서 세션을 여러 개 돌려도 정확한 탭으로 가요. (이 파일이 없는 옛 버전은 폴더와 시작 시각으로 골라요.)

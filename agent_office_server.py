@@ -453,7 +453,7 @@ def usage_track(path, sess, kind, agent=None):
 def _usage_blank():
     return {"pos": 0, "rest": b"", "ids": {}, "usd": 0.0, "unp": 0, "read": 0, "out": 0,
             "model": None, "ctx": 0, "win": 0, "cx": (0, 0, 0), "done": False, "mtime": 0.0,
-            "base": 0.0, "cut": 0.0, "mts": 0.0, "memo": None}
+            "base": 0.0, "cut": 0.0, "mts": 0.0, "memo": None, "title": ""}
 
 
 def usage_since(f, cut):
@@ -484,6 +484,11 @@ def usage_cost_state(f, o):
 
 
 def usage_claude_line(f, raw):
+    if b'"custom-title"' in raw[:400]:
+        o = json.loads(raw)
+        if isinstance(o, dict) and o.get("type") == "custom-title" and isinstance(o.get("customTitle"), str):
+            f["title"] = re.sub(r"[\x00-\x1f\x7f]+", " ", o["customTitle"]).strip()[:40]   # 세션에 붙인 이름 (/rename, 바깥 도구가 붙인 이름). 나중 것이 이김
+        return
     if b'"cost-state"' in raw[:400]:
         o = json.loads(raw)
         if isinstance(o, dict) and o.get("type") == "cost-state":
@@ -620,7 +625,9 @@ def usage_publish():
              "in": sum(f["read"] for _, f in fs), "out": sum(f["out"] for _, f in fs),
              "usd": round(mf["base"] + mf["usd"] + sum(x[0] for x in late), 4),
              "sub": round(sum(f["usd"] for _, f in fs if f["kind"] == "sub"), 4)}
-        if not d["model"] and not d["in"]:
+        if mf.get("title"):
+            d["title"] = mf["title"]          # 세션에 붙인 이름 → 화면의 세션 이름
+        if not d["model"] and not d["in"] and not d.get("title"):
             continue
         if mf["unp"] or any(x[1] for x in late):
             d["unp"] = 1                      # 요금표에 없는 모델이 섞임 → usd 는 아는 모델 몫만
@@ -740,6 +747,8 @@ def save_hook_state():
                 if k in ended:              # 다른 서버가 먼저 끝을 봤음
                     hook_event(h.get("src", "claude"), k, h.get("proj", ""), "end", "other_server", ended[k].get("at"))
         for k, v in pids.items():
+            if k not in hook_pids and k in hook_ended:      # 끝난 줄 알았는데 다른 서버가 살아 있는 걸 봤음
+                hook_event(v.get("src", "claude"), k, v.get("proj", ""), "start", "alive")
             hook_pids.setdefault(k, v)
         hook_ended.clear()
         hook_ended.update(ended)
@@ -1252,6 +1261,28 @@ def project_dir_for(root, cwd):
     return None
 
 
+def revive_ended(procs, known):
+    """'끝남'으로 적힌 세션인데 그 세션을 돌리는 claude 가 살아 있으면(pid 파일 기준) 끝남 표시를 지우고 다시 출근시킨다.
+    같은 세션을 두 군데서 열어 두고 한쪽만 껐거나, 끝 알림 뒤에 hook 신호 없이 다시 이어 연 경우."""
+    now, changed = time.time(), False
+    hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
+    for p in procs:
+        sid = known.get(p["pid"])
+        key = hook_sess("claude", sid) if sid else ""
+        e = hook_ended.get(key)
+        if not e or p["pid"] in hooked or e.get("src", "claude") != "claude" or now - float(e.get("at") or 0) < 10:
+            continue                        # 방금 끝난 건 기다림 (/clear 직후엔 pid 파일이 아직 옛 세션일 수 있음)
+        hook_ended.pop(key, None)
+        _restored_ends[:] = [x for x in _restored_ends if x[0] != key]
+        hook_pids[key] = {"pid": p["pid"], "src": "claude", "proj": e.get("proj", ""), "id": sid, "at": now}
+        hooked.add(p["pid"])
+        hook_event("claude", key, e.get("proj", ""), "start", "alive")
+        print(f"[세션] {key}: 끝남으로 적혀 있었지만 pid {p['pid']} 가 돌리고 있어서 다시 출근")
+        changed = True
+    if changed:
+        save_hook_state()
+
+
 def guess_alive(root):
     """{세션 키: 파일} — hook 없이도 프로세스가 살아 있다고 짐작되는 세션."""
     now = time.time()
@@ -1266,6 +1297,7 @@ def guess_alive(root):
             procs = []
         pids = {p["pid"] for p in procs}
         known = session_pids(procs)
+        revive_ended(procs, known)
         hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
         claimed = set(hook_pids)
         for p in sorted(procs, key=lambda p: -(p["start"] or 0)):

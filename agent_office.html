@@ -1023,13 +1023,26 @@ cv.addEventListener("pointermove", e => {
   }
   cv.style.cursor = scene === "campus" ? (catAt(e) || (cam.focus === null && lotAt(e) >= 0) ? "pointer" : "grab") : "";
 });
+let catTap = null;                                      // 방금 누른 AI 고양이 (두 번 누르기 판별)
 cv.addEventListener("pointerup", e => {
   if (!drag || e.pointerId !== drag.id) return;
   const moved = drag.moved; drag = null; cv.style.cursor = "";
   if (scene === "campus") followPause();
   if (moved || scene !== "campus") return;
   const c = catAt(e);                                   // 고양이를 누르면 확대 + 자기소개
-  if (c){ if (talkSel.cat === c) advanceTalk(); else openTalk(c); return; }
+  if (catTap && performance.now() - catTap.t < 450 && (!c || c === catTap.c)){   // 두 번 누르면 바로 그 세션의 터미널로 (첫 번에 카메라가 움직여도 되게 위치는 안 따짐)
+    const t = catTap; catTap = null;
+    if (talkSel.cat !== t.c) openTalk(t.c);
+    openAction(t.s, "focus", talk.msg);
+    return;
+  }
+  catTap = null;
+  if (c){
+    const s = !c.human && catSessionOf(c);
+    if (canJump(s)) catTap = {c, s, t:performance.now()};
+    if (talkSel.cat === c) advanceTalk(); else openTalk(c);
+    return;
+  }
   if (talkSel.cat){ closeTalk(); return; }
   const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
   if (i < 0){ if (cam.focus !== null) unfocus(); return; }
@@ -2718,8 +2731,14 @@ function openTalk(c){
     const a = document.createElement("a"); a.className = "mini"; a.href = info.link; a.target = "_blank"; a.rel = "noopener noreferrer";
     a.textContent = EMBED && innerWidth < 300 ? "GitHub ↗" : "GitHub 프로필 ↗"; talk.actions.appendChild(a);
   }
-  const termOk = info.session && info.session.src === "claude";   // 터미널 이동·이어하기는 Claude Code 세션만
-  if (!EMBED && termOk && live.source === "server" && liveCanOpen) talkButton("터미널로 이동", () => openAction(info.session, "focus", talk.msg));   // 위젯에선 터미널 조작 버튼 숨김
+  const termOk = info.session && info.session.src === "claude";   // 이어하기는 Claude Code 세션만
+  if (canJump(info.session)){                          // 위젯에서도: 그 세션이 도는 터미널 탭(Codex 앱)을 앞으로
+    const b = talkButton(jumpLabel(info.session), async () => {
+      const d = await openAction(info.session, b.dataset.a, talk.msg);
+      if (d && d.gone && b.dataset.a === "focus"){ b.dataset.a = "resume"; b.textContent = EMBED ? "이어하기" : "새 터미널에서 이어하기"; }   // 끝난 세션: 같은 버튼으로 이어서 열기
+    });
+    b.dataset.a = "focus";
+  }
   if (!EMBED && termOk) talkButton("이어하기 명령 복사", () => openAction(info.session, "copy", talk.msg));
   if (SHOW_PICKER && c.human && me && c.human.login === me.login) talkButton("내 캐릭터 꾸미기", () => openPicker(c.human));   // 본인 캐릭터에만 (지금은 숨김)
   talkSel.next = EMBED ? null : talkButton("다음 ▶", advanceTalk, "mini primary");   // 위젯: 대화창을 누르면 넘어가니 버튼 없음
@@ -2934,8 +2953,12 @@ async function openAction(s, action, msgEl){
                                        body: JSON.stringify({sid: s.sid, action})});
     const d = await r.json();
     say2(d.msg || (d.ok ? "열었어요." : "열지 못했어요."));
+    if (d.ok && action !== "folder") s.attention = false;   // 터미널로 갔으면 질문·완료를 확인한 것
+    return d;
   } catch { say2("서버에 연결하지 못했어요."); }
 }
+const canJump = s => !!s && mode === "live" && live && live.source === "server" && liveCanOpen;
+const jumpLabel = s => s.src === "codex" ? "Codex로 이동" : EMBED && innerWidth < 300 ? "터미널 ↗" : "터미널로 이동";
 
 /* ── 카메라: 건물 클릭 → 확대 ── */
 function lotCenter(i){ const L = SLOTS[i]; return [isoX(L.x+L.w/2, L.y+L.d/2), isoY(L.x+L.w/2, L.y+L.d/2, 16)]; }
@@ -5012,7 +5035,10 @@ function buildSumCard(s){
              result:q(".sum-result"), bg:q(".sum-bg"), tools:q(".sum-tools"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
   c.chip.style.background = s.boss.coat.base;
   el.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => openAction(s, b.dataset.a, c.msg)));
-  if (s.src !== "claude") for (const a of ["focus", "resume", "copy"]) q(`[data-a="${a}"]`).hidden = true;   // Codex 등: 폴더·사무실 보기만
+  if (s.src !== "claude"){                             // Codex: 이어하기·명령 복사는 없음
+    for (const a of ["resume", "copy"]) q(`[data-a="${a}"]`).hidden = true;
+    q('[data-a="focus"]').textContent = jumpLabel(s);
+  }
   q(".ren").addEventListener("click", () => {
     if (c.editing) return;
     c.editing = true;

@@ -231,6 +231,7 @@ def codex_learn(path, sess):
                 p = o.get("payload") or {}
                 if o.get("type") == "session_meta":
                     m["id"] = p.get("id") or m["id"]
+                    m["app"] = str(p.get("originator") or "")       # codex_work_desktop: 데스크톱 앱 / codex_cli_rs: 터미널
                     m["cwd"] = p.get("cwd")
                     m["started"] = parse_ts(p.get("timestamp") or o.get("timestamp") or "")
                     break
@@ -364,14 +365,16 @@ def same_dir(a, b):
 
 
 CLAUDE_RE = re.compile(r"(^|[\\/\s])claude(\.exe|\.cmd)?(\s|$)|claude-code", re.I)
+CODEX_RE = re.compile(r"(^|[\\/])codex(\.exe|\.cmd)?(\s|$)", re.I)
+SESS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")   # Claude Code가 남기는 <pid>.json (세션 ID·폴더)
 
 
-def claude_processes():
-    """실행 중인 Claude Code 프로세스 목록: [{pid, ppid, tty, start, args, cwd}]"""
+def claude_processes(rx=CLAUDE_RE, word="claude"):
+    """실행 중인 Claude Code(또는 rx 에 맞는 프로그램) 프로세스 목록: [{pid, ppid, tty, start, args, cwd}]"""
     out = []
     if SYSTEM == "Windows":
-        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'claude' -and "
-              "$_.Name -match '^(node|claude|bun)' } | ForEach-Object { [pscustomobject]@{ "
+        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '" + word + "' -and "
+              "$_.Name -match '^(node|" + word + "|bun)' } | ForEach-Object { [pscustomobject]@{ "
               "pid=$_.ProcessId; ppid=$_.ParentProcessId; args=$_.CommandLine; "
               "start=$_.CreationDate.ToUniversalTime().ToString('o') } } | ConvertTo-Json -Compress")
         raw = run(["powershell", "-NoProfile", "-Command", ps], timeout=12)
@@ -386,14 +389,14 @@ def claude_processes():
                         "start": parse_ts(p.get("start")), "args": p.get("args") or "", "cwd": None})
         return out
     fmt = "pid=,ppid=,tty=,lstart=,command=" if SYSTEM == "Darwin" else "pid=,ppid=,tty=,lstart=,args="
-    raw = run(["ps", "-axo" if SYSTEM == "Darwin" else "-eo", fmt])
+    raw = run(["ps", "-axo" if SYSTEM == "Darwin" else "-eo", fmt], env={**os.environ, "LC_ALL": "C"})   # 시작 시각을 영어 형식으로 (한국어 로캘이면 칸 수가 달라짐)
     for line in raw.splitlines():
         parts = line.split(None, 8)
         if len(parts) < 9:
             continue
         pid, ppid, tty = parts[0], parts[1], parts[2]
         args = parts[8]
-        if not CLAUDE_RE.search(args) or "agent_office_server" in args:
+        if not rx.search(args) or "agent_office_server" in args:
             continue
         try:
             start = time.mktime(time.strptime(" ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
@@ -414,13 +417,36 @@ def claude_processes():
     return out
 
 
+def session_pids():
+    """Claude Code가 적어 둔 ~/.claude/sessions/<pid>.json 을 읽는다: {pid: 세션 ID}"""
+    out = {}
+    try:
+        names = os.listdir(SESS_DIR)
+    except OSError:
+        return out
+    for fn in names:
+        if not re.fullmatch(r"\d+\.json", fn):
+            continue
+        try:
+            with open(os.path.join(SESS_DIR, fn), encoding="utf-8") as fh:
+                out[int(fn[:-5])] = str(json.load(fh).get("sessionId") or "")
+        except (OSError, ValueError, AttributeError):
+            pass
+    return out
+
+
 def find_process(m):
-    """세션에 해당하는 프로세스를 고른다: 세션 ID가 명령줄에 있으면 확정,
-    아니면 같은 폴더(cwd)에서 돌고 있는 것 중 시작 시각이 가장 가까운 것."""
-    procs = claude_processes()
+    """세션에 해당하는 프로세스를 고른다: Claude Code가 적어 둔 pid 파일이나 명령줄의 세션 ID로 확정,
+    아니면 같은 폴더(cwd)에서 돌고 있는 것 중 시작 시각이 가장 가까운 것 (다른 세션의 것으로 확인된 건 제외)."""
+    if m.get("src") == "codex":            # Codex: 터미널에서 도는 CLI만 (같은 폴더)
+        procs = [p for p in claude_processes(CODEX_RE, "codex") if p["tty"] or SYSTEM == "Windows"]
+        known = {}
+    else:
+        procs, known = claude_processes(), session_pids()
     for p in procs:
-        if m["id"] in p["args"]:
+        if known.get(p["pid"]) == m["id"] or m["id"] in p["args"]:
             return p
+    procs = [p for p in procs if not known.get(p["pid"])]
     cands = [p for p in procs if p["cwd"] and m["cwd"] and same_dir(p["cwd"], m["cwd"])]
     if not cands and SYSTEM == "Windows":
         cands = procs            # 윈도우는 cwd를 못 읽으니 시작 시각으로만 고름
@@ -431,11 +457,21 @@ def find_process(m):
     return cands[0]
 
 
+OSA_DENIED = False            # 마지막 osascript 가 자동화 권한(-1743)에 막혔는지
+
+
 def osa(script):
-    return run(["osascript", "-e", script], timeout=8)
+    global OSA_DENIED
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    OSA_DENIED = "-1743" in (r.stderr or "")
+    return r.stdout.strip()
 
 
 def focus_mac(p, m):
+    denied = False
     if p["tty"]:
         tty = "/dev/" + p["tty"]
         if re.fullmatch(r"/dev/tty[a-z]*\d+", tty):
@@ -444,6 +480,7 @@ def focus_mac(p, m):
     repeat with w in windows
       repeat with t in tabs of w
         if tty of t is "{tty}" then
+          if miniaturized of w then set miniaturized of w to false
           set selected tab of w to t
           set index of w to 1
           activate
@@ -456,6 +493,7 @@ end if
 return "no"''')
             if r == "ok":
                 return True, "Terminal에서 그 탭을 앞으로 가져왔어요."
+            denied = OSA_DENIED
             r = osa(f'''if application id "com.googlecode.iterm2" is running then
   tell application id "com.googlecode.iterm2"
     repeat with w in windows
@@ -476,6 +514,7 @@ end if
 return "no"''')
             if r == "ok":
                 return True, "iTerm에서 그 탭을 앞으로 가져왔어요."
+            denied = denied or OSA_DENIED
     # 다른 앱(VS Code, Cursor, Warp 등) 안의 터미널이면 그 앱을 앞으로
     pid = p["pid"]
     for _ in range(12):
@@ -491,6 +530,9 @@ return "no"''')
                 run(["open", "-a", app, m["cwd"]])
             else:
                 run(["open", "-a", app])
+            if denied and name in ("Terminal", "iTerm", "iTerm2"):
+                return True, (f"{name} 창을 앞으로 가져왔어요. 탭까지 고르려면 시스템 설정 → 개인정보 보호 및 보안 → 자동화에서 "
+                              f"python이 {name}을 제어하도록 허용해 주세요.")
             return True, f"{name} 창을 앞으로 가져왔어요. (탭까지는 고를 수 없어요)"
         try:
             pid = int(ppid)
@@ -855,10 +897,27 @@ def linux_setup_check():
         pass
 
 
+CODEX_APP = "com.openai.codex"            # Codex 데스크톱 앱 (macOS)
+
+
+def focus_codex_app():
+    """터미널이 아니라 Codex 앱에서 도는 세션: 앱을 앞으로 (대화까지는 고를 수 없음)."""
+    if SYSTEM != "Darwin":
+        return None
+    try:
+        ok = subprocess.run(["open", "-b", CODEX_APP], capture_output=True, timeout=6).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    return (True, "Codex 앱을 앞으로 가져왔어요. (대화까지는 고를 수 없어요)") if ok else None
+
+
 def do_focus(m):
     p = find_process(m)
+    if not p and m.get("src") == "codex":
+        return (("desktop" in (m.get("app") or "") and focus_codex_app())
+                or (False, "실행 중인 Codex를 찾지 못했어요. 끝난 세션 같아요."))
     if not p:
-        return False, "실행 중인 Claude Code를 찾지 못했어요. 세션이 끝났다면 '이어하기'를 눌러 주세요."
+        return False, "실행 중인 Claude Code를 찾지 못했어요. 끝난 세션이면 '이어하기'로 다시 열 수 있어요.", {"gone": True}
     if SYSTEM == "Darwin":
         return focus_mac(p, m)
     if SYSTEM == "Windows":
@@ -1668,17 +1727,17 @@ class Handler(BaseHTTPRequestHandler):
         if not m or action not in ACTIONS:
             self._json({"ok": False, "msg": "모르는 세션이나 동작이에요."}, 400)
             return
-        if m.get("src") == "codex" and action != "folder":   # 터미널 이동·이어하기는 Claude Code 전용
-            self._json({"ok": False, "msg": "Codex 세션은 폴더 열기만 할 수 있어요."})
+        if m.get("src") == "codex" and action == "resume":   # 이어하기는 Claude Code 전용
+            self._json({"ok": False, "msg": "Codex 세션은 이어하기를 지원하지 않아요."})
             return
         if not re.fullmatch(r"[0-9A-Za-z-]{8,64}", m["id"]):
             self._json({"ok": False, "msg": "세션 ID 형식이 이상해요."}, 400)
             return
         try:
-            ok, msg = ACTIONS[action](m)
+            ok, msg, *more = ACTIONS[action](m)
         except Exception as e:  # 실패해도 서버는 계속 돈다
-            ok, msg = False, f"실행 중 문제가 생겼어요: {e}"
-        self._json({"ok": ok, "msg": msg})
+            ok, msg, more = False, f"실행 중 문제가 생겼어요: {e}", []
+        self._json({"ok": ok, "msg": msg, **(more[0] if more else {})})
 
     def log_message(self, *args):   # 요청 로그는 조용히
         pass

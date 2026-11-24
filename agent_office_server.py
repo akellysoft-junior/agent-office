@@ -1270,6 +1270,7 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 force_paths = set()                         # 하루가 지났어도 읽을 세션 파일 (프로세스가 살아 있음)
 _session_files = {}                         # 전체 세션 ID -> 로그 파일 (session_file)
 _alive_guess = {"at": 0.0, "sess": {}}
+_sure_pairs = {}                            # 세션 키 -> (pid, 파일): pid 파일·명령줄의 세션 ID 로 확실히 짝지은 hook 없는 세션
 
 
 _headless = {}                              # 로그 파일 -> 터미널 없이 돈 세션인가 (is_headless)
@@ -1363,10 +1364,13 @@ def guess_alive(root):
         try:
             procs = claude_processes()
         except Exception:
-            procs = []
+            procs = None
+        if procs is None:
+            return _alive_guess["sess"]         # 프로세스 목록을 못 읽었으면 지난 짐작 그대로 (끝났다고 보지 않게)
         pids = {p["pid"] for p in procs}
         known = session_pids(procs)
         revive_ended(procs, known)
+        sure = {}
         hooked = {h.get("pid") for h in hook_pids.values() if h.get("pid")}
         claimed = set(hook_pids)
         for p in sorted(procs, key=lambda p: -(p["start"] or 0)):
@@ -1374,6 +1378,8 @@ def guess_alive(root):
                 continue
             m = UUID_RE.search(p["args"] or "")
             path = session_file(root, known.get(p["pid"])) or (session_file(root, m.group(0)) if m else None)   # pid 파일 → 명령줄의 세션 ID
+            if path:
+                sure[os.path.basename(path)[:8]] = (p["pid"], path)
             if not path and p["cwd"]:
                 pdir = project_dir_for(root, p["cwd"])
                 if pdir:
@@ -1389,8 +1395,30 @@ def guess_alive(root):
                 if key not in claimed:
                     out[key] = path
                     claimed.add(key)
+        gone_ended(sure, out)
     _alive_guess["sess"] = out
     return out
+
+
+def gone_ended(sure, out):
+    """확실히 짝지었던 hook 없는 세션의 claude 가 꺼졌으면 세션 끝으로 알린다 (화면에서 퇴근).
+    같은 폴더로 짐작한 짝은 새 세션을 켜면 바뀔 수 있어 여기서 끝내지 않는다 (24시간 규칙대로 조용히 빠짐)."""
+    changed = False
+    for key, (pid, path) in list(_sure_pairs.items()):
+        if key in sure or key in out or key in hook_pids or key in hook_ended:
+            continue                            # 아직 돌거나 다른 프로세스로 넘어갔거나 hook 이 맡음
+        _sure_pairs.pop(key, None)
+        if pid_alive(pid, "claude"):
+            continue                            # 프로세스는 살아 있고 /clear 등으로 다른 세션으로 넘어감
+        proj = proj_label(os.path.basename(os.path.dirname(path)))
+        hook_ended[key] = {"at": time.time(), "src": "claude", "proj": proj}
+        hook_event("claude", key, proj, "end", "process_gone")
+        changed = True
+    for key, v in sure.items():
+        if key not in hook_pids:
+            _sure_pairs[key] = v
+    if changed:
+        save_hook_state()
 
 
 def session_file(root, sid):

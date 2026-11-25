@@ -503,7 +503,7 @@ const repoOf = v => {
 };
 const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), sun:QS.get("sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
-             fun:QS.get("fun") !== "0",                            // 화분·나무·창문 누르기, 머그컵 (0 이면 끔)
+             fun:QS.get("fun") !== "0",                            // 화분·나무·창문 누르기 (0 이면 끔)
              controls:!(EMBED && QS.get("controls") === "0"),      // 위젯: ＋/－/⤢ 버튼을 보일지 (넣는 쪽이 고름)
              wheelCtrl:EMBED && QS.get("wheel") === "ctrl"};       // 위젯: Ctrl(⌘)+휠일 때만 확대 (바깥 페이지 스크롤을 안 막게)
 const cv = $("#office");
@@ -3677,10 +3677,10 @@ function poke(s){
     plantSt.set(s.id, st);
     if (st.wilt) return;
     if (!reduceMotion) funFx.push({kind:"drop", x:s.x, y:s.y, t0:t});
-    if (++st.n < 3) return pokeTrack(s, t);
+    if (++st.n < (bloomed.has(s.id) ? 10 : 3)) return pokeTrack(s, t);
     st.n = 0;
     if (!bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }   // 세 번이면 꽃
-    else {                                                   // 핀 뒤에도 세 번 더 주면 시들어 떨어짐
+    else {                                                   // 핀 뒤에도 열 번 더 주면 시들어 떨어짐
       st.wilt = t + (reduceMotion ? 0 : 0.6);
       const c = flowerColor(s.id);
       for (const [ox, oy] of FLOWER_AT) for (const col of [c, "#b08a5a"])
@@ -3868,13 +3868,7 @@ function campusDecor(now){
   out.push({z: 210+360, fn:() => planter(204, 356, ["#e9897a","#ffd36b","#e9897a"])});
   return out;
 }
-function deskMugs(cats, k){          // 오래 켜 둔 세션: 한 시간마다 대장 책상에 머그컵이 하나씩 쌓임 (최대 5)
-  if (!OPT.fun || !live) return 0;
-  const c = cats.find(c => c.deskIdx === k && !c.human), s = c && catSessionOf(c);
-  const born = s && s.boss === c && ((live.usage || {})[s.sid] || {}).born;
-  return born ? Math.min(5, Math.floor((Date.now() / 1000 - born) / 3600)) : 0;
-}
-function miniDesk(L, i, busy, now, alpha, mugs){
+function miniDesk(L, i, busy, now, alpha){
   const P = TOD, d = lotDesk(L, i);
   ctx.globalAlpha = alpha;
   for (const lx of [d.x + 1.5, d.x + DESK_W - 1.5]) line([gpt(lx, d.y + DESK_D - 1, 0), gpt(lx, d.y + DESK_D - 1, 9)]);
@@ -3885,10 +3879,6 @@ function miniDesk(L, i, busy, now, alpha, mugs){
   wallQuad(mx + 1, d.y + 4, mx + 11, d.y + 4, 13, 20, busy ? (Math.floor(now*5) % 2 ? "#bfe6ff" : "#a6dcff") : P.side);
   isoBox(d.x + DESK_W/2 - 5, d.y + DESK_D - 5, 10, 3, 11, 0.8, P.paper, P.paper, P.side);
   if (L.big) deskTrinket(d, i);
-  for (let m = 0; m < (mugs || 0); m++){                    // 모니터 오른쪽에 컵 탑
-    const mx2 = d.x + DESK_W - 5.5 + (m % 2) * 0.6, z = 11 + m * 2.6;
-    isoBox(mx2, d.y + 2.5, 3, 3, z, 2.6, "#ffffff", ["#ffffff", "#f6d6c8", "#bfe6ff"][m % 3], P.side);
-  }
   ctx.globalAlpha = 1;
 }
 function lotTheme(L){
@@ -4059,7 +4049,7 @@ function drawLot(i, now){
       const alpha = Math.min(1, (now - L.appear[k]) / 0.6);
       const d = lotDesk(L, k), seat = lotSeat(L, k);
       const busy = cats.some(c => c.deskIdx === k && (c.state === "working" || c.state === "busy") && !c.inLounge && !c.waiting);
-      items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha, deskMugs(cats, k))});
+      items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha)});
       const sitter = cats.find(c => c.deskIdx === k);
       if (!(sitter && sitter.human && charArt.ready && !usesWorkArt(sitter)))   // 서서 일하는 사람 자리엔 의자 없음
         items.push({z: seat.x + seat.y - 0.5, fn:() => { ctx.globalAlpha = alpha; drawStool(seat, 0); ctx.globalAlpha = 1; }});

@@ -504,6 +504,7 @@ const repoOf = v => {
 const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), sun:QS.get("sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
              fun:QS.get("fun") !== "0",                            // 화분·나무·창문 누르기 (0 이면 끔)
+             season:QS.get("season"),                              // 계절 고정 (spring·summer·autumn·winter, 봄·여름·가을·겨울). 없으면 이번 달
              controls:!(EMBED && QS.get("controls") === "0"),      // 위젯: ＋/－/⤢ 버튼을 보일지 (넣는 쪽이 고름)
              wheelCtrl:EMBED && QS.get("wheel") === "ctrl"};       // 위젯: Ctrl(⌘)+휠일 때만 확대 (바깥 페이지 스크롤을 안 막게)
 const cv = $("#office");
@@ -3658,6 +3659,14 @@ function flowerColor(id){
   return ["#f29bb4", "#ffd36b", "#e9897a", "#c79bff", "#ffffff"][Math.abs(h) % 5];
 }
 function saveBloom(){ try { localStorage.setItem("ao.bloom", JSON.stringify({day:dayKey(), ids:[...bloomed]})); } catch {} }
+const SEASON_ALIAS = {spring:"spring", summer:"summer", autumn:"autumn", fall:"autumn", winter:"winter",
+                      "봄":"spring", "여름":"summer", "가을":"autumn", "겨울":"winter"};
+function seasonNow(){                 // ?season= / data-season 으로 고정, 아니면 이번 달 (3~5 봄, 6~8 여름, 9~11 가을, 12~2 겨울)
+  const v = SEASON_ALIAS[(OPT.season || "").trim().toLowerCase()];
+  if (v) return v;
+  const m = new Date().getMonth() + 1;
+  return m >= 3 && m <= 5 ? "spring" : m <= 8 && m >= 6 ? "summer" : m >= 9 && m <= 11 ? "autumn" : "winter";
+}
 function pokeSpot(kind, id, x, y, r, extra){ if (OPT.fun) pokeSpots.push({kind, id, x, y, r, ...extra}); }
 function pokeAt(e){
   if (!OPT.fun || scene !== "campus" || mode !== "live") return null;
@@ -3689,9 +3698,9 @@ function poke(s){
     }
   } else if (s.kind === "tree"){
     treeShake.set(s.id, t);
-    const m = new Date().getMonth() + 1, snow = m === 12 || m <= 2;
-    const cols = m >= 3 && m <= 5 ? ["#f6b8c8", "#fbd3dc", "#f29bb4"] : m <= 8 ? ["#7cc59a", "#5fa97c"]
-               : m <= 11 ? ["#f2a54e", "#e5734b", "#d9a441"] : ["#ffffff"];
+    const se = seasonNow(), snow = se === "winter";
+    const cols = {spring:["#f6b8c8", "#fbd3dc", "#f29bb4"], summer:["#7cc59a", "#5fa97c"],
+                  autumn:["#f2a54e", "#e5734b", "#d9a441"], winter:["#ffffff"]}[se];
     for (let i = 0; i < (snow ? 5 : 8); i++){
       const a = Math.random() * 6.283, d = Math.random() * s.r * 0.9;
       funFx.push({kind:"leaf", x:s.x + Math.cos(a) * d, y:s.y + Math.sin(a) * d * 0.7, ground:s.ground, t0:t + Math.random() * 0.3,
@@ -3731,7 +3740,9 @@ function drawFunFx(now){             // 물방울·떨어지는 잎·날아가�
       const yy = f.y + (f.ground - f.y) * fall, xx = f.x + (reduceMotion ? 0 : Math.sin(a * 3 + f.sway) * 3 * (1 - fall * 0.5));
       ctx.globalAlpha = Math.min(1, (f.life - a) / 0.6);
       ctx.fillStyle = f.c;
-      if (f.snow) ell(xx, yy, 1.6, 1.4, f.c, true);
+      if (f.snow){                                           // 밝은 바닥에서도 보이게 옅은 파란 테두리
+        ctx.save(); ctx.strokeStyle = "rgba(110,150,200,.7)"; ctx.lineWidth = 0.5; ell(xx, yy, 1.8, 1.6, f.c); ctx.restore();
+      }
       else { ctx.save(); ctx.translate(xx, yy); ctx.rotate(reduceMotion ? 0.5 : Math.sin(a * 4 + f.sway) * 0.9);
              ctx.beginPath(); ctx.ellipse(0, 0, 1.9, 1, 0, 0, 7); ctx.fill(); ctx.restore(); }
       ctx.globalAlpha = 1;

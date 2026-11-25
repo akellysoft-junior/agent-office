@@ -171,6 +171,7 @@ alias cats='python3 ~/path/to/agent-office/agent_office_server.py'
 | `data-follow="0"` | 자동 따라가기 끄기 |
 | `data-controls="0"` | 왼쪽 위 ＋/－/⤢ 확대 버튼 숨기기 (기본은 보임. 숨겨도 휠·핀치로는 확대돼요) |
 | `data-fun="0"` | 숨은 재미 끄기 (소품을 눌러도 그대로). 기본은 켜짐 |
+| `data-season="winter"` | 계절 고정: `spring`·`summer`·`autumn`·`winter` (또는 봄·여름·가을·겨울). 없으면 이번 달 기준이에요 |
 | `data-wheel="ctrl"` | 그냥 휠은 바깥 페이지 스크롤에 양보하고 Ctrl(⌘)+휠·핀치일 때만 확대. 기본은 위젯 위에서 그냥 휠로 확대 |
 | `data-demo="1"` | 가짜 세션·가짜 팀으로 보기 |
 | `data-height="360px"` | 상자에 높이가 없을 때 쓸 높이 (기본 420px) |

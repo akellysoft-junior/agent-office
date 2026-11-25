@@ -3677,9 +3677,9 @@ function poke(s){
     plantSt.set(s.id, st);
     if (st.wilt) return;
     if (!reduceMotion) funFx.push({kind:"drop", x:s.x, y:s.y, t0:t});
-    if (++st.n < (bloomed.has(s.id) ? 10 : 3)) return pokeTrack(s, t);
+    if (++st.n < (bloomed.has(s.id) ? 10 : 5)) return pokeTrack(s, t);
     st.n = 0;
-    if (!bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }   // 세 번이면 꽃
+    if (!bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }   // 다섯 번이면 꽃
     else {                                                   // 핀 뒤에도 열 번 더 주면 시들어 떨어짐
       st.wilt = t + (reduceMotion ? 0 : 0.6);
       const c = flowerColor(s.id);

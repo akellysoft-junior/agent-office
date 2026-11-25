@@ -3677,6 +3677,7 @@ function poke(s){
     plantSt.set(s.id, st);
     if (st.wilt) return;
     if (!reduceMotion) funFx.push({kind:"drop", x:s.x, y:s.y, t0:t});
+    st.green = true;                                         // 물을 받으면 잎이 초록, 시들면 다시 하양
     if (++st.n < (bloomed.has(s.id) ? 10 : 3)) return pokeTrack(s, t);
     st.n = 0;
     if (!bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }   // 세 번이면 꽃
@@ -3754,7 +3755,7 @@ function treeSway(id){
 function plantFlowers(id, cx, cy, r){
   if (!bloomed.has(id)) return;
   const st = plantSt.get(id);
-  if (st && st.wilt && funNow >= st.wilt){ bloomed.delete(id); st.wilt = 0; saveBloom(); return; }
+  if (st && st.wilt && funNow >= st.wilt){ bloomed.delete(id); st.wilt = 0; st.green = false; saveBloom(); return; }
   const k = st && st.at ? Math.min(1, Math.max(0, (funNow - st.at) / 0.4)) : 1;
   if (k <= 0) return;
   const c = st && st.wilt ? "#c9a27a" : flowerColor(id);
@@ -4587,9 +4588,9 @@ function drawServer(now){
     ctx.fillStyle = c; ctx.fillRect(isoX(31,254), isoY(31,254, 12+i*9), 2, 2);
   }
 }
-function bush(cx, cy, r){       // 레퍼런스처럼 몽글몽글한 나무/화분 잎
+function bush(cx, cy, r, fill){ // 레퍼런스처럼 몽글몽글한 나무/화분 잎
   const P = TOD;
-  ctx.fillStyle = P.paper;
+  ctx.fillStyle = fill || P.paper;
   ctx.beginPath();
   const bumps = 9;
   for (let i=0;i<=bumps;i++){
@@ -4604,11 +4605,11 @@ function bush(cx, cy, r){       // 레퍼런스처럼 몽글몽글한 나무/화
   }
 }
 function drawPlant(x, y, h){
-  const P = TOD, id = "p" + x + "," + y;
+  const P = TOD, id = "p" + x + "," + y, st = plantSt.get(id);
   isoBox(x, y, 13, 13, 0, 9, P.paper, P.paper, P.side);
   const cx = isoX(x+6.5, y+6.5), cy = isoY(x+6.5, y+6.5, 9);
   line([[cx, cy], [cx, cy-h+6]]);
-  bush(cx, cy-h, 9);
+  bush(cx, cy-h, 9, (st && st.green) || bloomed.has(id) ? "#9fd08a" : null);
   plantFlowers(id, cx, cy-h, 9);
   pokeSpot("plant", id, cx, cy-h, 11, {ground: cy});
 }

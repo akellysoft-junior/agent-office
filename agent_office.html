@@ -3757,9 +3757,11 @@ function plantFlowers(id, cx, cy, r){
   if (st && st.wilt && funNow >= st.wilt){ bloomed.delete(id); st.wilt = 0; st.fadeAt = funNow; saveBloom(); return; }
   const k = st && st.at ? Math.min(1, Math.max(0, (funNow - st.at) / 0.4)) : 1;
   if (k <= 0) return;
-  const c = st && st.wilt ? "#c9a27a" : flowerColor(id);
+  const n = st && !st.wilt ? st.n : 0;                     // 핀 뒤로 더 준 물: 7번째부터 색이 바래고 9번째엔 고개를 숙임
+  const c = st && st.wilt ? "#c9a27a" : n >= 7 ? mixHex(flowerColor(id), "#c9a27a", (n - 6) / 4) : flowerColor(id);
+  const bow = n >= 9 ? 2.2 : 0;
   for (const [ox, oy] of FLOWER_AT){
-    const fx = cx + ox * r, fy = cy + oy * r, pr = 1.5 * k;
+    const fx = cx + ox * r + bow * ox, fy = cy + oy * r + bow, pr = 1.5 * k * (bow ? 0.85 : 1);
     ctx.fillStyle = c;
     for (let p = 0; p < 5; p++){ const an = p / 5 * 6.283; ctx.beginPath(); ctx.arc(fx + Math.cos(an) * pr, fy + Math.sin(an) * pr, pr * 0.75, 0, 7); ctx.fill(); }
     ctx.fillStyle = "#f2a54e"; ctx.beginPath(); ctx.arc(fx, fy, pr * 0.55, 0, 7); ctx.fill();
@@ -4605,6 +4607,12 @@ function bush(cx, cy, r, fill){ // 레퍼런스처럼 몽글몽글한 나무/화
 }
 function drawPlant(x, y, h){
   const P = TOD, id = "p" + x + "," + y, st = plantSt.get(id);
+  const wet = !st ? 0 : st.wilt ? 1 : bloomed.has(id) ? Math.min(1, Math.max(0, (st.n - 3) / 6))   // 꽃 핀 뒤 4번째부터 물웅덩이
+            : st.fadeAt ? Math.max(0, 1 - (funNow - st.fadeAt) / 3) : 0;                         // 시들면 천천히 마름
+  if (wet > 0){
+    ctx.fillStyle = `rgba(111,180,236,${(0.5 * wet).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(isoX(x+6.5, y+6.5), isoY(x+6.5, y+6.5, 0) + 1, 10 + 5 * wet, 5 + 2.5 * wet, 0, 0, 7); ctx.fill();
+  }
   isoBox(x, y, 13, 13, 0, 9, P.paper, P.paper, P.side);
   const cx = isoX(x+6.5, y+6.5), cy = isoY(x+6.5, y+6.5, 9);
   line([[cx, cy], [cx, cy-h+6]]);

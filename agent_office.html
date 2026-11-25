@@ -503,7 +503,7 @@ const repoOf = v => {
 };
 const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
              tod:QS.get("tod"), sun:QS.get("sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
-             fun:QS.get("fun") !== "0",                            // 화분·나무·창문·상자 누르기 (0 이면 끔)
+             fun:QS.get("fun") !== "0",                            // 화분·나무·창문 누르기, 머그컵 (0 이면 끔)
              controls:!(EMBED && QS.get("controls") === "0"),      // 위젯: ＋/－/⤢ 버튼을 보일지 (넣는 쪽이 고름)
              wheelCtrl:EMBED && QS.get("wheel") === "ctrl"};       // 위젯: Ctrl(⌘)+휠일 때만 확대 (바깥 페이지 스크롤을 안 막게)
 const cv = $("#office");
@@ -1100,7 +1100,7 @@ cv.addEventListener("pointerup", e => {
     return;
   }
   if (talkSel.cat){ closeTalk(); return; }
-  const sp = pokeAt(e);                                 // 화분·나무·창문·상자
+  const sp = pokeAt(e);                                 // 화분·나무·창문
   if (sp){ poke(sp); return; }
   const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
   if (i < 0){ if (cam.focus !== null) unfocus(); return; }
@@ -3640,17 +3640,23 @@ function lotAt(e){
   return -1;
 }
 
-/* ── 숨은 재미: 화분·나무·창문·상자를 누르면 살짝 바뀜 (세션 상태와는 상관없는 장식) ── */
+/* ── 숨은 재미: 화분·나무·창문을 누르면 살짝 바뀜 (세션 상태와는 상관없는 장식) ── */
 const pokeSpots = [];                 // 이번 프레임에 그린, 누를 수 있는 물건 (그림 좌표의 원)
 const funFx = [];                     // 진행 중인 효과
-const plantSt = new Map();            // 화분 → {n:물 준 횟수, taps:[최근 누른 시각], droop:처짐 끝 시각, at:꽃 핀 시각}
-const treeShake = new Map(), winFx = new Map(), boxPeek = new Map();
+const plantSt = new Map();            // 화분 → {n:물 준 횟수, at:꽃 핀 시각, wilt:시들어 떨어지는 시각}
+const treeShake = new Map(), winFx = new Map(), pokeSeq = [];
+const FLOWER_AT = [[-.45, -.35], [.35, -.55], [.5, .15], [-.1, .3]];
+const SECRET = ["plant", "tree", "win"];   // 이 순서로 누르면 다 같이 춤
 let funNow = 0;
 const dayKey = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const bloomed = (() => {              // 꽃은 그날 하루 동안 (이 브라우저에만 기억)
   try { const v = JSON.parse(localStorage.getItem("ao.bloom") || "{}"); if (v.day === dayKey()) return new Set(v.ids); } catch {}
   return new Set();
 })();
+function flowerColor(id){
+  let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return ["#f29bb4", "#ffd36b", "#e9897a", "#c79bff", "#ffffff"][Math.abs(h) % 5];
+}
 function saveBloom(){ try { localStorage.setItem("ao.bloom", JSON.stringify({day:dayKey(), ids:[...bloomed]})); } catch {} }
 function pokeSpot(kind, id, x, y, r, extra){ if (OPT.fun) pokeSpots.push({kind, id, x, y, r, ...extra}); }
 function pokeAt(e){
@@ -3667,12 +3673,20 @@ function pokeAt(e){
 function poke(s){
   const t = funNow;
   if (s.kind === "plant"){
-    const st = plantSt.get(s.id) || {n:0, taps:[], droop:0};
+    const st = plantSt.get(s.id) || {n:0};
     plantSt.set(s.id, st);
-    st.taps = st.taps.filter(v => t - v < 6); st.taps.push(t);
-    if (st.taps.length >= 6){ st.droop = t + 5; st.taps = []; return; }     // 물을 너무 자주 주면 잎이 축 처짐
+    if (st.wilt) return;
     if (!reduceMotion) funFx.push({kind:"drop", x:s.x, y:s.y, t0:t});
-    if (++st.n >= 3 && !bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }
+    if (++st.n < 3) return pokeTrack(s, t);
+    st.n = 0;
+    if (!bloomed.has(s.id)){ bloomed.add(s.id); st.at = t + (reduceMotion ? 0 : 0.6); saveBloom(); }   // 세 번이면 꽃
+    else {                                                   // 핀 뒤에도 세 번 더 주면 시들어 떨어짐
+      st.wilt = t + (reduceMotion ? 0 : 0.6);
+      const c = flowerColor(s.id);
+      for (const [ox, oy] of FLOWER_AT) for (const col of [c, "#b08a5a"])
+        funFx.push({kind:"leaf", x:s.x + ox * 9 + (Math.random() - .5) * 2, y:s.y + oy * 9, ground:s.ground - 1,
+                    t0:st.wilt + Math.random() * 0.4, c:col, sway:Math.random() * 6.283, life:1.6 + Math.random() * 0.5});
+    }
   } else if (s.kind === "tree"){
     treeShake.set(s.id, t);
     const m = new Date().getMonth() + 1, snow = m === 12 || m <= 2;
@@ -3686,9 +3700,15 @@ function poke(s){
     if (Math.random() < 0.3) funFx.push({kind:"bird", x:s.x, y:s.y - s.r * 0.5, t0:t, dir:Math.random() < 0.5 ? -1 : 1});
   } else if (s.kind === "win"){
     winFx.set(s.id, {t0:t, night:todW[2] > 0.4});
-  } else if (s.kind === "box"){
-    const b = boxPeek.get(s.id);
-    if (!b || t - b.t0 > 1.8) boxPeek.set(s.id, {t0:t, c:pick(["#f2a54e", "#8a8a94", "#f6f1e6", "#3d3d45"])});
+  }
+  pokeTrack(s, t);
+}
+function pokeTrack(s, t){
+  pokeSeq.push({kind:s.kind, t}); if (pokeSeq.length > SECRET.length) pokeSeq.shift();
+  if (pokeSeq.length === SECRET.length && pokeSeq.every((v, i) => v.kind === SECRET[i]) && t - pokeSeq[0].t < 15){
+    pokeSeq.length = 0;
+    const until = perfNow() + 3;
+    for (const a of visibleCats()){ a.cheerUntil = until; a.danceUntil = until; sparkle(a.pos.x, a.pos.y); }
   }
 }
 function drawFunFx(now){             // 물방울·떨어지는 잎·날아가는 새 (그림 좌표)
@@ -3733,11 +3753,12 @@ function treeSway(id){
 }
 function plantFlowers(id, cx, cy, r){
   if (!bloomed.has(id)) return;
-  const st = plantSt.get(id), k = st && st.at ? Math.min(1, Math.max(0, (funNow - st.at) / 0.4)) : 1;
+  const st = plantSt.get(id);
+  if (st && st.wilt && funNow >= st.wilt){ bloomed.delete(id); st.wilt = 0; saveBloom(); return; }
+  const k = st && st.at ? Math.min(1, Math.max(0, (funNow - st.at) / 0.4)) : 1;
   if (k <= 0) return;
-  let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0;
-  const c = ["#f29bb4", "#ffd36b", "#e9897a", "#c79bff", "#ffffff"][Math.abs(h) % 5];
-  for (const [ox, oy] of [[-.45, -.35], [.35, -.55], [.5, .15], [-.1, .3]]){
+  const c = st && st.wilt ? "#c9a27a" : flowerColor(id);
+  for (const [ox, oy] of FLOWER_AT){
     const fx = cx + ox * r, fy = cy + oy * r, pr = 1.5 * k;
     ctx.fillStyle = c;
     for (let p = 0; p < 5; p++){ const an = p / 5 * 6.283; ctx.beginPath(); ctx.arc(fx + Math.cos(an) * pr, fy + Math.sin(an) * pr, pr * 0.75, 0, 7); ctx.fill(); }
@@ -3768,33 +3789,6 @@ function windowFx(id, wx, wy){       // 창 유리 안: 밤엔 별똥별, 낮엔
   }
   ctx.restore();
 }
-function loungeBox(L, now){          // 휴게실 종이상자 (누르면 고양이가 빼꼼)
-  const P = TOD, x = L.lx + 160, y = L.y + 110, w = 15, d = 12, h = 8, id = "b" + L.x + "," + L.y;
-  isoBox(x, y, w, d, 0, h, P.side, P.paper, P.side);
-  const b = boxPeek.get(id);
-  if (b){
-    const a = now - b.t0;
-    if (a > 1.8) boxPeek.delete(id);
-    else {
-      const up = reduceMotion ? 1 : a < 0.35 ? a / 0.35 : a > 1.45 ? (1.8 - a) / 0.35 : 1;
-      const [hx, hy0] = gpt(x + w/2, y + d/2, h), hy = hy0 + 7 - up * 7;
-      ctx.save();
-      path([gpt(x, y + d, h), gpt(x + w, y + d, h), gpt(x + w, y, h), [isoX(x + w, y), isoY(x + w, y, h) - 30], [isoX(x, y + d), isoY(x, y + d, h) - 30]]);
-      ctx.closePath(); ctx.clip();
-      shape([[hx - 4.6, hy - 1.5], [hx - 3.6, hy - 6.2], [hx - 1.2, hy - 3]], b.c);
-      shape([[hx + 4.6, hy - 1.5], [hx + 3.6, hy - 6.2], [hx + 1.2, hy - 3]], b.c);
-      ell(hx, hy, 4.8, 3.6, b.c);
-      ctx.fillStyle = b.c === "#3d3d45" ? "#ffd36b" : TOD.ink;
-      if (a > 0.5 && a < 0.62) for (const ex of [-1.7, 1.7]) ctx.fillRect(hx + ex - 0.8, hy - 0.3, 1.6, 0.6);     // 눈 깜빡
-      else for (const ex of [-1.7, 1.7]){ ctx.beginPath(); ctx.arc(hx + ex, hy, 0.75, 0, 7); ctx.fill(); }
-      ctx.restore();
-    }
-  }
-  shape([gpt(x, y + d, h), gpt(x + w, y + d, h), gpt(x + w - 2, y + d + 5, h + 3), gpt(x + 2, y + d + 5, h + 3)], P.paper);   // 앞 날개
-  shape([gpt(x + w, y + d, h), gpt(x + w, y, h), gpt(x + w + 5, y + 2, h + 3), gpt(x + w + 5, y + d - 2, h + 3)], P.paper); // 옆 날개
-  pokeSpot("box", id, isoX(x + w/2, y + d/2), isoY(x + w/2, y + d/2, h) - 2, 10);
-}
-
 /* ── 캠퍼스 그리기 ── */
 const CAMPUS_PLATES = [
   [-900, -900, 1900, 860], [-900, 350, 1900, 900], [-900, -40, 860, 390], [812, -40, 900, 390],
@@ -3874,7 +3868,13 @@ function campusDecor(now){
   out.push({z: 210+360, fn:() => planter(204, 356, ["#e9897a","#ffd36b","#e9897a"])});
   return out;
 }
-function miniDesk(L, i, busy, now, alpha){
+function deskMugs(cats, k){          // 오래 켜 둔 세션: 한 시간마다 대장 책상에 머그컵이 하나씩 쌓임 (최대 5)
+  if (!OPT.fun || !live) return 0;
+  const c = cats.find(c => c.deskIdx === k && !c.human), s = c && catSessionOf(c);
+  const born = s && s.boss === c && ((live.usage || {})[s.sid] || {}).born;
+  return born ? Math.min(5, Math.floor((Date.now() / 1000 - born) / 3600)) : 0;
+}
+function miniDesk(L, i, busy, now, alpha, mugs){
   const P = TOD, d = lotDesk(L, i);
   ctx.globalAlpha = alpha;
   for (const lx of [d.x + 1.5, d.x + DESK_W - 1.5]) line([gpt(lx, d.y + DESK_D - 1, 0), gpt(lx, d.y + DESK_D - 1, 9)]);
@@ -3885,6 +3885,10 @@ function miniDesk(L, i, busy, now, alpha){
   wallQuad(mx + 1, d.y + 4, mx + 11, d.y + 4, 13, 20, busy ? (Math.floor(now*5) % 2 ? "#bfe6ff" : "#a6dcff") : P.side);
   isoBox(d.x + DESK_W/2 - 5, d.y + DESK_D - 5, 10, 3, 11, 0.8, P.paper, P.paper, P.side);
   if (L.big) deskTrinket(d, i);
+  for (let m = 0; m < (mugs || 0); m++){                    // 모니터 오른쪽에 컵 탑
+    const mx2 = d.x + DESK_W - 5.5 + (m % 2) * 0.6, z = 11 + m * 2.6;
+    isoBox(mx2, d.y + 2.5, 3, 3, z, 2.6, "#ffffff", ["#ffffff", "#f6d6c8", "#bfe6ff"][m % 3], P.side);
+  }
   ctx.globalAlpha = 1;
 }
 function lotTheme(L){
@@ -4055,7 +4059,7 @@ function drawLot(i, now){
       const alpha = Math.min(1, (now - L.appear[k]) / 0.6);
       const d = lotDesk(L, k), seat = lotSeat(L, k);
       const busy = cats.some(c => c.deskIdx === k && (c.state === "working" || c.state === "busy") && !c.inLounge && !c.waiting);
-      items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha)});
+      items.push({z: d.x + DESK_W/2 + d.y + DESK_D, fn:() => miniDesk(L, k, busy, now, alpha, deskMugs(cats, k))});
       const sitter = cats.find(c => c.deskIdx === k);
       if (!(sitter && sitter.human && charArt.ready && !usesWorkArt(sitter)))   // 서서 일하는 사람 자리엔 의자 없음
         items.push({z: seat.x + seat.y - 0.5, fn:() => { ctx.globalAlpha = alpha; drawStool(seat, 0); ctx.globalAlpha = 1; }});
@@ -4067,7 +4071,6 @@ function drawLot(i, now){
   items.push({z: L.lx + 209 + L.y + 58, fn:() => loungeTower(L)});
   items.push({z: L.lx + 205 + L.y + 118, fn:() => loungeBowls(L)});
   items.push({z: L.lx + 214 + L.y + 13, fn:() => loungeCoffee(L)});
-  items.push({z: L.lx + 175 + L.y + 122, fn:() => loungeBox(L, now)});
   items.push({z: L.x + 8 + L.y + L.d - 8, fn:() => drawPlant(L.x + 2, L.y + L.d - 15, 18)});
   if (L.big) items.push(...bigOfficeProps(L, now));
   items.sort((p, q) => p.z - q.z);
@@ -4611,14 +4614,13 @@ function bush(cx, cy, r){       // 레퍼런스처럼 몽글몽글한 나무/화
   }
 }
 function drawPlant(x, y, h){
-  const P = TOD, id = "p" + x + "," + y, st = plantSt.get(id), droop = st && st.droop > funNow;
+  const P = TOD, id = "p" + x + "," + y;
   isoBox(x, y, 13, 13, 0, 9, P.paper, P.paper, P.side);
-  const cx = isoX(x+6.5, y+6.5), cy = isoY(x+6.5, y+6.5, 9), top = droop ? cy - h + 9 : cy - h;
-  line([[cx, cy], [cx, top+6]]);
-  if (droop){ ctx.save(); ctx.translate(cx, top); ctx.scale(1.25, 0.65); bush(0, 0, 9); ctx.restore(); }   // 물을 너무 줘서 축 처짐
-  else bush(cx, top, 9);
-  plantFlowers(id, cx, top, 9);
-  pokeSpot("plant", id, cx, top, 11);
+  const cx = isoX(x+6.5, y+6.5), cy = isoY(x+6.5, y+6.5, 9);
+  line([[cx, cy], [cx, cy-h+6]]);
+  bush(cx, cy-h, 9);
+  plantFlowers(id, cx, cy-h, 9);
+  pokeSpot("plant", id, cx, cy-h, 11, {ground: cy});
 }
 function drawBox(now){            // 고양이가 좋아하는 종이상자
   const P = TOD;
@@ -4668,7 +4670,7 @@ function drawCat(a, now){
     const sdx = (t.x - a.pos.x) - (t.y - a.pos.y);
     if (Math.abs(sdx) > .2) a.face = sdx > 0 ? 1 : -1;
   }
-  const f = a.face || 1, pose = catPose(a, now);
+  const f = a.danceUntil > now && !reduceMotion ? (Math.sin(now * 9) > 0 ? 1 : -1) : a.face || 1, pose = catPose(a, now);
   const atStool = Math.hypot(a.pos.x - a.seat.x, a.pos.y - a.seat.y) < 3 && pose !== "walk";
   const hop = a.cheerUntil && now < a.cheerUntil && !reduceMotion ? Math.abs(Math.sin((a.cheerUntil - now) * 10)) * 6 * k : 0;
   const artWork = usesWorkArt(a) && (pose === "work" || pose === "think") && atStool && a.deskIdx != null && !a.inLounge && !a.waiting;

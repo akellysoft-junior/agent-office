@@ -631,6 +631,9 @@ def usage_publish():
              "sub": round(sum(f["usd"] for _, f in fs if f["kind"] == "sub"), 4)}
         if mf.get("title"):
             d["title"] = mf["title"]          # 세션에 붙인 이름 → 화면의 세션 이름
+        born = (meta.get(sess) or {}).get("started")
+        if born:
+            d["born"] = int(born)             # 세션을 처음 켠 시각 → 오래 켜 둔 책상의 머그컵
         if not d["model"] and not d["in"] and not d.get("title"):
             continue
         if mf["unp"] or any(x[1] for x in late):

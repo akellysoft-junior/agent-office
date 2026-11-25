@@ -52,6 +52,16 @@ header.bar{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
 .clock{margin-left:auto; font-family:var(--font-mono); font-size:13px; font-variant-numeric:tabular-nums;
   border:1.5px solid var(--ink); border-radius:999px; padding:4px 12px}
 .controls{display:flex; gap:8px; flex-wrap:wrap}
+.controls #btnDev{margin-left:auto}
+html:not(.dev) .dev-only{display:none !important}      /* 사용자 모드: 개발·확인용 도구는 숨김 */
+.optpanel{display:flex; flex-direction:column; gap:9px; background:var(--paper); border:1.5px solid var(--ink); border-radius:12px; padding:11px 13px}
+.optpanel[hidden]{display:none}
+.optrow{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.optrow > b{min-width:70px; font-family:var(--font-display); font-weight:400}
+.optrow small{color:var(--muted)}
+.optrow button{font-size:13px; padding:4px 11px}
+.optrow input{font:inherit; font-size:13px; padding:5px 9px; width:150px; border:1.5px solid var(--ink); border-radius:9px; background:var(--paper); color:var(--ink)}
+.seg{display:flex; gap:5px; flex-wrap:wrap}
 button{
   font-family:var(--font-display); font-size:14px;
   background:var(--paper); color:var(--ink);
@@ -396,25 +406,33 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </header>
 
   <div class="controls">
-    <button id="btnPause" aria-pressed="false">⏸ 일시정지</button>
-    <button id="btnSpeed">속도 ×1</button>
-    <button id="btnAuto" aria-pressed="true">자동 작업 생성: 켜짐</button>
+    <button id="btnPause" class="dev-only" aria-pressed="false">⏸ 일시정지</button>
+    <button id="btnSpeed" class="dev-only">속도 ×1</button>
+    <button id="btnAuto" class="dev-only" aria-pressed="true">자동 작업 생성: 켜짐</button>
     <button id="btnTheme" aria-label="페이지 테마 바꾸기">🌓 테마: 자동</button>
     <button id="btnTod">시간: 자동</button>
     <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
     <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
     <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
     <button id="btnChars" hidden title="깃허브 기여자 캐릭터를 골라 YAML 설정으로 복사">🎨 캐릭터 설정</button>
-    <button id="btnWidget" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
+    <button id="btnOpts" class="dev-only" aria-expanded="false" aria-controls="optPanel">⚙ 옵션</button>
+    <button id="btnWidget" class="dev-only" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
     <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
-    <button id="btnAdd" class="primary">+ 작업 추가</button>
+    <button id="btnAdd" class="primary dev-only">+ 작업 추가</button>
+    <button id="btnDev" aria-pressed="false" title="개발·확인용 도구(옵션, 위젯 미리보기, 로그, 재생…)를 보이거나 숨겨요">🛠 개발 모드: 꺼짐</button>
+  </div>
+
+  <div class="optpanel dev-only" id="optPanel" hidden>
+    <div class="optrow"><b>계절</b><span class="seg" id="optSeason"><button type="button" data-v="">자동</button><button type="button" data-v="spring">봄</button><button type="button" data-v="summer">여름</button><button type="button" data-v="autumn">가을</button><button type="button" data-v="winter">겨울</button></span><small id="optSeasonNote"></small></div>
+    <div class="optrow"><b>숨은 재미</b><button type="button" id="optFun"></button><small>화분·나무·창문을 누르면 바뀌는 것</small></div>
+    <div class="optrow"><b>해 위치</b><input id="optSun" placeholder="위도,경도 (비우면 자동)" aria-label="해 위치 위도,경도" spellcheck="false" autocomplete="off"><button type="button" id="optSunApply">적용</button><small id="optSunNote"></small></div>
   </div>
 
   <div class="main">
     <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
-      <section class="card">
+      <section class="card dev-only">
         <h2>작업 보드</h2>
         <div class="kanban">
           <div class="kcell k-wait"><span class="n" id="kWait">0</span><span class="l">대기</span></div>
@@ -435,14 +453,14 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
         <div class="agents" id="agentList"></div>
       </section>
 
-      <section class="card">
+      <section class="card dev-only">
         <details id="logDetails" open>
           <summary class="logsum">이벤트 로그 (자세히)</summary>
           <div class="log" id="log" aria-live="polite"></div>
         </details>
       </section>
 
-      <section class="card">
+      <section class="card dev-only">
         <h2>세션 재생 · Claude Code 로그</h2>
         <div class="drop" id="drop">
           <p><b>세션 로그(.jsonl)</b>를 여기에 끌어다 놓으세요</p>
@@ -460,7 +478,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
         재생용 로그 위치: <code>~/.claude/projects/&lt;프로젝트&gt;/&lt;세션ID&gt;.jsonl</code> — Read·Grep→도트, Edit·Bash→비트, 서브에이전트→픽셀, 에러→체크, 요청·응답→루미.</p>
       </section>
 
-      <section class="card">
+      <section class="card dev-only">
         <details class="api">
           <summary>실제 에이전트 연동하기</summary>
           <p>지금은 시뮬레이션이지만, 콘솔이나 외부 스크립트에서 아래 API로 실제 이벤트를 밀어 넣을 수 있어요. 이 HTML을 받아 로컬에서 띄우면 WebSocket과도 바로 연결됩니다.</p>
@@ -501,10 +519,11 @@ const repoOf = v => {
   const m = v.match(/^([\w.-]+)\/([\w.-]+?)(\.git)?(?:[\/?#].*)?$/);
   return m ? m[1] + "/" + m[2] : null;
 };
+const LS = k => { if (EMBED) return null; try { return localStorage.getItem(k); } catch { return null; } };   // 위젯(같은 주소)엔 섞지 않음
 const OPT = {repo:repoOf(QS.get("repo")) ?? (QS.get("repo") || "").trim(), team:QS.get("team") !== "0", theme:QS.get("theme"),
-             tod:QS.get("tod"), sun:QS.get("sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
-             fun:QS.get("fun") !== "0",                            // 화분·나무·창문 누르기 (0 이면 끔)
-             season:QS.get("season"),                              // 계절 고정 (spring·summer·autumn·winter, 봄·여름·가을·겨울). 없으면 이번 달
+             tod:QS.get("tod"), sun:QS.get("sun") ?? LS("ao.sun"), follow:QS.get("follow"), demo:QS.get("demo") === "1",
+             fun:(QS.get("fun") ?? LS("ao.fun")) !== "0",                            // 화분·나무·창문 누르기 (0 이면 끔)
+             season:QS.get("season") ?? LS("ao.season"),                              // 계절 고정 (spring·summer·autumn·winter, 봄·여름·가을·겨울). 없으면 이번 달
              controls:!(EMBED && QS.get("controls") === "0"),      // 위젯: ＋/－/⤢ 버튼을 보일지 (넣는 쪽이 고름)
              wheelCtrl:EMBED && QS.get("wheel") === "ctrl"};       // 위젯: Ctrl(⌘)+휠일 때만 확대 (바깥 페이지 스크롤을 안 막게)
 const cv = $("#office");
@@ -6047,6 +6066,47 @@ $("#btnAuto").addEventListener("click", e => {
   autoOn = !autoOn;
   e.currentTarget.textContent = "자동 작업 생성: " + (autoOn ? "켜짐" : "꺼짐");
   e.currentTarget.setAttribute("aria-pressed", autoOn);
+});
+/* 사용자 모드 / 개발 모드 (?dev=1 로도 켜짐, 이 브라우저에 기억) */
+const btnDev = $("#btnDev"), optPanel = $("#optPanel"), btnOpts = $("#btnOpts");
+let devMode = QS.has("dev") ? QS.get("dev") === "1" : LS("ao.dev") === "1";
+function devApply(){
+  document.documentElement.classList.toggle("dev", devMode);
+  btnDev.textContent = "🛠 개발 모드: " + (devMode ? "켜짐" : "꺼짐"); btnDev.setAttribute("aria-pressed", devMode);
+}
+btnDev.addEventListener("click", () => {
+  devMode = !devMode;
+  try { localStorage.setItem("ao.dev", devMode ? "1" : "0"); } catch {}
+  devApply();
+});
+devApply();
+const SEASON_KO = {spring:"봄", summer:"여름", autumn:"가을", winter:"겨울"};
+function optText(){
+  const cur = SEASON_ALIAS[(OPT.season || "").trim().toLowerCase()] || "";
+  for (const b of $("#optSeason").children) b.setAttribute("aria-pressed", b.dataset.v === cur);
+  $("#optSeasonNote").textContent = cur ? "나무를 누르면 이 계절 것이 떨어져요" : `지금: ${SEASON_KO[seasonNow()]} (이번 달 기준)`;
+  $("#optFun").textContent = OPT.fun ? "켜짐" : "꺼짐"; $("#optFun").setAttribute("aria-pressed", OPT.fun);
+  const t = sunTimes(new Date(), SUN_AT[0], SUN_AT[1]), hm = h => `${Math.floor(h)}:${String(Math.floor(h % 1 * 60)).padStart(2, "0")}`;
+  $("#optSunNote").textContent = `지금 ${SUN_AT.map(v => +v.toFixed(2)).join(", ")}` + (t ? ` · 해 뜸 ${hm(t[0])} · 해 짐 ${hm(t[1])}` : "")
+                               + (QS.has("sun") ? " (주소의 sun= 이 먼저예요)" : "");
+}
+const optSave = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+btnOpts.addEventListener("click", () => {
+  optPanel.hidden = !optPanel.hidden; btnOpts.setAttribute("aria-expanded", !optPanel.hidden);
+  if (!optPanel.hidden){ $("#optSun").value = LS("ao.sun") || ""; optText(); }
+});
+$("#optSeason").addEventListener("click", e => {
+  const v = e.target.dataset && e.target.dataset.v;
+  if (v == null) return;
+  OPT.season = v || null; optSave("ao.season", v); optText();
+});
+$("#optFun").addEventListener("click", () => { OPT.fun = !OPT.fun; optSave("ao.fun", OPT.fun ? "" : "0"); optText(); });
+$("#optSunApply").addEventListener("click", () => {
+  const v = $("#optSun").value.trim(), m = v.split(",").map(Number);
+  if (v && !(m.length === 2 && m.every(Number.isFinite) && Math.abs(m[0]) <= 90 && Math.abs(m[1]) <= 180)){
+    $("#optSunNote").textContent = "위도,경도 숫자 두 개로 적어 주세요 (예: 37.57,126.98)"; return;
+  }
+  optSave("ao.sun", v); location.reload();                  // 해 시각은 처음에 한 번 계산해 둬서 새로 불러옴
 });
 const btnTod = $("#btnTod");
 function todText(){

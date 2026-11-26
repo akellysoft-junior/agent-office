@@ -3727,7 +3727,7 @@ function poke(s){
     }
     if (Math.random() < 0.3) funFx.push({kind:"bird", x:s.x, y:s.y - s.r * 0.5, t0:t, dir:Math.random() < 0.5 ? -1 : 1});
   } else if (s.kind === "win"){
-    winFx.set(s.id, {t0:t, night:todW[2] > 0.4});
+    winFx.set(s.id, {t0:t, night:todW[2] > 0.4, dusk:todW[2] <= 0.4 && todW[1] > 0.4});
   }
   pokeTrack(s, t);
 }
@@ -3797,10 +3797,10 @@ function plantFlowers(id, cx, cy, r){
     ctx.fillStyle = "#f2a54e"; ctx.beginPath(); ctx.arc(fx, fy, pr * 0.55, 0, 7); ctx.fill();
   }
 }
-function windowFx(id, wx, wy){       // 창 유리 안: 밤엔 별똥별, 낮엔 무지개
+function windowFx(id, wx, wy){       // 창 유리 안: 밤엔 별똥별, 노을엔 지는 해, 낮엔 무지개
   const f = winFx.get(id);
   if (!f) return;
-  const a = funNow - f.t0, life = f.night ? 1.2 : 2.6;
+  const a = funNow - f.t0, life = f.night ? 1.2 : f.dusk ? 3 : 2.6;
   if (a > life){ winFx.delete(id); return; }
   ctx.save();
   path([gpt(wx, wy, 8), gpt(wx + 34, wy, 8), gpt(wx + 34, wy, 19), gpt(wx, wy, 19)]); ctx.closePath(); ctx.clip();
@@ -3810,6 +3810,13 @@ function windowFx(id, wx, wy){       // 창 유리 안: 밤엔 별똥별, 낮엔
     ctx.strokeStyle = "#ffe08a"; ctx.lineWidth = LW * 1.2;
     line([gpt(hx - 9, wy, hz + 2.6), gpt(hx, wy, hz)]);
     ctx.fillStyle = "#fff6cc"; const [sx, sy] = gpt(hx, wy, hz); ctx.beginPath(); ctx.arc(sx, sy, 1.3, 0, 7); ctx.fill();
+  } else if (f.dusk){
+    ctx.globalAlpha = 0.85 * Math.min(1, a / 0.5, (life - a) / 0.7);
+    const [tx, ty] = gpt(wx + 17, wy, 19), [bx, by] = gpt(wx + 17, wy, 8), g = ctx.createLinearGradient(tx, ty, bx, by);
+    g.addColorStop(0, "#8f6bb8"); g.addColorStop(0.45, "#f28a7a"); g.addColorStop(1, "#ffc27a");
+    path([gpt(wx, wy, 8), gpt(wx + 34, wy, 8), gpt(wx + 34, wy, 19), gpt(wx, wy, 19)]); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    const k = reduceMotion ? 0.4 : Math.min(1, a / life), [sx, sy] = gpt(wx + 17, wy, 13.5 - k * 7);   // 해가 창 아래로 천천히
+    ctx.fillStyle = "#ffe08a"; ctx.beginPath(); ctx.arc(sx, sy, 3.6, 0, 7); ctx.fill();
   } else {
     ctx.globalAlpha = 0.75 * Math.min(1, a / 0.5, (life - a) / 0.6);
     ctx.lineWidth = 1.3;

@@ -5008,6 +5008,8 @@ function deskFrontOver(a){
   const d = lotDesk(L, a.deskIdx), seat = lotSeat(L, a.deskIdx);
   ctx.save();
   ctx.beginPath(); ctx.rect(isoX(seat.x, seat.y) + DESK_CROSS, -1e5, 2e5, 2e5); ctx.clip();
+  const fy = d.y + DESK_D, [ax, ay] = gpt(d.x - 20, fy, 9.2), [bx, by] = gpt(d.x + DESK_W + 20, fy, 9.2);   // 앞판 아래쪽만: 위쪽까지 덮으면 키보드로 뻗은 팔꿈치가 세로로 잘려 보임
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(bx, by + 1e4); ctx.lineTo(ax, ay + 1e4); ctx.closePath(); ctx.clip();
   ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink;
   wallQuad(d.x, d.y + DESK_D, d.x + DESK_W, d.y + DESK_D, 9, 11, TOD.paper);
   ctx.restore();

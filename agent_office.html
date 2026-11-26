@@ -1122,10 +1122,10 @@ cv.addEventListener("pointerup", e => {
   if (talkSel.cat){ closeTalk(); return; }
   const sp = pokeAt(e);                                 // 화분·나무·창문
   if (sp){ poke(sp); return; }
-  const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택
-  if (i < 0){ if (cam.focus !== null) unfocus(); return; }
+  const i = lotAt(e);                                   // 끌지 않고 누른 것 = 사무실 선택 (빈 곳은 그대로: 동네로는 ⤢·Esc·← 동네로)
+  if (i < 0) return;
   const picked = slotSession(i); if (picked) picked.attention = false;
-  if (cam.focus !== i) focusLot(i);
+  if (cam.focus !== i) focusLot(i, false, cam.tz >= lotFitZ(i));   // 이미 그보다 크게 보고 있으면 배율·위치는 그대로
 });
 cv.addEventListener("pointercancel", () => { drag = null; });
 cv.addEventListener("wheel", e => {                     // 휠(트랙패드 두 손가락 쓸기·핀치)로 확대
@@ -3381,7 +3381,7 @@ function closeTalk(keepZoom = true){
   const lot = talkSel.cat.lot;
   if (wcamOn()){ wcam.target = talkSel.cat; wcam.at = Date.now(); wcam.manual = false; keepZoom = false; }   // 위젯: 말 건 캐릭터를 계속 비춤
   talkSel.cat = null; talk.box.hidden = true;
-  if (keepZoom && scene === "campus") focusLot(lot);
+  if (keepZoom && scene === "campus") focusLot(lot, false, true);    // 대화창만 닫고 카메라는 그대로
   emitHost("close", {});
 }
 talk.text.addEventListener("click", advanceTalk);
@@ -3576,11 +3576,12 @@ function followTick(){
   if (!followActive() || !follow.auto || cam.focus === null || talkSel.cat) return;
   if (Date.now() - follow.lastEventMs > 45000){ unfocus(true); }
 }
-function focusLot(i, auto = false){
+const lotFitZ = i => Math.min(2.5, VW / ((SLOTS[i].w + SLOTS[i].d) * ISX * 1.12));   // 사무실 하나가 화면에 맞는 배율
+function focusLot(i, auto = false, stay = false){        // stay: 고르기만 하고 카메라는 그대로
   if (scene !== "campus") return;
   follow.auto = auto; if (auto) follow.since = Date.now();
   const L = SLOTS[i], [cx, cy] = lotCenter(i);
-  cam.focus = i; cam.tz = Math.min(2.5, VW / ((L.w + L.d) * ISX * 1.12)); cam.tcx = cx; cam.tcy = cy;
+  cam.focus = i; if (!stay){ cam.tz = lotFitZ(i); cam.tcx = cx; cam.tcy = cy; }
   $("#btnBack").hidden = false; $("#btnBack").textContent = `← 동네로 · ${L.name}`;
   liveListVer = "";
 }

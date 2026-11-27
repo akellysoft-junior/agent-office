@@ -4258,7 +4258,7 @@ function bigOfficeProps(L, now){
     wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
     wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
   }});
-  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 크게, 쌍점은 1초마다 깜빡
+  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 크게, 쌍점은 1초마다 흐려졌다 밝아짐
   out.push({z: -1e6, fn:() => {
     const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, cx = x0 + 82, fy = y0 + 1.4;
     isoBox(cx - 15, y0, 30, 1.4, 9.4, 9.6, "#f6c27e", "#f2a54e", "#e08a3a");
@@ -4268,8 +4268,10 @@ function bigOfficeProps(L, now){
     }
     wallQuad(cx - 13.6, fy, cx + 13.6, fy, 10.5, 17.9, "#262a3d");
     ctx.fillStyle = "#ffd84a"; ctx.font = "8px 'Jua', sans-serif";                          // 점 글꼴보다 매끈한 글씨가 멀리서 잘 읽혀요
-    wallText(String(t.getHours()).padStart(2, "0"), cx - 5.6, fy, 14.1); wallText(String(t.getMinutes()).padStart(2, "0"), cx + 5.6, fy, 14.1);
-    if (on) wallText(":", cx, fy, 14.5);
+    wallText(String(t.getHours()).padStart(2, "0"), cx - 7, fy, 14.1); wallText(String(t.getMinutes()).padStart(2, "0"), cx + 7, fy, 14.1);
+    ctx.globalAlpha = on ? 1 : 0.4;                                                           // 쌍점: 네모 두 개, 꺼질 때도 흐리게 남겨 둠
+    for (const z of [12.2, 15.2]) wallQuad(cx - 0.8, fy, cx + 0.8, fy, z, z + 1.6, "#ffd84a", true);
+    ctx.globalAlpha = 1;
   }});
   // 통로 옆: 정수기
   out.push({z: ax - 8 + y0 + 12, fn:() => {

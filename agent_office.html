@@ -104,14 +104,15 @@ button:disabled{opacity:.35; cursor:default; box-shadow:none}
 }
 canvas#office{display:block; width:100%; height:auto; border-radius:9px; margin:0 auto}
 .back{position:absolute; top:16px; left:16px; z-index:2}
+.stage:has(#zoomCtl:not([hidden])) .back{display:none}   /* ⤢ 버튼과 같은 일이라 확대 버튼이 있으면 숨김 */
 canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
 .followchip{position:absolute; top:16px; right:16px; z-index:2; font-size:12px; background:var(--paper); color:var(--ink);
   border:1.5px solid var(--ink); border-radius:999px; padding:3px 10px; max-width:60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.followchip.paused{color:var(--muted); border-style:dashed}
 .zoomctl{position:absolute; right:16px; bottom:16px; z-index:2; display:flex; flex-direction:column; gap:6px}
 .zoomctl button{width:34px; height:34px; padding:0; font-size:17px; line-height:1; border-radius:10px; box-shadow:2px 2px 0 var(--ink)}
 .zoomctl #btnFollow{font-size:15px; margin-bottom:6px}
 .zoomctl #btnFollow[aria-pressed="true"]{background:var(--accent)}
+.zoomctl #btnFollow.paused{background:var(--paper); border-style:dashed}
 html.embed .zoomctl #btnFollow{display:none}
 /* 사무실 화면 높이 손잡이: 아래 가운데를 끌어 조절, 두 번 누르면 원래대로 */
 .sizegrip{position:absolute; left:50%; bottom:-7px; transform:translateX(-50%); z-index:3; width:46px; height:12px; padding:0;
@@ -447,7 +448,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
 </div>
 <div class="app">
   <header class="bar">
-    <div class="sign">Agent Office<small>멀티에이전트 워크플로우 · 실시간 뷰</small></div>
+    <div class="sign">Agent Office</div>
     <div class="clock" id="clock">DAY 1 · 09:00</div>
     <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
     <button id="btnSettings" class="iconbtn" aria-expanded="false" aria-controls="settings" aria-label="설정" title="설정">⚙</button>
@@ -6022,7 +6023,7 @@ function fillSumCard(s){
   c.pill.className = "pill" + (look.bg === "#3f9c62" ? " ok" : look.bg ? " hot" : "");
   c.el.classList.toggle("waiting", s.phase === "waiting");
   c.view.hidden = cam.focus === s.slot;
-  c.sub.textContent = [s.src !== "claude" && SRC_LABEL[s.src], SLOTS[s.slot].name, s.branch && `⎇ ${s.branch}`, s.sid].filter(Boolean).join(" · ");
+  c.sub.textContent = [s.src !== "claude" && SRC_LABEL[s.src], !ONE && SLOTS[s.slot].name, s.branch && `⎇ ${s.branch}`, s.sid].filter(Boolean).join(" · ");
   c.goal.textContent = s.goal ? `요청: ${s.goal}` : s.topic ? `주제: ${s.topic}` : "아직 받은 요청이 없어요";
   const helping = [...s.kittens.values()].filter(k => !k.leaving && !k.inLounge).length;
   c.now.textContent =
@@ -6048,7 +6049,7 @@ function fillSumCard(s){
   if (bgs.length) c.bg.textContent = "🖥 백그라운드: " + bgs.slice(0, 3).map(t => `${t.label} ${bgStateText(t)}`).join(" / ") +
                                      (bgs.length > 3 ? ` 외 ${bgs.length - 3}개` : "");
   const T = s.tools;
-  const tl = [T.read && `읽기 ${T.read}`, T.edit && `수정 ${T.edit}`, T.cmd && `명령 ${T.cmd}`, T.web && `웹 ${T.web}`,
+  const tl = [T.web && `웹 ${T.web}`,                  // 읽기·수정·명령 수는 위 줄(파일·명령)과 겹쳐서 뺌
               ...Object.entries(s.mcp).map(([k, v]) => `🔌${k} ${v}`), ...Object.entries(s.skills).map(([k, v]) => `🧩${k} ${v}`)].filter(Boolean);
   c.tools.hidden = !tl.length;
   if (tl.length) c.tools.textContent = "🧰 도구: " + tl.join(" · ");
@@ -6090,14 +6091,16 @@ function updateHUD(){
   const showChars = !EMBED && mode === "live";          // 팀 정보를 못 받아도 아이디를 직접 넣어 설정할 수 있게 항상 보임
   if (btnChars.hidden === showChars) btnChars.hidden = !showChars;
   const chip = $("#followChip");
-  if (!showFollow || !follow.on){ chip.hidden = true; }
+  const paused = follow.on && Date.now() < follow.pausedUntil;
+  if (btnFollow.classList.contains("paused") !== paused){
+    btnFollow.classList.toggle("paused", paused);
+    btnFollow.title = btnFollow.ariaLabel = paused ? "자동 따라가기: 조작해서 잠시 멈춤 (30초 뒤 다시)" : "자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐");
+  }
+  const fs = showFollow && follow.on && !paused && follow.auto && cam.focus !== null ? slotSession(cam.focus) : null;
+  if (!fs){ chip.hidden = true; }                      // 실제로 어느 세션을 비추고 있을 때만
   else {
-    const paused = Date.now() < follow.pausedUntil;
-    const s = cam.focus !== null ? slotSession(cam.focus) : null;
-    const txt = paused ? `⏸ 자동 따라가기 잠시 멈춤 · ${Math.ceil((follow.pausedUntil - Date.now()) / 1000)}초`
-              : follow.auto && s ? `🎥 ${sessName(s)} 따라가는 중` : "🎥 반응하는 세션을 따라가요";
+    const txt = `🎥 ${sessName(fs)} 따라가는 중`;
     if (chip.textContent !== txt) chip.textContent = txt;
-    chip.classList.toggle("paused", paused);
     chip.hidden = false;
   }
   if (simOnly[0].hidden !== hideSim) for (const b of simOnly) b.hidden = hideSim;

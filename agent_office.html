@@ -113,6 +113,22 @@ canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
 .zoomctl #btnFollow{font-size:15px; margin-bottom:6px}
 .zoomctl #btnFollow[aria-pressed="true"]{background:var(--accent)}
 html.embed .zoomctl #btnFollow{display:none}
+/* 사무실 화면 높이 손잡이: 아래 가운데를 끌어 조절, 두 번 누르면 원래대로 */
+.sizegrip{position:absolute; left:50%; bottom:-7px; transform:translateX(-50%); z-index:3; width:46px; height:12px; padding:0;
+  border:1.5px solid var(--ink); border-radius:999px; background:var(--paper); box-shadow:none; cursor:ns-resize; touch-action:none}
+.sizegrip::before{content:""; display:block; margin:0 auto; width:20px; height:3px; border-block:1.5px solid var(--muted); box-sizing:border-box}
+html.embed .sizegrip, html.solo .sizegrip{display:none}
+/* 화면만 보기: 사무실 화면이 창을 꽉 채움 */
+html.solo, html.solo body{height:100%; overflow:hidden}
+html.solo body{padding:0}
+html.solo .app{max-width:none; height:100%; gap:0}
+html.solo header.bar, html.solo .controls, html.solo .optpanel, html.solo .hud{display:none !important}
+html.solo .main{height:100%}
+html.solo .stage{flex:none; width:100%; height:100% !important; border:0; border-radius:0; box-shadow:none; padding:0}
+html.solo canvas#office{border-radius:0}
+.soloexit{position:absolute; left:16px; bottom:16px; z-index:2; font-size:13px; padding:5px 11px; opacity:.6}
+.soloexit:hover, .soloexit:focus-visible{opacity:1}
+html:not(.solo) .soloexit{display:none}
 .agent.clickable{cursor:pointer; border-radius:8px}
 .agent.clickable:hover{background:var(--paper-2)}
 .agent.clickable:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
@@ -444,6 +460,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
       <button id="btnTheme" aria-label="페이지 테마 바꾸기">🌓 테마: 자동</button>
       <button id="btnTod">시간: 자동</button>
       <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
+      <button id="btnSolo">🖼 사무실 화면만 보기</button>
     </section>
     <section><h3>알림</h3>
       <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
@@ -474,7 +491,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="btnFollow" type="button" aria-pressed="true" hidden>🎥</button><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="btnFollow" type="button" aria-pressed="true" hidden>🎥</button><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div><button type="button" class="sizegrip" id="sizeGrip" aria-label="사무실 화면 높이 조절 (끌거나 ↑↓, 두 번 누르면 원래대로)" title="끌어서 높이 조절 · 두 번 누르면 원래대로"></button><button type="button" class="soloexit" id="soloExit" title="Esc 로도 돼요">↩ 전체 화면으로</button></div>
 
     <aside class="hud">
       <div class="hudtabs dev-only" role="tablist"><button type="button" role="tab" data-tab="work" aria-selected="true">지금 하는 일</button><button type="button" role="tab" data-tab="dev" aria-selected="false">🛠 로그·재생</button></div>
@@ -1203,6 +1220,7 @@ $("#zFit").addEventListener("click", () => {
 addEventListener("keydown", e => {
   if (e.key === "Escape" && talkSel.cat){ closeTalk(); return; }
   if (e.key === "Escape" && cam.focus !== null){ followPause(); unfocus(); return; }
+  if (e.key === "Escape" && document.documentElement.classList.contains("solo")){ soloSet(false); return; }
   if (talkSel.cat && (e.key === "Enter" || e.key === " ") && !/^(BUTTON|A|INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){ e.preventDefault(); advanceTalk(); }
 });
 $("#btnBack").addEventListener("click", () => { followPause(); unfocus(); });
@@ -5741,6 +5759,7 @@ function drawWorkBadge(a, sx, sy, k, now, kind){             // '작업 중'은 
 }
 
 let scale = 2, dpr = 1;
+let stageH = +(LS("ao.stageH") || 0) || 0;            // 손잡이로 정한 사무실 화면 높이 (0 이면 자동)
 function resize(){
   if (EMBED){                                         // 위젯: 받은 상자를 그대로 꽉 채움 (가로세로 비율도 상자에 맞춤)
     const box = cv.parentElement.getBoundingClientRect();
@@ -5755,7 +5774,21 @@ function resize(){
     scale = cv.width / VW;
     return;
   }
-  const box = cv.parentElement.getBoundingClientRect();
+  const st = cv.parentElement, solo = document.documentElement.classList.contains("solo");
+  st.style.height = !solo && stageH ? stageH + "px" : "";
+  if (solo || stageH){                               // 화면만 보기·높이를 직접 정했을 때: 상자를 꽉 채움
+    const cs = getComputedStyle(st), px = parseFloat(cs.paddingLeft) * 2, py = parseFloat(cs.paddingTop) * 2;
+    const w = Math.max(200, st.clientWidth - px), hh = Math.max(160, st.clientHeight - py), wasNarrow = narrow;
+    narrow = w < 600;
+    VH = VW * hh / w;
+    if (wasNarrow !== narrow && cam.focus === null){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.style.width = w + "px"; cv.style.height = hh + "px";
+    cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr);
+    scale = cv.width / VW;
+    return;
+  }
+  const box = st.getBoundingClientRect();
   const availW = Math.max(260, box.width - 12);
   const wasNarrow = narrow;
   narrow = availW < 600;
@@ -6181,6 +6214,36 @@ $("#settingsClose").addEventListener("click", () => settingsOpen(false));
 $("#settingsBack").addEventListener("click", () => settingsOpen(false));
 addEventListener("keydown", e => { if (e.key === "Escape" && !settings.hidden){ e.stopImmediatePropagation(); settingsOpen(false); } }, true);
 $("#btnChars").addEventListener("click", () => settingsOpen(false));
+/* 사무실 화면만 보기 (?view=solo 로도, 이 브라우저에 기억) */
+function soloSet(on){
+  document.documentElement.classList.toggle("solo", on);
+  try { localStorage.setItem("ao.solo", on ? "1" : "0"); } catch {}
+  resize();
+  if (on) $("#soloExit").focus();
+}
+$("#btnSolo").addEventListener("click", () => { settingsOpen(false); soloSet(true); });
+$("#soloExit").addEventListener("click", () => { soloSet(false); btnSettings.focus(); });
+if (!EMBED && (QS.has("view") ? QS.get("view") === "solo" : LS("ao.solo") === "1")) document.documentElement.classList.add("solo");
+/* 사무실 화면 높이 손잡이 */
+const grip = $("#sizeGrip");
+const stageSet = h => {
+  stageH = h ? Math.round(Math.max(240, Math.min(innerHeight * 1.5, h))) : 0;
+  try { stageH ? localStorage.setItem("ao.stageH", stageH) : localStorage.removeItem("ao.stageH"); } catch {}
+  resize();
+};
+grip.addEventListener("pointerdown", e => {
+  e.preventDefault(); grip.setPointerCapture(e.pointerId);
+  const y0 = e.clientY, h0 = cv.parentElement.offsetHeight;
+  const mv = ev => stageSet(h0 + ev.clientY - y0);
+  const up = () => { grip.removeEventListener("pointermove", mv); grip.removeEventListener("pointerup", up); grip.removeEventListener("pointercancel", up); };
+  grip.addEventListener("pointermove", mv); grip.addEventListener("pointerup", up); grip.addEventListener("pointercancel", up);
+});
+grip.addEventListener("dblclick", () => stageSet(0));
+grip.addEventListener("keydown", e => {
+  const d = e.key === "ArrowUp" ? -24 : e.key === "ArrowDown" ? 24 : 0;
+  if (d){ e.preventDefault(); stageSet(cv.parentElement.offsetHeight + d); }
+  else if (e.key === "Enter" || e.key === " "){ e.preventDefault(); stageSet(0); }
+});
 /* 개발 모드 사이드바 탭: 지금 하는 일 / 로그·재생 */
 const hudTabs = $(".hudtabs");
 function hudTab(t){

@@ -4229,25 +4229,41 @@ function drawLot(i, now){
 function bigOfficeProps(L, now){
   const P = TOD, x0 = L.x, y0 = L.y, out = [];
   const ax = lotAisle(L);
-  // 서쪽 벽: 책장 (책등 색색)
-  out.push({z: x0 + 6 + y0 + 130, fn:() => {
-    const bx = x0 + 1, by = y0 + 108, bd = 30;
-    isoBox(bx, by, 8, bd, 0, 26, P.paper, P.paper, P.side);
+  // 서쪽 벽: 책장 — 앞면에 칸 3단(그늘진 안쪽 + 선반 판), 책은 칸 높이보다 낮게 (폭 들쭉날쭉, 빈칸과 기운 책 하나)
+  out.push({z: x0 + 6 + y0 + 136, fn:() => {
+    const bx = x0 + 1, by = y0 + 114, bd = 30, H = 26, fx = bx + 8, E = 1.6;
+    isoBox(bx, by, 8, bd, 0, H, P.paper, P.paper, P.side);
     const cols = ["#e5534b", "#7fb2ea", "#f0c96b", "#8fbf9a", "#c79bff", "#f2a54e"];
-    for (const z of [3, 12, 20]) for (let k = 0; k < 6; k++){
-      const yy = by + 2 + k * 4.4, hgt = 5 + ((k * 7 + z) % 3);
-      wallQuad(bx + 8, yy, bx + 8, yy + 3.2, z, z + hgt, cols[(k + z) % cols.length]);
-    }
+    const ROWS = [[E, [3, 2.4, 3.2, 0, 2.6, 2.2, 3, 2.4]], [9.6, [2.4, 3, 2.6, 3.4, 2.2, 0, 0, 3]], [17.6, [2.8, 2.2, 0, 3, 2.6, 3.2, 2.4, 0]]];
+    ROWS.forEach(([z, ws], r) => {
+      const top = r < 2 ? ROWS[r + 1][0] - 1 : H - E;
+      wallQuad(fx, by + E, fx, by + bd - E, z, top, P.side);                       // 칸 안쪽 (그늘)
+      let yy = by + E + 0.6, k = 0;
+      for (const w of ws){
+        const ww = w || 2.6;
+        if (yy + ww > by + bd - E - 0.4) break;
+        if (w){
+          const h = Math.min(top - z - 1, 4.6 + ((k * 5 + r * 3) % 3) * 0.7), c = cols[(k + r * 2) % cols.length];
+          if (r === 1 && k === 4) shape([gpt(fx, yy, z), gpt(fx, yy + w, z), gpt(fx, yy + w + 2, z + h - 0.3), gpt(fx, yy + 2, z + h - 0.3)], c);   // 기대 선 책
+          else wallQuad(fx, yy, fx, yy + w, z, z + h, c);
+        }
+        yy += ww + 0.2; k++;
+      }
+      if (r < 2) wallQuad(fx, by + E, fx, by + bd - E, top, ROWS[r + 1][0], P.paper);   // 선반 판
+    });
+    isoBox(bx + 2, by + 20, 4, 4, H, 3, "#f6d6c8", "#f6d6c8", "#ecc3b2");           // 위에 작은 상자
   }});
-  // 서쪽 벽: 시계와 포스터
+  // 서쪽 벽: 포스터 (화이트보드와 책장 사이)
   out.push({z: -1e6, fn:() => {
-    const [cx, cy] = gpt(x0, y0 + 100, 20);
-    ell(cx, cy, 3.6, 4.4, P.paper);
-    const t = new Date(), hr = (t.getHours() % 12 + t.getMinutes() / 60) / 12 * 6.283, mn = t.getMinutes() / 60 * 6.283;
-    line([[cx, cy], [cx + Math.sin(hr) * 1.8, cy - Math.cos(hr) * 2.2]]);
-    line([[cx, cy], [cx + Math.sin(mn) * 2.6, cy - Math.cos(mn) * 3.2]]);
-    wallQuad(x0, y0 + 140, x0, y0 + 150, 9, 22, "#f6d6c8");
-    wallQuad(x0, y0 + 142, x0, y0 + 148, 15, 20, "#7fb2ea");
+    wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
+    wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
+  }});
+  // 북쪽 벽(창문 사이): 디지털 시계 — 실제 시각, 쌍점은 1초마다 깜빡
+  out.push({z: -1e6, fn:() => {
+    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0;
+    wallQuad(x0 + 72, y0, x0 + 92, y0, 17, 22, "#2b2722");
+    ctx.fillStyle = "#ffb35c"; ctx.font = "500 4.6px 'IBM Plex Mono', monospace";
+    wallText(String(t.getHours()).padStart(2, "0") + (on ? ":" : " ") + String(t.getMinutes()).padStart(2, "0"), x0 + 82, y0, 19.5);
   }});
   // 통로 옆: 정수기
   out.push({z: ax - 8 + y0 + 12, fn:() => {
@@ -4277,7 +4293,7 @@ function bigOfficeProps(L, now){
     isoBox(mx + 3, my - 3, 5, 4, 9.5, 0.6, "#f6f1e6", "#f6f1e6", "#f6f1e6");        // 종이
   }});
   // 화분 몇 개
-  for (const [px, py, h] of [[ax - 16, y0 + 152, 14], [x0 + 128, y0 + 156, 12], [x0 + 2, y0 + 2, 22]])   // 벽 쪽에 낮게
+  for (const [px, py, h] of [[ax - 16, y0 + 152, 14], [x0 + 128, y0 + 156, 12], [x0 + 2, y0 + 2, 10]])   // 벽 쪽에 낮게 (구석 것은 벽 위로 솟아 바깥 나무와 겹치지 않게)
     out.push({z: px + 6 + py + 6, fn:() => drawPlant(px, py, h)});
   return out;
 }

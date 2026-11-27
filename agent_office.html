@@ -4225,6 +4225,8 @@ function drawLot(i, now){
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
 }
+const CLOCK_FONT = {"0":[7,5,5,5,7], "1":[2,6,2,2,7], "2":[7,1,7,4,7], "3":[7,1,7,1,7], "4":[5,5,7,1,1],   // 3×5 점 글꼴 (위→아래, 비트 = 왼→오)
+                    "5":[7,4,7,1,7], "6":[7,4,7,5,7], "7":[7,1,2,2,2], "8":[7,5,7,5,7], "9":[7,5,7,1,7]};
 /* one: 넓은 사무실 소품 (깊이 정렬에 섞임) */
 function bigOfficeProps(L, now){
   const P = TOD, x0 = L.x, y0 = L.y, out = [];
@@ -4258,15 +4260,22 @@ function bigOfficeProps(L, now){
     wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
     wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
   }});
-  // 북쪽 벽(창문 사이): 디지털 시계 — 모니터처럼 하얀 테두리 + 하늘색 화면, 실제 시각 (쌍점은 1초마다 깜빡)
+  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 점(LED)으로, 쌍점은 1초마다 깜빡
   out.push({z: -1e6, fn:() => {
-    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, cx = x0 + 82, fy = y0 + 1.2;
-    isoBox(cx - 9, y0, 18, 1.2, 11, 7.5, P.paper, P.paper, P.side);
-    wallQuad(cx - 7.5, fy, cx + 7.5, fy, 12.3, 17.2, "#bfe6ff");
-    ctx.fillStyle = "#2b3a4a"; ctx.font = "3.8px 'Jua', sans-serif";            // 화면은 밤에도 밝아서 글자색 고정
-    const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0");
-    wallText(hh, cx - 2.9, fy, 14.6); wallText(mm, cx + 2.9, fy, 14.6);
-    if (on) wallText(":", cx, fy, 14.9);
+    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, cx = x0 + 82, fy = y0 + 1.4;
+    isoBox(cx - 10, y0, 20, 1.4, 11, 7.5, "#f6c27e", "#f2a54e", "#e08a3a");
+    for (const s of [-1, 1]){                                                                  // 고양이 귀 (안쪽은 분홍)
+      shape([gpt(cx + s * 9, fy, 18.3), gpt(cx + s * 6.8, fy, 21.4), gpt(cx + s * 4.6, fy, 18.3)], "#f2a54e");
+      shape([gpt(cx + s * 8, fy, 18.6), gpt(cx + s * 6.8, fy, 20.4), gpt(cx + s * 5.6, fy, 18.6)], "#f6b8c8", true);
+    }
+    wallQuad(cx - 8.6, fy, cx + 8.6, fy, 11.9, 17.6, "#2b2f45");
+    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), P = 0.85;
+    const dot = (c, r, lit) => ell(isoX(cx + (c - 8) * P, fy), isoY(cx + (c - 8) * P, fy, 16.45 - r * P), 0.36, 0.36, lit ? "#ffd36b" : "#3c4260", true);
+    [0, 4, 10, 14].forEach((c0, i) => {
+      const g = CLOCK_FONT[hm[i]];
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) dot(c0 + c, r, g[r] >> (2 - c) & 1);
+    });
+    for (let r = 0; r < 5; r++) dot(8, r, on && (r === 1 || r === 3));
   }});
   // 통로 옆: 정수기
   out.push({z: ax - 8 + y0 + 12, fn:() => {

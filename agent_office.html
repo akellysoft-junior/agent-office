@@ -4260,22 +4260,23 @@ function bigOfficeProps(L, now){
     wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
     wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
   }});
-  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 점(LED)으로, 쌍점은 1초마다 깜빡
+  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 붙은 네모 칸(LED)으로 크게, 쌍점은 1초마다 깜빡
   out.push({z: -1e6, fn:() => {
     const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, cx = x0 + 82, fy = y0 + 1.4;
-    isoBox(cx - 10, y0, 20, 1.4, 11, 7.5, "#f6c27e", "#f2a54e", "#e08a3a");
+    isoBox(cx - 15, y0, 30, 1.4, 9.4, 9.6, "#f6c27e", "#f2a54e", "#e08a3a");
     for (const s of [-1, 1]){                                                                  // 고양이 귀 (안쪽은 분홍)
-      shape([gpt(cx + s * 9, fy, 18.3), gpt(cx + s * 6.8, fy, 21.4), gpt(cx + s * 4.6, fy, 18.3)], "#f2a54e");
-      shape([gpt(cx + s * 8, fy, 18.6), gpt(cx + s * 6.8, fy, 20.4), gpt(cx + s * 5.6, fy, 18.6)], "#f6b8c8", true);
+      shape([gpt(cx + s * 13.6, fy, 18.7), gpt(cx + s * 10.6, fy, 22.6), gpt(cx + s * 7.6, fy, 18.7)], "#f2a54e");
+      shape([gpt(cx + s * 12.3, fy, 19.1), gpt(cx + s * 10.6, fy, 21.4), gpt(cx + s * 8.9, fy, 19.1)], "#f6b8c8", true);
     }
-    wallQuad(cx - 8.6, fy, cx + 8.6, fy, 11.9, 17.6, "#2b2f45");
-    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), P = 0.85;
-    const dot = (c, r, lit) => ell(isoX(cx + (c - 8) * P, fy), isoY(cx + (c - 8) * P, fy, 16.45 - r * P), 0.36, 0.36, lit ? "#ffd36b" : "#3c4260", true);
+    wallQuad(cx - 13.6, fy, cx + 13.6, fy, 10.5, 17.9, "#262a3d");
+    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), P = 1.42, g = 0.16;
+    const cell = (c, r) => { const x = cx + (c - 8.5) * P, z = 17.75 - (r + 1) * P;
+      wallQuad(x + g, fy, x + P - g, fy, z + g, z + P - g, "#ffd84a", true); };
     [0, 4, 10, 14].forEach((c0, i) => {
-      const g = CLOCK_FONT[hm[i]];
-      for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) dot(c0 + c, r, g[r] >> (2 - c) & 1);
+      const f = CLOCK_FONT[hm[i]];
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (f[r] >> (2 - c) & 1) cell(c0 + c, r);
     });
-    for (let r = 0; r < 5; r++) dot(8, r, on && (r === 1 || r === 3));
+    if (on){ cell(8, 1); cell(8, 3); }
   }});
   // 통로 옆: 정수기
   out.push({z: ax - 8 + y0 + 12, fn:() => {

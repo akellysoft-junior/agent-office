@@ -4259,9 +4259,9 @@ function bigOfficeProps(L, now){
     wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
     wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
   }});
-  // 북쪽 벽(창문 사이): 판 없이 벽에 붙은 LED 시계 — 7개 선(세그먼트) 숫자가 빛나고, 꺼진 선은 옅게. 쌍점은 1초마다 흐려졌다 밝아짐
+  // 북쪽 벽(두 번째 창문과 정수기 사이 빈 벽): 판 없이 벽에 붙은 LED 시계 — 7개 선(세그먼트) 숫자가 빛나고, 꺼진 선은 옅게. 쌍점은 1초마다 흐려졌다 밝아짐
   out.push({z: -1e6, fn:() => {
-    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, fy = y0 + 0.2, z0 = 10, W = 5, H = 9, T = 1.35;
+    const LED = "#f0961c", t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, fy = y0 + 0.2, z0 = 14.5, W = 5, H = 9, T = 1.35;
     const pt = (u, v) => gpt(u + (v - z0) * 0.12, fy, v);                                        // 살짝 기운 숫자
     const seg = (u1, v1, u2, v2, th) => { const hz = v1 === v2, h = th / 2;                        // 양 끝이 뾰족한 선 하나
       return hz ? [pt(u1, v1), pt(u1 + h, v1 + h), pt(u2 - h, v1 + h), pt(u2, v1), pt(u2 - h, v1 - h), pt(u1 + h, v1 - h)]
@@ -4273,15 +4273,15 @@ function bigOfficeProps(L, now){
       const bits = SEG7[n];
       S.forEach((q, i) => {
         if (bits >> i & 1){
-          ctx.globalAlpha = 0.22; shape(seg(...q, T * 2.6), "#ff6a3d", true);                   // 번지는 빛
-          ctx.globalAlpha = 1; shape(seg(...q, T), "#ff6a3d", true);
-        } else { ctx.globalAlpha = 0.08; shape(seg(...q, T), "#ff6a3d", true); ctx.globalAlpha = 1; }
+          ctx.globalAlpha = 0.22; shape(seg(...q, T * 2.6), LED, true);                   // 번지는 빛
+          ctx.globalAlpha = 1; shape(seg(...q, T), LED, true);
+        } else { ctx.globalAlpha = 0.08; shape(seg(...q, T), LED, true); ctx.globalAlpha = 1; }
       });
     };
-    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), cx = x0 + 82;
+    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), cx = x0 + 172;
     [cx - 13.4, cx - 6.8, cx + 1.8, cx + 8.4].forEach((x, i) => digit(x, hm[i]));
     ctx.globalAlpha = on ? 1 : 0.3;                                                              // 쌍점
-    for (const v of [z0 + 2.2, z0 + 6]) shape([pt(cx - 0.8, v), pt(cx + 0.8, v), pt(cx + 0.8, v + 1.6), pt(cx - 0.8, v + 1.6)], "#ff6a3d", true);
+    for (const v of [z0 + 2.2, z0 + 6]) shape([pt(cx - 0.8, v), pt(cx + 0.8, v), pt(cx + 0.8, v + 1.6), pt(cx - 0.8, v + 1.6)], LED, true);
     ctx.globalAlpha = 1;
   }});
   // 통로 옆: 정수기

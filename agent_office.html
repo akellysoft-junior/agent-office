@@ -1072,7 +1072,7 @@ function clampCam(){
 }
 function zoomBy(f, px = VW/2, py = VH/2){          // (px,py) 지점을 기준으로 확대
   const wx = (px - VW/2) / cam.z + cam.cx, wy = (py - VH/2) / cam.z + cam.cy;
-  cam.tz = Math.min(EMBED ? wcamZ() * 1.8 : 3, Math.max(overviewZ() * 0.8, cam.tz * f));
+  cam.tz = Math.min(EMBED ? wcamZ() * 1.8 : 6, Math.max(overviewZ() * 0.8, cam.tz * f));   // 전체 화면은 캐릭터 얼굴이 꽉 찰 만큼
   cam.tcx = wx - (px - VW/2) / cam.tz; cam.tcy = wy - (py - VH/2) / cam.tz;
   clampCam();
 }

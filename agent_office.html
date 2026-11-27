@@ -3,7 +3,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&family=IBM+Plex+Mono:wght@500&display=swap">
 <script>/* 위젯 모드는 그리기 전에 표시 (헤더·카드가 잠깐 보였다 사라지지 않게) */
 if (/[?&]embed(=1|=true)?(&|$)/.test(location.search)) document.documentElement.classList.add("embed");
-if (/\/characters\/?$/.test(location.pathname) || /[?&]page=characters(&|$)/.test(location.search)) document.documentElement.classList.add("charpage");   // 캐릭터 설정 페이지</script>
+if (/\/characters\/?$/.test(location.pathname) || /[?&]page=characters(&|$)/.test(location.search)) document.documentElement.classList.add("charpage");   // 캐릭터 설정 페이지
+if (/[?&]page=settings(&|$)/.test(location.search)) document.documentElement.classList.add("setpage");   // 설정만 있는 작은 창</script>
 <style>
 /* Layout: 펜으로 그린 아이소메트릭 사무실이 주인공, 오른쪽엔 종이 메모 같은 HUD. 모바일에선 세로로 쌓임. */
 :root{
@@ -276,6 +277,10 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .bd-prev{display:flex; flex-direction:column; align-items:center; gap:4px}
 .bd-prev b{font-size:13px; font-weight:400; color:var(--muted, #6d5d52)}
 html.charpage .app{display:none}
+/* 설정 창(따로 열린 작은 창): 설정만 페이지 본문으로 */
+html.setpage .app{display:none}
+html.setpage body{padding:0}
+html.setpage .sheet{position:static; width:auto; max-width:420px; max-height:none; margin:0 auto; border:0; border-radius:0; box-shadow:none; padding:18px 20px 22px}
 html.charpage body{min-height:100%; margin:0; background:var(--paper, #fbf4e8)}
 .builder.page{position:static; display:grid; grid-template-columns:220px minmax(0,1fr); grid-template-areas:"head head" "list add" "list main" "list yaml" "list note" "list act" "list act2";
   gap:12px 20px; width:min(1080px, calc(100% - 32px)); max-height:none; margin:24px auto 48px; padding:20px; transform:none; left:auto; top:auto; right:auto; bottom:auto}
@@ -573,7 +578,8 @@ const $ = s => document.querySelector(s);
 /* 주소 옵션: ?embed=1(위젯) &repo=owner/name &theme=dark &tod=night &team=0 &follow=0 &demo=1 &controls=0(확대 버튼 숨김) &wheel=ctrl(Ctrl+휠만 확대) */
 const QS = new URLSearchParams(location.search);
 const EMBED = document.documentElement.classList.contains("embed");
-const CHARPAGE = !EMBED && document.documentElement.classList.contains("charpage");   // /characters: 캐릭터 설정만 하는 페이지
+const CHARPAGE = !EMBED && document.documentElement.classList.contains("charpage");
+const SETPAGE = !EMBED && !CHARPAGE && document.documentElement.classList.contains("setpage");   // ?page=settings: 설정만 있는 창   // /characters: 캐릭터 설정만 하는 페이지
 /* 사무실 구성: rooms = 세션마다 건물 하나 / one = 한 사무실에 세션 고양이와 기여자 사람이 함께 (URL ?layout=one, 아니면 저장된 값) */
 const LAYOUT = (() => { let v = QS.get("layout"); if (!v && EMBED) v = "one"; if (!v) try { v = localStorage.getItem("ao.layout"); } catch {} return v === "one" ? "one" : "rooms"; })();
 const ONE = LAYOUT === "one";
@@ -6136,7 +6142,7 @@ function updateHUD(){
 /* ───────── 메인 루프 ───────── */
 let last = performance.now();
 function frame(nowMs){
-  if (CHARPAGE){ requestAnimationFrame(frame); return; }   // 캐릭터 설정 페이지: 사무실은 그리지 않음
+  if (CHARPAGE || SETPAGE){ requestAnimationFrame(frame); return; }   // 캐릭터·설정 페이지: 사무실은 그리지 않음
   const now = nowMs/1000;
   let dt = Math.min(0.05, (nowMs - last)/1000);
   last = nowMs;
@@ -6194,26 +6200,55 @@ function settingsOpen(on){
   for (const b of [btnSettings, $("#soloSettings")]) b.setAttribute("aria-expanded", on);
   if (on) $("#settingsClose").focus(); else if (was) settingsBtn().focus();
 }
-btnSettings.addEventListener("click", () => settingsOpen(settings.hidden));
-$("#soloSettings").addEventListener("click", () => settingsOpen(settings.hidden));
-$("#settingsClose").addEventListener("click", () => settingsOpen(false));
+function settingsWindow(){                            // 설정은 따로 작은 창에서: 사무실 화면을 가리지 않고 바꾸는 대로 바로 보임
+  const q = new URLSearchParams(location.search); q.delete("embed"); q.delete("view"); q.set("page", "settings");
+  const w = window.open((location.protocol === "file:" ? "" : "./") + "?" + q, "aoSettings", "popup,width=380,height=660");
+  if (w) w.focus(); else settingsOpen(settings.hidden);   // 팝업이 막히면 이 화면 위에
+}
+btnSettings.addEventListener("click", settingsWindow);
+$("#soloSettings").addEventListener("click", settingsWindow);
+if (SETPAGE){                                       // 설정 창: 본문으로 꺼내고, ✕는 창 닫기
+  document.body.appendChild(settings); settings.hidden = false; settings.removeAttribute("role");
+  $("#settingsTitle").textContent = "냥오피스 설정"; document.title = "냥오피스 설정";
+  $("#settingsClose").addEventListener("click", () => window.close());
+  btnLayout.hidden = false; btnChars.hidden = false;
+}
+/* 다른 창(설정 창)에서 바꾼 값을 이 화면에 바로 반영 */
+if (!SETPAGE) addEventListener("storage", e => {
+  const v = e.newValue;
+  if (e.key === "ao.theme"){ theme = THEMES.includes(v) ? v : "auto"; applyTheme(); }
+  else if (e.key === "ao.tod"){ todMode = TOD_MODES.includes(v) ? v : "auto"; todText(); }
+  else if (e.key === "ao.notify"){ notifyOn = v === "1"; notifyText(); }
+  else if (e.key === "ao.dev"){ devMode = v === "1"; devApply(); }
+  else if (e.key === "ao.solo" && !EMBED){ soloSet(v === "1"); }
+  else if (e.key === "ao.layout" && !EMBED && (v === "one") !== ONE){
+    const u = new URL(location.href);
+    if (u.searchParams.has("layout")){ u.searchParams.set("layout", v); location.replace(u.toString()); } else location.reload();
+  }
+});
+if (!SETPAGE) $("#settingsClose").addEventListener("click", () => settingsOpen(false));
 addEventListener("pointerdown", e => {               // 바깥을 누르면 닫힘 (사무실 화면은 만지면서 볼 수 있게 그대로)
-  if (settings.hidden || settings.contains(e.target) || e.target.closest(".stage, #btnSettings")) return;
+  if (SETPAGE || settings.hidden || settings.contains(e.target) || e.target.closest(".stage, #btnSettings")) return;
   settingsOpen(false);
 });
-addEventListener("keydown", e => { if (e.key === "Escape" && !settings.hidden){ e.stopImmediatePropagation(); settingsOpen(false); } }, true);
-$("#btnChars").addEventListener("click", () => settingsOpen(false));
+addEventListener("keydown", e => { if (e.key === "Escape" && !settings.hidden && !SETPAGE){ e.stopImmediatePropagation(); settingsOpen(false); } }, true);
+$("#btnChars").addEventListener("click", () => { if (!SETPAGE) settingsOpen(false); });
 /* 사무실 화면만 보기 (?view=solo 로도, 이 브라우저에 기억) */
 function soloSet(on){
-  document.documentElement.classList.toggle("solo", on);
   $("#btnSolo").textContent = on ? "↩ 전체 화면으로" : "🖼 사무실 화면만 보기";
+  if (SETPAGE){ try { localStorage.setItem("ao.solo", on ? "1" : "0"); } catch {} return; }
+  document.documentElement.classList.toggle("solo", on);
   try { localStorage.setItem("ao.solo", on ? "1" : "0"); } catch {}
   resize();
   if (on) $("#soloExit").focus();
 }
-$("#btnSolo").addEventListener("click", () => { settingsOpen(false); soloSet(!document.documentElement.classList.contains("solo")); });
+$("#btnSolo").addEventListener("click", () => {
+  if (SETPAGE){ soloSet(LS("ao.solo") !== "1"); return; }
+  settingsOpen(false); soloSet(!document.documentElement.classList.contains("solo"));
+});
 $("#soloExit").addEventListener("click", () => { soloSet(false); btnSettings.focus(); });
-if (!EMBED && (QS.has("view") ? QS.get("view") === "solo" : LS("ao.solo") === "1")) { document.documentElement.classList.add("solo"); $("#btnSolo").textContent = "↩ 전체 화면으로"; }
+if (SETPAGE && LS("ao.solo") === "1") $("#btnSolo").textContent = "↩ 전체 화면으로";
+else if (!EMBED && (QS.has("view") ? QS.get("view") === "solo" : LS("ao.solo") === "1")) { document.documentElement.classList.add("solo"); $("#btnSolo").textContent = "↩ 전체 화면으로"; }
 /* 사무실 화면 높이 손잡이 */
 const grip = $("#sizeGrip");
 const stageSet = h => {

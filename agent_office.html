@@ -192,6 +192,8 @@ details.api pre{
 .sum-bg, .sum-tools{font-size:12px; color:var(--muted); overflow-wrap:anywhere}
 .sum-result{font-size:12px; border-left:3px solid var(--good); padding-left:7px; overflow-wrap:anywhere}
 .sum-actions{display:flex; flex-wrap:wrap; gap:5px; margin-top:3px}
+.sum-actions .more{min-width:30px}
+.sum-actions .more[aria-expanded="true"]{background:var(--paper-2)}
 button.mini{font-size:12px; padding:3px 9px; box-shadow:1.5px 1.5px 0 var(--ink)}
 button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .sum-msg{font-size:12px; color:var(--info); overflow-wrap:anywhere; user-select:all}
@@ -5924,24 +5926,15 @@ let liveListVer = "", liveRows = [], sumT = 0;
 function updateLiveList(){
   const card = $("#agentsTitle").parentElement;
   if (cam.focus === null){ card.hidden = true; liveRows = []; liveListVer = ""; return; }
-  card.hidden = false;
   const key = live.ver + ":" + cam.focus;
   if (key !== liveListVer){
     liveListVer = key;
     agentList.innerHTML = "";
     const s = slotSession(cam.focus), L = SLOTS[cam.focus], hq = team && team.slot === cam.focus;
-    $("#agentsTitle").textContent = ONE && cam.focus === hqSlot() ? `${L.name} · 세션 고양이와 사람들`
-                                  : hq ? `${L.name} · 출근한 사람들` : `${L.name} · 고양이들`;
-    if (ONE && cam.focus === hqSlot()){
-      liveRows = [...live.sessions.values()].map(v => ({c:v.boss, ...hudRow(v.boss.coat.base, `${v.boss.name} · ${sessName(v)}`,
-                   `${phaseLook(v).text}${v.kittens.size ? " · 서브에이전트 " + v.kittens.size : ""}`)}));
-      if (team) for (const m of team.members.filter(m => m.present))
-        liveRows.push({c:m.cat, ...hudRow("#e8735f", m.info.name || "@" + m.login, TIER_LABEL[m.tier])});
-      if (!liveRows.length){
-        const p = document.createElement("p"); p.className = "hint"; p.style.margin = "0";
-        p.textContent = "아직 아무도 없어요. 세션이 시작되면 고양이가, 기여자는 기여 정도에 따라 사람이 출근해요.";
-        agentList.appendChild(p);
-      }
+    card.hidden = false;
+    $("#agentsTitle").textContent = hq || ONE && cam.focus === hqSlot() ? `${L.name} · 출근한 사람들` : `${L.name} · 고양이들`;
+    if (ONE && cam.focus === hqSlot()){                // 세션 고양이는 위 카드에 있어서 사람만
+      liveRows = team ? team.members.filter(m => m.present).map(m => ({c:m.cat, ...hudRow("#e8735f", m.info.name || "@" + m.login, TIER_LABEL[m.tier])})) : [];
     } else if (hq){                                                    // 깃허브 기여자 본사
       const here = team.members.filter(m => m.present);
       liveRows = here.map(m => ({c:m.cat, ...hudRow("#e8735f", m.info.name || "@" + m.login, TIER_LABEL[m.tier])}));
@@ -5955,21 +5948,11 @@ function updateLiveList(){
       p.textContent = "빈 사무실이에요. 새 세션이 시작되면 여기로 입주해요.";
       agentList.appendChild(p); liveRows = [];
     } else {
-      liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));
-      for (const t of s.bg.values()){
-        const r = {t, ...hudRow(BG_COLOR[t.status], `🖥 ${t.label}`, "백그라운드 작업" + (t.shellId ? ` · ${t.shellId}` : ""))};
-        r.el.title = t.cmd;                          // 마우스를 올리면 실제 명령이 보임
-        liveRows.push(r);
-      }
+      liveRows = [s.boss, ...s.kittens.values()].map(c => ({c, ...hudRow(c.coat.base, c.name, c.role)}));   // 백그라운드 작업은 위 카드에
     }
   }
+  if (ONE && cam.focus === hqSlot() && !liveRows.length) card.hidden = true;   // 출근한 사람이 없으면 카드째 숨김
   for (const r of liveRows){
-    if (r.t){
-      r.st.textContent = bgStateText(r.t);
-      r.el.querySelector(".chip").style.background = BG_COLOR[r.t.status];
-      r.bar.style.width = r.t.status === "running" ? "100%" : "0%";
-      continue;
-    }
     const c = r.c;
     r.st.textContent = c.leaving ? "🏠 퇴근 중" : c.inLounge ? "☕ 휴게공간에서 쉬는 중"
                      : c.waiting ? "💬 " + c.stateText
@@ -5988,10 +5971,11 @@ function buildSumCard(s){
     <div class="sum-stats"></div><div class="sum-bg" hidden></div><div class="sum-tools" hidden></div><div class="sum-result" hidden></div>
     <div class="sum-actions">
       <button class="mini" type="button" data-a="focus">터미널로 이동</button>
-      <button class="mini" type="button" data-a="resume">이어하기</button>
-      <button class="mini" type="button" data-a="folder">폴더</button>
-      <button class="mini" type="button" data-a="copy">명령 복사</button>
-      <button class="mini" type="button" data-a="view">사무실 보기</button></div>
+      <button class="mini" type="button" data-a="view">사무실 보기</button>
+      <button class="mini more" type="button" aria-expanded="false" title="이어하기 · 폴더 · 명령 복사" aria-label="더 보기: 이어하기, 폴더, 명령 복사">⋯</button>
+      <button class="mini" type="button" data-a="resume" data-more hidden>이어하기</button>
+      <button class="mini" type="button" data-a="folder" data-more hidden>폴더</button>
+      <button class="mini" type="button" data-a="copy" data-more hidden>명령 복사</button></div>
     <div class="sum-msg" hidden></div>`;
   const q = sel => el.querySelector(sel);
   const c = {el, chip:q(".chip"), name:q(".sum-name"), pill:q(".pill"), sub:q(".sum-sub"), goal:q(".sum-goal"),
@@ -5999,8 +5983,14 @@ function buildSumCard(s){
              result:q(".sum-result"), bg:q(".sum-bg"), tools:q(".sum-tools"), msg:q(".sum-msg"), view:q('[data-a="view"]'), editing:false};
   c.chip.style.background = s.boss.coat.base;
   el.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => openAction(s, b.dataset.a, c.msg)));
-  if (s.src !== "claude"){                             // Codex: 이어하기·명령 복사는 없음
-    for (const a of ["resume", "copy"]) q(`[data-a="${a}"]`).hidden = true;
+  const more = q(".more"), extra = [...el.querySelectorAll("[data-more]")];
+  if (s.src !== "claude") extra.splice(0, extra.length, q('[data-a="folder"]'));   // Codex: 이어하기·명령 복사는 없음
+  more.addEventListener("click", () => {
+    const on = more.getAttribute("aria-expanded") !== "true";
+    more.setAttribute("aria-expanded", on); for (const b of extra) b.hidden = !on;
+    if (on) extra[0].focus();
+  });
+  if (s.src !== "claude"){
     q('[data-a="focus"]').textContent = jumpLabel(s);
   }
   q(".ren").addEventListener("click", () => {

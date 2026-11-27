@@ -52,7 +52,29 @@ header.bar{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
 .clock{margin-left:auto; font-family:var(--font-mono); font-size:13px; font-variant-numeric:tabular-nums;
   border:1.5px solid var(--ink); border-radius:999px; padding:4px 12px}
 .controls{display:flex; gap:8px; flex-wrap:wrap}
-.controls #btnDev{margin-left:auto}
+.iconbtn{width:38px; height:38px; padding:0; font-size:18px; line-height:1; border-radius:12px; flex:none}
+.devbar{align-items:center; padding:8px 10px; border:1.5px dashed var(--ink); border-radius:12px;
+  background:color-mix(in srgb, #f2c84b 20%, var(--paper))}
+.devbar button{font-size:13px; padding:4px 12px}
+.devtag{font-family:var(--font-display); font-weight:400; font-size:13px; margin-right:4px}
+/* ⚙ 설정 창: 오른쪽에서 열림 (폰에선 아래에서 올라오는 시트) */
+.sheet-back{position:fixed; inset:0; z-index:39; background:rgba(0,0,0,.18)}
+.sheet{position:fixed; top:0; right:0; bottom:0; z-index:40; width:min(320px, 100vw); box-sizing:border-box; overflow:auto;
+  display:flex; flex-direction:column; gap:18px; padding:16px 18px max(18px, env(safe-area-inset-bottom, 0px));
+  background:var(--paper); border-left:1.5px solid var(--ink); box-shadow:-4px 0 0 var(--ink)}
+.sheet[hidden], .sheet-back[hidden]{display:none}
+.sheet-head{display:flex; align-items:center}
+.sheet-head b{font-family:var(--font-display); font-weight:400; font-size:18px}
+.sheet-head button{margin-left:auto; width:32px; height:32px; font-size:14px}
+.sheet section{display:flex; flex-direction:column; gap:8px}
+.sheet section:not(:has(button:not([hidden]))){display:none}   /* 지금 쓸 수 없는 항목만 있으면 묶음째 숨김 */
+.sheet h3{margin:0; font-family:var(--font-body); font-weight:400; font-size:12px; color:var(--muted)}
+.sheet section button{text-align:left}
+.sheet small{font-size:12px; color:var(--muted)}
+.hudtabs{display:flex; gap:6px}
+.hudtabs button{flex:1; font-size:13px; padding:5px 10px}
+.hudtabs button[aria-selected="true"]{background:var(--accent); color:#1f1d1b}
+html.dev[data-hudtab="dev"] .hud > .card:not(.devcard), html.dev:not([data-hudtab="dev"]) .hud > .devcard{display:none}
 html:not(.dev) .dev-only{display:none !important}      /* 사용자 모드: 개발·확인용 도구는 숨김 */
 .optpanel{display:flex; flex-direction:column; gap:9px; background:var(--paper); border:1.5px solid var(--ink); border-radius:12px; padding:11px 13px}
 .optpanel[hidden]{display:none}
@@ -88,10 +110,14 @@ canvas#office{touch-action:pan-y; -webkit-user-select:none; user-select:none}
 .followchip.paused{color:var(--muted); border-style:dashed}
 .zoomctl{position:absolute; right:16px; bottom:16px; z-index:2; display:flex; flex-direction:column; gap:6px}
 .zoomctl button{width:34px; height:34px; padding:0; font-size:17px; line-height:1; border-radius:10px; box-shadow:2px 2px 0 var(--ink)}
+.zoomctl #btnFollow{font-size:15px; margin-bottom:6px}
+.zoomctl #btnFollow[aria-pressed="true"]{background:var(--accent)}
+html.embed .zoomctl #btnFollow{display:none}
 .agent.clickable{cursor:pointer; border-radius:8px}
 .agent.clickable:hover{background:var(--paper-2)}
 .agent.clickable:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .hud{flex:0 0 320px; min-width:0; display:flex; flex-direction:column; gap:12px}
+@media (min-width:1100px){ .hud{position:sticky; top:12px; max-height:calc(100vh - 24px); overflow:auto; padding:0 4px 4px 0} }
 .card{background:var(--paper); border:1.5px solid var(--ink); border-radius:12px; padding:12px 13px}
 .card h2{margin:0 0 10px; font-family:var(--font-display); font-weight:400; font-size:15px}
 .kanban{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
@@ -162,13 +188,13 @@ button.icon{padding:0 6px; font-size:12px; box-shadow:none; border-width:1px}
 .toast.out{opacity:0; transform:translateY(-6px)}
 @keyframes pop{from{transform:scale(.92); opacity:0} to{transform:none; opacity:1}}
 @media (prefers-reduced-motion: reduce){ .toast{animation:none; transition:none} .tbar i{transition:none} }
-/* 1440px 미만에선 사무실 화면을 가로 꽉 채우고 카드는 아래로 (세로로 긴 창에 맞춤) */
-@media (max-width:1439px){
+/* 1100px 미만에선 사무실 화면을 가로 꽉 채우고 카드는 아래로 (세로로 긴 창에 맞춤) */
+@media (max-width:1099px){
   .stage{flex:none; width:100%}
   .main{flex-direction:column}
   .hud{flex:1 1 auto; width:100%}
 }
-@media (max-width:1439px) and (min-width:700px){
+@media (max-width:1099px) and (min-width:700px){
   .hud{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:start}
   #summaryCard, .hud > .card:first-child{grid-column:1 / -1}
   .sums{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); align-items:start}
@@ -361,7 +387,11 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   .sign small{font-size:11px}
   .clock{font-size:11px; padding:3px 9px}
   .controls{gap:6px}
-  .controls button{font-size:13px; padding:5px 11px}
+  .controls button{font-size:12px; padding:4px 10px}
+  .iconbtn{width:34px; height:34px; font-size:16px}
+  .sign small{display:none}
+  .sheet{top:auto; left:0; width:auto; max-height:82vh; border-left:0; border-top:1.5px solid var(--ink);
+    border-radius:16px 16px 0 0; box-shadow:0 -4px 0 var(--ink)}
   .stage{padding:4px; box-shadow:3px 3px 0 var(--ink); border-radius:12px}
   .back{top:10px; left:10px; font-size:13px; padding:5px 11px}
   .zoomctl{right:10px; bottom:10px}
@@ -403,23 +433,38 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   <header class="bar">
     <div class="sign">Agent Office<small>멀티에이전트 워크플로우 · 실시간 뷰</small></div>
     <div class="clock" id="clock">DAY 1 · 09:00</div>
+    <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
+    <button id="btnSettings" class="iconbtn" aria-expanded="false" aria-controls="settings" aria-label="설정" title="설정">⚙</button>
   </header>
 
-  <div class="controls">
-    <button id="btnPause" class="dev-only" aria-pressed="false">⏸ 일시정지</button>
-    <button id="btnSpeed" class="dev-only">속도 ×1</button>
-    <button id="btnAuto" class="dev-only" aria-pressed="true">자동 작업 생성: 켜짐</button>
-    <button id="btnTheme" aria-label="페이지 테마 바꾸기">🌓 테마: 자동</button>
-    <button id="btnTod">시간: 자동</button>
-    <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
-    <button id="btnFollow" aria-pressed="true" hidden>🎥 자동 따라가기: 켜짐</button>
-    <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
-    <button id="btnChars" hidden title="깃허브 기여자 캐릭터를 골라 YAML 설정으로 복사">🎨 캐릭터 설정</button>
-    <button id="btnOpts" class="dev-only" aria-expanded="false" aria-controls="optPanel">⚙ 옵션</button>
-    <button id="btnWidget" class="dev-only" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
-    <button id="btnInstall" class="primary" hidden>📲 앱으로 설치</button>
-    <button id="btnAdd" class="primary dev-only">+ 작업 추가</button>
-    <button id="btnDev" aria-pressed="false" title="개발·확인용 도구(옵션, 위젯 미리보기, 로그, 재생…)를 보이거나 숨겨요">🛠 개발 모드: 꺼짐</button>
+  <div class="sheet-back" id="settingsBack" hidden></div>
+  <aside class="sheet" id="settings" role="dialog" aria-labelledby="settingsTitle" hidden>
+    <div class="sheet-head"><b id="settingsTitle">설정</b><button type="button" id="settingsClose" class="iconbtn" aria-label="설정 닫기">✕</button></div>
+    <section><h3>보기</h3>
+      <button id="btnTheme" aria-label="페이지 테마 바꾸기">🌓 테마: 자동</button>
+      <button id="btnTod">시간: 자동</button>
+      <button id="btnLayout" hidden>🏢 사무실: 세션별</button>
+    </section>
+    <section><h3>알림</h3>
+      <button id="btnNotify" aria-pressed="false">🔔 완료 알림: 꺼짐</button>
+    </section>
+    <section><h3>캐릭터</h3>
+      <button id="btnChars" hidden title="깃허브 기여자 캐릭터를 골라 YAML 설정으로 복사">🎨 캐릭터 설정</button>
+    </section>
+    <section><h3>개발</h3>
+      <button id="btnDev" aria-pressed="false" title="개발·확인용 도구(옵션, 위젯 미리보기, 로그, 재생…)를 보이거나 숨겨요">🛠 개발 모드: 꺼짐</button>
+      <small>켜면 개발용 도구 띠와 로그·재생 탭이 생겨요.</small>
+    </section>
+  </aside>
+
+  <div class="controls devbar dev-only">
+    <b class="devtag">🛠 개발 모드</b>
+    <button id="btnPause" aria-pressed="false">⏸ 일시정지</button>
+    <button id="btnSpeed">속도 ×1</button>
+    <button id="btnAuto" aria-pressed="true">자동 작업 생성: 켜짐</button>
+    <button id="btnAdd" class="primary">+ 작업 추가</button>
+    <button id="btnOpts" aria-expanded="false" aria-controls="optPanel">🧪 확인용 옵션</button>
+    <button id="btnWidget" title="다른 웹 툴에 위젯으로 넣었을 때 모습 보기">🧩 위젯 미리보기</button>
   </div>
 
   <div class="optpanel dev-only" id="optPanel" hidden>
@@ -429,10 +474,11 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
   </div>
 
   <div class="main">
-    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
+    <div class="stage"><canvas id="office" width="860" height="560"></canvas><button id="btnBack" class="back" hidden>← 동네로</button><div class="followchip" id="followChip" hidden></div><div class="talk" id="talk" role="dialog" aria-label="캐릭터 소개" hidden><div class="talk-face"><canvas id="talkCv" width="152" height="152"></canvas><img id="talkImg" alt="" hidden></div><div class="talk-badge" id="talkBadge" hidden><canvas id="talkBadgeCv" width="60" height="60"></canvas></div><div class="talk-body"><div class="talk-name"><b id="talkName"></b><span class="talk-rest" id="talkRest" hidden></span><span class="talk-tag" id="talkTag"></span></div><p class="talk-text" id="talkText"></p><div class="talk-actions" id="talkActions"><span class="pg" id="talkPg"></span></div><div class="talk-msg" id="talkMsg" hidden></div></div><button class="talk-close" id="talkClose" type="button" aria-label="대화 닫기">✕</button></div><div class="picker" id="picker" role="dialog" aria-label="내 캐릭터 꾸미기" hidden><div class="pk-head"><b>내 캐릭터 꾸미기</b><span id="pkWho"></span></div><div class="pk-main"><canvas id="pkCv" width="160" height="220"></canvas><div class="pk-opts" id="pkOpts"></div></div><p class="pk-note" id="pkNote"></p><div class="pk-actions"><button type="button" id="pkCancel" class="mini">취소</button><button type="button" id="pkSave" class="mini primary">저장</button></div></div><div class="picker builder" id="builder" role="dialog" aria-label="캐릭터 설정 만들기" hidden><div class="pk-head"><b id="bdTitle">캐릭터 설정 만들기</b><a id="bdBack" class="bd-back" href="./" hidden>← 냥오피스로</a><select id="bdWho" aria-label="기여자"></select></div><ul class="bd-list" id="bdList" hidden></ul><div class="bd-add"><input id="bdLogin" placeholder="깃허브 아이디 직접 넣기" aria-label="깃허브 아이디" autocomplete="off" spellcheck="false"><button type="button" id="bdAdd" class="mini">추가</button></div><div class="pk-main"><div class="bd-prev"><canvas id="bdCv" width="160" height="220"></canvas><canvas id="bdCv2" width="160" height="220" hidden></canvas><b id="bdName"></b></div><div class="pk-opts" id="bdOpts"></div></div><pre class="bd-yaml" id="bdYaml"></pre><p class="pk-note" id="bdNote"></p><div class="pk-actions"><button type="button" id="bdSave" class="mini primary">💾 내 컴퓨터에 저장 (바로 적용)</button><button type="button" id="bdOpen" class="mini">📂 설정 파일 열기</button><button type="button" id="bdRefresh" class="mini">🔄 저장소 설정 다시 받기</button><button type="button" id="bdRestart" class="mini">🔁 서버 다시 켜기</button></div><div class="pk-actions"><button type="button" id="bdRandom" class="mini">🎲 랜덤 조합</button><button type="button" id="bdReset" class="mini">이 사람 기본으로</button><button type="button" id="bdCopyAll" class="mini">바꾼 사람 전체 복사</button><button type="button" id="bdCopy" class="mini">이 사람 복사</button><button type="button" id="bdClose" class="mini">닫기</button></div></div><div class="zoomctl" id="zoomCtl" hidden><button id="btnFollow" type="button" aria-pressed="true" hidden>🎥</button><button id="zIn" type="button" aria-label="확대">＋</button><button id="zOut" type="button" aria-label="축소">－</button><button id="zFit" type="button" aria-label="동네 전체 보기">⤢</button></div></div>
 
     <aside class="hud">
-      <section class="card dev-only">
+      <div class="hudtabs dev-only" role="tablist"><button type="button" role="tab" data-tab="work" aria-selected="true">지금 하는 일</button><button type="button" role="tab" data-tab="dev" aria-selected="false">🛠 로그·재생</button></div>
+      <section class="card dev-only devcard">
         <h2>작업 보드</h2>
         <div class="kanban">
           <div class="kcell k-wait"><span class="n" id="kWait">0</span><span class="l">대기</span></div>
@@ -453,14 +499,14 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
         <div class="agents" id="agentList"></div>
       </section>
 
-      <section class="card dev-only">
+      <section class="card dev-only devcard">
         <details id="logDetails" open>
           <summary class="logsum">이벤트 로그 (자세히)</summary>
           <div class="log" id="log" aria-live="polite"></div>
         </details>
       </section>
 
-      <section class="card dev-only">
+      <section class="card dev-only devcard">
         <h2>세션 재생 · Claude Code 로그</h2>
         <div class="drop" id="drop">
           <p><b>세션 로그(.jsonl)</b>를 여기에 끌어다 놓으세요</p>
@@ -478,7 +524,7 @@ html.embed .zoomctl button{width:30px; height:30px; font-size:15px}
         재생용 로그 위치: <code>~/.claude/projects/&lt;프로젝트&gt;/&lt;세션ID&gt;.jsonl</code> — Read·Grep→도트, Edit·Bash→비트, 서브에이전트→픽셀, 에러→체크, 요청·응답→루미.</p>
       </section>
 
-      <section class="card dev-only">
+      <section class="card dev-only devcard">
         <details class="api">
           <summary>실제 에이전트 연동하기</summary>
           <p>지금은 시뮬레이션이지만, 콘솔이나 외부 스크립트에서 아래 API로 실제 이벤트를 밀어 넣을 수 있어요. 이 HTML을 받아 로컬에서 띄우면 WebSocket과도 바로 연결됩니다.</p>
@@ -1177,7 +1223,7 @@ $("#btnTheme").addEventListener("click", () => {
 if (THEMES.includes(OPT.theme)) theme = OPT.theme;
 applyTheme();
 const btnFollow = $("#btnFollow");
-function followText(){ btnFollow.textContent = "🎥 자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐"); btnFollow.setAttribute("aria-pressed", follow.on); }
+function followText(){ btnFollow.title = btnFollow.ariaLabel = "자동 따라가기: " + (follow.on ? "켜짐" : "꺼짐"); btnFollow.setAttribute("aria-pressed", follow.on); }
 btnFollow.addEventListener("click", () => {
   follow.on = !follow.on; follow.pausedUntil = 0;
   try { localStorage.setItem("ao.follow", follow.on ? "1" : "0"); } catch {}
@@ -5716,6 +5762,7 @@ function resize(){
   VH = narrow ? 760 : 560;
   const top = Math.max(0, cv.parentElement.getBoundingClientRect().top + scrollY);
   const maxH = Math.max(320, innerHeight - Math.min(top, 220) - 24);
+  if (!narrow && maxH > availW * VH / VW) VH = Math.min(VW * 1.1, VW * maxH / availW);   // 세로가 남으면 그만큼 더 보여 줌
   const cssW = Math.max(260, Math.min(availW, maxH * VW / VH));
   cv.style.width = cssW + "px";
   if (wasNarrow !== narrow && cam.focus === null){ cam.z = cam.tz = overviewZ(); cam.cx = cam.tcx = CENTER[0]; cam.cy = cam.tcy = CENTER[1]; }
@@ -6123,6 +6170,25 @@ $("#btnAuto").addEventListener("click", e => {
   e.currentTarget.textContent = "자동 작업 생성: " + (autoOn ? "켜짐" : "꺼짐");
   e.currentTarget.setAttribute("aria-pressed", autoOn);
 });
+/* ⚙ 설정 창 */
+const settings = $("#settings"), btnSettings = $("#btnSettings");
+function settingsOpen(on){
+  settings.hidden = $("#settingsBack").hidden = !on; btnSettings.setAttribute("aria-expanded", on);
+  if (on) $("#settingsClose").focus(); else btnSettings.focus();
+}
+btnSettings.addEventListener("click", () => settingsOpen(settings.hidden));
+$("#settingsClose").addEventListener("click", () => settingsOpen(false));
+$("#settingsBack").addEventListener("click", () => settingsOpen(false));
+addEventListener("keydown", e => { if (e.key === "Escape" && !settings.hidden){ e.stopImmediatePropagation(); settingsOpen(false); } }, true);
+$("#btnChars").addEventListener("click", () => settingsOpen(false));
+/* 개발 모드 사이드바 탭: 지금 하는 일 / 로그·재생 */
+const hudTabs = $(".hudtabs");
+function hudTab(t){
+  document.documentElement.dataset.hudtab = t;
+  for (const b of hudTabs.children) b.setAttribute("aria-selected", b.dataset.tab === t);
+}
+hudTabs.addEventListener("click", e => { const t = e.target.dataset && e.target.dataset.tab; if (t) hudTab(t); });
+hudTab("work");
 /* 사용자 모드 / 개발 모드 (?dev=1 로도 켜짐, 이 브라우저에 기억) */
 const btnDev = $("#btnDev"), optPanel = $("#optPanel"), btnOpts = $("#btnOpts");
 let devMode = QS.has("dev") ? QS.get("dev") === "1" : LS("ao.dev") === "1";

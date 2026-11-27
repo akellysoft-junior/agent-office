@@ -4225,6 +4225,7 @@ function drawLot(i, now){
   items.sort((p, q) => p.z - q.z);
   for (const it of items){ ctx.lineWidth = LW; ctx.strokeStyle = TOD.ink; it.fn(); }
 }
+const SEG7 = {"0":63, "1":6, "2":91, "3":79, "4":102, "5":109, "6":125, "7":7, "8":127, "9":111};   // 7 세그먼트: 비트 순서 위·오른위·오른아래·아래·왼아래·왼위·가운데
 /* one: 넓은 사무실 소품 (깊이 정렬에 섞임) */
 function bigOfficeProps(L, now){
   const P = TOD, x0 = L.x, y0 = L.y, out = [];
@@ -4258,19 +4259,29 @@ function bigOfficeProps(L, now){
     wallQuad(x0, y0 + 95, x0, y0 + 105, 9, 21, "#f6d6c8");
     wallQuad(x0, y0 + 97, x0, y0 + 103, 14, 19, "#7fb2ea");
   }});
-  // 북쪽 벽(창문 사이): 고양이 귀 전광판 시계 — 실제 시각을 크게, 쌍점은 1초마다 흐려졌다 밝아짐
+  // 북쪽 벽(창문 사이): 판 없이 벽에 붙은 LED 시계 — 7개 선(세그먼트) 숫자가 빛나고, 꺼진 선은 옅게. 쌍점은 1초마다 흐려졌다 밝아짐
   out.push({z: -1e6, fn:() => {
-    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, cx = x0 + 82, fy = y0 + 1.4;
-    isoBox(cx - 15, y0, 30, 1.4, 9.4, 9.6, "#f6c27e", "#f2a54e", "#e08a3a");
-    for (const s of [-1, 1]){                                                                  // 고양이 귀 (안쪽은 분홍)
-      shape([gpt(cx + s * 13.6, fy, 18.7), gpt(cx + s * 10.6, fy, 22.6), gpt(cx + s * 7.6, fy, 18.7)], "#f2a54e");
-      shape([gpt(cx + s * 12.3, fy, 19.1), gpt(cx + s * 10.6, fy, 21.4), gpt(cx + s * 8.9, fy, 19.1)], "#f6b8c8", true);
-    }
-    wallQuad(cx - 13.6, fy, cx + 13.6, fy, 10.5, 17.9, "#262a3d");
-    ctx.fillStyle = "#ffd84a"; ctx.font = "8px 'Jua', sans-serif";                          // 점 글꼴보다 매끈한 글씨가 멀리서 잘 읽혀요
-    wallText(String(t.getHours()).padStart(2, "0"), cx - 7, fy, 14.1); wallText(String(t.getMinutes()).padStart(2, "0"), cx + 7, fy, 14.1);
-    ctx.globalAlpha = on ? 1 : 0.4;                                                           // 쌍점: 네모 두 개, 꺼질 때도 흐리게 남겨 둠
-    for (const z of [12.2, 15.2]) wallQuad(cx - 0.8, fy, cx + 0.8, fy, z, z + 1.6, "#ffd84a", true);
+    const t = new Date(), on = reduceMotion || t.getSeconds() % 2 === 0, fy = y0 + 0.2, z0 = 10, W = 5, H = 9, T = 1.35;
+    const pt = (u, v) => gpt(u + (v - z0) * 0.12, fy, v);                                        // 살짝 기운 숫자
+    const seg = (u1, v1, u2, v2, th) => { const hz = v1 === v2, h = th / 2;                        // 양 끝이 뾰족한 선 하나
+      return hz ? [pt(u1, v1), pt(u1 + h, v1 + h), pt(u2 - h, v1 + h), pt(u2, v1), pt(u2 - h, v1 - h), pt(u1 + h, v1 - h)]
+                : [pt(u1, v1), pt(u1 + h, v1 + h), pt(u1 + h, v2 - h), pt(u1, v2), pt(u1 - h, v2 - h), pt(u1 - h, v1 + h)]; };
+    const digit = (x, n) => {
+      const g = 0.35, m = z0 + H / 2, top = z0 + H, r = x + W;
+      const S = [[x + g, top, r - g, top], [r, m + g, r, top - g], [r, z0 + g, r, m - g], [x + g, z0, r - g, z0],
+                 [x, z0 + g, x, m - g], [x, m + g, x, top - g], [x + g, m, r - g, m]];
+      const bits = SEG7[n];
+      S.forEach((q, i) => {
+        if (bits >> i & 1){
+          ctx.globalAlpha = 0.22; shape(seg(...q, T * 2.6), "#ff6a3d", true);                   // 번지는 빛
+          ctx.globalAlpha = 1; shape(seg(...q, T), "#ff6a3d", true);
+        } else { ctx.globalAlpha = 0.08; shape(seg(...q, T), "#ff6a3d", true); ctx.globalAlpha = 1; }
+      });
+    };
+    const hm = String(t.getHours()).padStart(2, "0") + String(t.getMinutes()).padStart(2, "0"), cx = x0 + 82;
+    [cx - 13.4, cx - 6.8, cx + 1.8, cx + 8.4].forEach((x, i) => digit(x, hm[i]));
+    ctx.globalAlpha = on ? 1 : 0.3;                                                              // 쌍점
+    for (const v of [z0 + 2.2, z0 + 6]) shape([pt(cx - 0.8, v), pt(cx + 0.8, v), pt(cx + 0.8, v + 1.6), pt(cx - 0.8, v + 1.6)], "#ff6a3d", true);
     ctx.globalAlpha = 1;
   }});
   // 통로 옆: 정수기
